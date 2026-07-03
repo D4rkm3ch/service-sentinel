@@ -1,0 +1,16 @@
+{% if state.running %}
+<div class="status-badge status-running"
+     hx-get="/status" hx-trigger="load delay:1.5s" hx-target="this" hx-swap="outerHTML">
+  <span class="spinner" aria-hidden="true"></span> Checking for updates…
+</div>
+{% else %}
+<div class="status-badge status-idle">
+  {% if state.last_result %}
+    Last check: {{ state.last_result.checked }} container{{ 's' if state.last_result.checked != 1 else '' }} checked,
+    {{ state.last_result.updates_found }} new update{{ 's' if state.last_result.updates_found != 1 else '' }}{% if state.last_result.errors %},
+    {{ state.last_result.errors }} error{{ 's' if state.last_result.errors != 1 else '' }}{% endif %}
+  {% else %}
+    No check has run yet.
+  {% endif %}
+</div>
+{% endif %}
