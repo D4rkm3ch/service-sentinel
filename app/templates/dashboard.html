@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — release-radar{% endblock %}
+{% block content %}
+
+<section>
+  <h1>Updates</h1>
+  {% if updates %}
+  <table class="updates-table">
+    <thead>
+      <tr>
+        <th>Container</th>
+        <th>Image</th>
+        <th>Detected</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in updates %}
+      <tr class="row-{{ u.status }}">
+        <td class="mono">{{ u.container_name }}</td>
+        <td class="mono">{{ u.image_repo }}:{{ u.tag }}</td>
+        <td>{{ u.created_at[:16].replace('T', ' ') }}</td>
+        <td>
+          {% if u.error %}
+            <span class="badge badge-error">needs manual check</span>
+          {% elif u.status == 'unread' %}
+            <span class="badge badge-unread">new</span>
+          {% else %}
+            <span class="badge badge-read">read</span>
+          {% endif %}
+        </td>
+        <td><a href="/updates/{{ u.id }}">view →</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No updates detected yet. Either everything's current, or the first check hasn't run.
+  Use "Check now" above to run one immediately.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Tracked containers</h2>
+  {% if containers %}
+  <table class="containers-table">
+    <thead>
+      <tr>
+        <th>Container</th>
+        <th>Image</th>
+        <th>Tag</th>
+        <th>Last checked</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in containers %}
+      <tr>
+        <td class="mono">{{ c.container_name }}</td>
+        <td class="mono">{{ c.image_repo }}</td>
+        <td class="mono">{{ c.tag }}</td>
+        <td>{{ c.last_checked_at[:16].replace('T', ' ') if c.last_checked_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No containers tracked yet.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

@@ -1,0 +1,29 @@
+services:
+  release-radar:
+    image: ghcr.io/YOUR_GITHUB_USERNAME/release-radar:latest
+    container_name: release-radar
+    restart: unless-stopped
+    ports:
+      - "8420:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-5}
+      - CHECK_SCHEDULE_CRON=${CHECK_SCHEDULE_CRON:-0 6 * * *}
+      - COMPOSE_ROOT=/compose
+      - DATA_DIR=/data
+      - TZ=${TZ:-Australia/Sydney}
+      - WEBHOOK_TOKEN=${WEBHOOK_TOKEN}
+    volumes:
+      # Read-only: only needs to list containers and inspect images, never starts/stops/pulls anything.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Read-only: point this at wherever Dockge stores your stack compose files.
+      - /opt/stacks:/compose:ro
+      # Read-write: SQLite database of detected updates and generated notes.
+      - release-radar-data:/data
+    labels:
+      # Skip this container from its own scanning to avoid noise — remove if you want it watched too.
+      - "releaseradar.ignore=true"
+
+volumes:
+  release-radar-data:
