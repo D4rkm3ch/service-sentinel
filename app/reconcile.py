@@ -33,27 +33,35 @@ def run_check() -> dict:
             errors += 1
             continue
 
+        if latest_digest is None:
+            # Couldn't resolve a digest from the registry (auth issue, unsupported
+            # registry, network blip). Leave existing state alone and try again next cycle.
+            continue
+
         previous_state = db.get_container_state(container.name)
-        previously_seen_digest = previous_state["last_seen_digest"] if previous_state else None
+        already_notified_digest = previous_state["last_seen_digest"] if previous_state else None
 
-        # First time we've ever seen this container: record a baseline, don't treat it as
-        # an "update" (nothing to compare against yet).
-        if previous_state is None:
-            db.upsert_container_state(container.name, container.image_repo, container.tag, latest_digest)
-            continue
-
-        digest_unchanged = (
-            latest_digest is not None
-            and previously_seen_digest is not None
-            and latest_digest == previously_seen_digest
+        # The real comparison is against what's actually running, not just our last check —
+        # this catches updates that were already pending the very first time we ever see a
+        # container, not just ones that land after that point.
+        update_available = (
+            container.current_digest is not None and latest_digest != container.current_digest
         )
-        if digest_unchanged or latest_digest is None:
+
+        if not update_available:
+            # Running digest matches the registry: fully up to date. Reset our tracking so a
+            # future new digest gets treated as fresh, not compared against a stale record.
             db.upsert_container_state(container.name, container.image_repo, container.tag, latest_digest)
             continue
 
-        # Something changed upstream since our last check.
+        if latest_digest == already_notified_digest:
+            # Same pending update we already told them about — don't re-notify every cycle,
+            # just move on.
+            continue
+
+        # A new update, either just-detected or the registry moved again since we last notified.
         updates_found += 1
-        _handle_update(container, previously_seen_digest, latest_digest)
+        _handle_update(container, container.current_digest, latest_digest)
         db.upsert_container_state(container.name, container.image_repo, container.tag, latest_digest)
 
     logger.info("Check complete: %d containers checked, %d updates found, %d errors", checked, updates_found, errors)
