@@ -81,6 +81,24 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _get_setting(key: str, default: str) -> str:
+    with get_conn() as conn:
+        cur = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+        row = cur.fetchone()
+        return row["value"] if row is not None else default
+
+
+def _set_setting(key: str, value: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+
+
 def init_db() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
@@ -203,6 +221,74 @@ def get_effective_schedule(feature: str) -> dict:
     if get_feature_uses_master_schedule(feature):
         return get_master_schedule()
     return get_feature_schedule(feature)
+
+
+# ---------------------------------------------------------------------------
+# Notifications — Apprise only. A master on/off, a single set of Apprise URLs,
+# a per-feature on/off, and a severity threshold that follows the same
+# master/override pattern as scheduling (a general severity, with an optional
+# per-feature override for Logs and Compose — Updates notifications aren't
+# severity-graded, so there's no severity setting for that one).
+# ---------------------------------------------------------------------------
+
+DEFAULT_SEVERITY = "suggestion"
+
+
+def get_notifications_enabled() -> bool:
+    return _get_setting("notify_enabled", "false") == "true"
+
+
+def set_notifications_enabled(enabled: bool) -> None:
+    _set_setting("notify_enabled", "true" if enabled else "false")
+
+
+def get_apprise_urls() -> list[str]:
+    raw = _get_setting("notify_apprise_urls", "")
+    return [u.strip() for u in raw.replace("\n", ",").split(",") if u.strip()]
+
+
+def set_apprise_urls(raw: str) -> None:
+    _set_setting("notify_apprise_urls", raw or "")
+
+
+def get_feature_notify_enabled(feature: str) -> bool:
+    # Defaults to on: once someone's turned the master switch on, the least surprising
+    # default is "notify for everything" — they can dial a specific tab back from there.
+    return _get_setting(f"notify_{feature}_enabled", "true") == "true"
+
+
+def set_feature_notify_enabled(feature: str, enabled: bool) -> None:
+    _set_setting(f"notify_{feature}_enabled", "true" if enabled else "false")
+
+
+def get_severity_master() -> str:
+    return _get_setting("notify_severity_master", DEFAULT_SEVERITY)
+
+
+def set_severity_master(value: str) -> None:
+    _set_setting("notify_severity_master", value)
+
+
+def get_feature_uses_master_severity(feature: str) -> bool:
+    return _get_setting(f"notify_severity_{feature}_use_master", "true") == "true"
+
+
+def set_feature_uses_master_severity(feature: str, use_master: bool) -> None:
+    _set_setting(f"notify_severity_{feature}_use_master", "true" if use_master else "false")
+
+
+def get_feature_severity(feature: str) -> str:
+    return _get_setting(f"notify_severity_{feature}", DEFAULT_SEVERITY)
+
+
+def set_feature_severity(feature: str, value: str) -> None:
+    _set_setting(f"notify_severity_{feature}", value)
+
+
+def get_effective_severity(feature: str) -> str:
+    if get_feature_uses_master_severity(feature):
+        return get_severity_master()
+    return get_feature_severity(feature)
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +471,99 @@ def findings_health_summary(source: str) -> dict:
         )
         last_at = cur.fetchone()["t"]
     return {"active": active, "last_at": last_at}
+
+
+def list_findings_for_subject(source: str, subject: str, include_silenced: bool = False) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        if include_silenced:
+            cur = conn.execute(
+                "SELECT * FROM findings WHERE source = ? AND subject = ? ORDER BY last_seen_at DESC",
+                (source, subject),
+            )
+        else:
+            cur = conn.execute(
+                "SELECT * FROM findings WHERE source = ? AND subject = ? AND status = 'active' ORDER BY last_seen_at DESC",
+                (source, subject),
+            )
+        return cur.fetchall()
+
+
+def list_subjects_with_findings(source: str, include_silenced: bool = False) -> list[dict]:
+    """One row per subject (container or compose file) that has at least one finding, with
+    aggregate counts and the highest severity present — used for the grouped 'Issues' list
+    at the top of the Logs/Compose tabs, so you see one line per container rather than one
+    line per individual finding."""
+    status_filter = "" if include_silenced else "AND status = 'active'"
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"""
+            SELECT subject,
+                   COUNT(*) AS finding_count,
+                   MAX(last_seen_at) AS last_seen_at,
+                   SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical_count,
+                   SUM(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END) AS warning_count,
+                   SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_count,
+                   SUM(CASE WHEN status = 'silenced' THEN 1 ELSE 0 END) AS silenced_count
+            FROM findings
+            WHERE source = ? {status_filter}
+            GROUP BY subject
+            ORDER BY last_seen_at DESC
+            """,
+            (source,),
+        )
+        rows = []
+        for r in cur.fetchall():
+            row = dict(r)
+            if row["critical_count"]:
+                row["top_severity"] = "critical"
+            elif row["warning_count"]:
+                row["top_severity"] = "warning"
+            else:
+                row["top_severity"] = "suggestion"
+            rows.append(row)
+        return rows
+
+
+def all_log_watch_states_with_status() -> list[dict]:
+    """Every container the log watcher has ever checked, with a healthy/issue status —
+    used for the 'All containers' list at the bottom of the Logs tab."""
+    with get_conn() as conn:
+        cur = conn.execute("SELECT container_name, last_checked_at FROM log_watch_state ORDER BY container_name")
+        rows = cur.fetchall()
+        result = []
+        for r in rows:
+            cur2 = conn.execute(
+                "SELECT COUNT(*) AS n FROM findings WHERE source = 'logs' AND subject = ? AND status = 'active'",
+                (r["container_name"],),
+            )
+            active = cur2.fetchone()["n"]
+            result.append({
+                "name": r["container_name"],
+                "last_at": r["last_checked_at"],
+                "status": "issue" if active else "healthy",
+            })
+        return result
+
+
+def all_compose_file_states_with_status() -> list[dict]:
+    """Every compose file the reviewer has ever checked, with a healthy/issue status —
+    used for the 'All files' list at the bottom of the Compose tab."""
+    with get_conn() as conn:
+        cur = conn.execute("SELECT file_path, last_reviewed_at FROM compose_file_state ORDER BY file_path")
+        rows = cur.fetchall()
+        result = []
+        for r in rows:
+            cur2 = conn.execute(
+                "SELECT COUNT(*) AS n FROM findings WHERE source = 'compose' AND subject = ? AND status = 'active'",
+                (r["file_path"],),
+            )
+            active = cur2.fetchone()["n"]
+            result.append({
+                "name": r["file_path"],
+                "last_at": r["last_reviewed_at"],
+                "status": "issue" if active else "healthy",
+            })
+        return result
 
 
 # ---------------------------------------------------------------------------

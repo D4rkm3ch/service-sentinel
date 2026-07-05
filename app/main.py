@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import quote
 
 import markdown
 from fastapi import FastAPI, Request, HTTPException
@@ -7,9 +8,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import db
+from app import compose_lookup, db
 from app.check_state import format_summary, get_state, set_running
 from app.config import settings
+from app.notifications import send_test_notification
 from app.schedule_spec import describe as describe_schedule
 from app.scheduler import (
     apply_schedules,
@@ -109,7 +111,7 @@ def toggle_feature(feature: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Shared check-now / status / silence handlers
+# Shared check-now / status handlers
 # ---------------------------------------------------------------------------
 
 def _render_status(request: Request, feature: str):
@@ -159,10 +161,19 @@ def logs_status(request: Request):
     return _render_status(request, "logs")
 
 
-@app.get("/logs/partial")
-def logs_partial(request: Request):
-    findings = db.list_findings("logs")
-    return templates.TemplateResponse("_findings_table.html", {"request": request, "findings": findings})
+@app.get("/logs/partial/issues")
+def logs_partial_issues(request: Request, show_silenced: bool = False):
+    issues = db.list_subjects_with_findings("logs", include_silenced=show_silenced)
+    return templates.TemplateResponse(
+        "_issues_grouped_table.html",
+        {"request": request, "issues": issues, "source": "logs", "show_silenced": show_silenced},
+    )
+
+
+@app.get("/logs/partial/containers")
+def logs_partial_containers(request: Request):
+    items = db.all_log_watch_states_with_status()
+    return templates.TemplateResponse("_status_list_table.html", {"request": request, "items": items, "detail_base": "/logs/container"})
 
 
 @app.post("/compose/check-now")
@@ -177,19 +188,37 @@ def compose_status(request: Request):
     return _render_status(request, "compose")
 
 
-@app.get("/compose/partial")
-def compose_partial(request: Request):
-    findings = db.list_findings("compose")
-    return templates.TemplateResponse("_findings_table.html", {"request": request, "findings": findings})
+@app.get("/compose/partial/issues")
+def compose_partial_issues(request: Request, show_silenced: bool = False):
+    issues = db.list_subjects_with_findings("compose", include_silenced=show_silenced)
+    for issue in issues:
+        issue["display_name"] = compose_lookup.subject_display_name("compose", issue["subject"])
+    return templates.TemplateResponse(
+        "_issues_grouped_table.html",
+        {"request": request, "issues": issues, "source": "compose", "show_silenced": show_silenced},
+    )
+
+
+@app.get("/compose/partial/files")
+def compose_partial_files(request: Request):
+    items = db.all_compose_file_states_with_status()
+    for item in items:
+        item["display_name"] = compose_lookup.subject_display_name("compose", item["name"])
+    return templates.TemplateResponse("_status_list_table.html", {"request": request, "items": items, "detail_base": "/compose/file", "use_query_param": True})
 
 
 # ---------------------------------------------------------------------------
-# Settings (schedules)
+# Settings (schedules + notifications)
 # ---------------------------------------------------------------------------
 
 def _spec_from_form(form, scope: str) -> dict:
+    input_type = form.get(f"{scope}_input_type", "datetime")
+    if input_type == "cron":
+        return {"mode": "custom", "cron": form.get(f"{scope}_cron", "0 6 * * *") or "0 6 * * *"}
+
     mode = form.get(f"{scope}_mode", "daily")
-    time_str = form.get(f"{scope}_time", "06:00") or "06:00"
+    time_field = f"{scope}_time_weekly" if mode == "weekly" else f"{scope}_time"
+    time_str = form.get(time_field, "06:00") or "06:00"
     try:
         hour, minute = (int(x) for x in time_str.split(":"))
     except (ValueError, TypeError):
@@ -203,9 +232,23 @@ def _spec_from_form(form, scope: str) -> dict:
         return {"mode": "hourly", "interval_hours": max(1, interval)}
     if mode == "weekly":
         return {"mode": "weekly", "day_of_week": form.get(f"{scope}_day_of_week", "mon"), "hour": hour, "minute": minute}
-    if mode == "custom":
-        return {"mode": "custom", "cron": form.get(f"{scope}_cron", "0 6 * * *") or "0 6 * * *"}
     return {"mode": "daily", "hour": hour, "minute": minute}
+
+
+def _build_notify_context() -> dict:
+    return {
+        "enabled": db.get_notifications_enabled(),
+        "apprise_urls": ", ".join(db.get_apprise_urls()),
+        "severity_master": db.get_severity_master(),
+        "features": {
+            feature: {
+                "enabled": db.get_feature_notify_enabled(feature),
+                "use_master_severity": db.get_feature_uses_master_severity(feature),
+                "severity": db.get_feature_severity(feature),
+            }
+            for feature in ("updates", "logs", "compose")
+        },
+    }
 
 
 @app.get("/settings")
@@ -222,7 +265,8 @@ def settings_page(request: Request):
         "settings.html",
         {
             "request": request, "master": master, "features": features,
-            "describe": describe_schedule, "active_tab": "settings",
+            "describe": describe_schedule, "notify": _build_notify_context(),
+            "active_tab": "settings",
         },
     )
 
@@ -240,10 +284,33 @@ async def save_settings(request: Request):
     return RedirectResponse(url="/settings", status_code=303)
 
 
+@app.post("/settings/notifications")
+async def save_notifications(request: Request):
+    form = await request.form()
+    db.set_notifications_enabled(form.get("notify_enabled") == "on")
+    db.set_apprise_urls(form.get("apprise_urls", ""))
+    db.set_severity_master(form.get("severity_master", "suggestion"))
+    for feature in ("updates", "logs", "compose"):
+        db.set_feature_notify_enabled(feature, form.get(f"notify_{feature}_enabled") == "on")
+        if feature in ("logs", "compose"):
+            use_master = form.get(f"notify_{feature}_use_master_severity") == "on"
+            db.set_feature_uses_master_severity(feature, use_master)
+            if not use_master:
+                db.set_feature_severity(feature, form.get(f"notify_{feature}_severity", "suggestion"))
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/notifications/test")
+def test_notifications(request: Request):
+    success, message = send_test_notification()
+    css_class = "test-result-ok" if success else "test-result-error"
+    return templates.TemplateResponse(
+        "_test_notification_result.html", {"request": request, "message": message, "css_class": css_class}
+    )
+
+
 # ---------------------------------------------------------------------------
-# Tab pages (declared with their literal sub-routes above already registered,
-# so "/updates/status" etc. never falls through to the "/updates/{update_id}"
-# detail route registered further below)
+# Tab pages
 # ---------------------------------------------------------------------------
 
 @app.get("/updates")
@@ -263,13 +330,14 @@ def updates_page(request: Request):
 
 
 @app.get("/logs")
-def logs_page(request: Request):
-    findings = db.list_findings("logs")
+def logs_page(request: Request, show_silenced: bool = False):
+    issues = db.list_subjects_with_findings("logs", include_silenced=show_silenced)
+    containers = db.all_log_watch_states_with_status()
     state = get_state("logs")
     return templates.TemplateResponse(
         "logs.html",
         {
-            "request": request, "findings": findings,
+            "request": request, "issues": issues, "containers": containers, "show_silenced": show_silenced,
             "feature": "logs", "state": state,
             "status_summary_text": format_summary("logs", state),
             "active_tab": "logs",
@@ -277,14 +345,33 @@ def logs_page(request: Request):
     )
 
 
+@app.get("/logs/container/{container_name}")
+def logs_container_detail(request: Request, container_name: str, show_silenced: bool = False):
+    findings = db.list_findings_for_subject("logs", container_name, include_silenced=show_silenced)
+    return templates.TemplateResponse(
+        "subject_findings.html",
+        {
+            "request": request, "findings": findings, "display_name": container_name,
+            "back_url": "/logs", "show_silenced": show_silenced,
+            "toggle_url": f"/logs/container/{quote(container_name)}",
+            "active_tab": "logs",
+        },
+    )
+
+
 @app.get("/compose")
-def compose_page(request: Request):
-    findings = db.list_findings("compose")
+def compose_page(request: Request, show_silenced: bool = False):
+    issues = db.list_subjects_with_findings("compose", include_silenced=show_silenced)
+    for issue in issues:
+        issue["display_name"] = compose_lookup.subject_display_name("compose", issue["subject"])
+    files = db.all_compose_file_states_with_status()
+    for f in files:
+        f["display_name"] = compose_lookup.subject_display_name("compose", f["name"])
     state = get_state("compose")
     return templates.TemplateResponse(
         "compose.html",
         {
-            "request": request, "findings": findings,
+            "request": request, "issues": issues, "files": files, "show_silenced": show_silenced,
             "feature": "compose", "state": state,
             "status_summary_text": format_summary("compose", state),
             "active_tab": "compose",
@@ -292,9 +379,23 @@ def compose_page(request: Request):
     )
 
 
+@app.get("/compose/file")
+def compose_file_detail(request: Request, path: str, show_silenced: bool = False):
+    findings = db.list_findings_for_subject("compose", path, include_silenced=show_silenced)
+    display_name = compose_lookup.subject_display_name("compose", path)
+    return templates.TemplateResponse(
+        "subject_findings.html",
+        {
+            "request": request, "findings": findings, "display_name": display_name,
+            "back_url": "/compose", "show_silenced": show_silenced,
+            "toggle_url": f"/compose/file?path={quote(path)}",
+            "active_tab": "compose",
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
-# Update detail (literal /updates/check-now, /updates/status, /updates/partial*
-# routes above are matched first since they're declared earlier)
+# Update detail
 # ---------------------------------------------------------------------------
 
 @app.get("/updates/{update_id}")
@@ -325,11 +426,12 @@ def finding_detail(request: Request, finding_id: int):
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
     description_html = markdown.markdown(finding["description_markdown"] or "")
+    display_name = compose_lookup.subject_display_name(finding["source"], finding["subject"])
     return templates.TemplateResponse(
         "finding_detail.html",
         {
             "request": request, "finding": finding, "description_html": description_html,
-            "active_tab": finding["source"],
+            "display_name": display_name, "active_tab": finding["source"],
         },
     )
 

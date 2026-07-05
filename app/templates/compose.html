@@ -5,8 +5,22 @@
 {% include "_feature_header.html" %}
 
 <section>
-  <div id="compose-table" hx-get="/compose/partial" hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
-    {% include "_findings_table.html" %}
+  <div class="section-header">
+    <h2>Issues</h2>
+    <a href="/compose{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
+      {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
+    </a>
+  </div>
+  <div id="compose-issues" hx-get="/compose/partial/issues{{ '?show_silenced=1' if show_silenced else '' }}"
+       hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
+    {% with source = "compose" %}{% include "_issues_grouped_table.html" %}{% endwith %}
+  </div>
+</section>
+
+<section>
+  <h2>All compose files</h2>
+  <div id="compose-files" hx-get="/compose/partial/files" hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
+    {% with items = files, detail_base = "/compose/file", use_query_param = true %}{% include "_status_list_table.html" %}{% endwith %}
   </div>
 </section>
 

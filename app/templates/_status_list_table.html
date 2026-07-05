@@ -1,0 +1,34 @@
+{% if items %}
+<table class="containers-table">
+  <thead>
+    <tr>
+      <th>{{ 'Container' if not use_query_param else 'Compose file' }}</th>
+      <th>Last checked</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td class="mono">
+        {% if use_query_param %}
+        <a href="{{ detail_base }}?path={{ item.name|urlencode }}">{{ item.display_name if item.display_name is defined else item.name }}</a>
+        {% else %}
+        <a href="{{ detail_base }}/{{ item.name }}">{{ item.name }}</a>
+        {% endif %}
+      </td>
+      <td>{{ item.last_at[:16].replace('T', ' ') if item.last_at else '—' }}</td>
+      <td>
+        {% if item.status == 'issue' %}
+        <span class="badge badge-sev-warning">issue</span>
+        {% else %}
+        <span class="badge badge-healthy">healthy</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No containers tracked yet.</p>
+{% endif %}

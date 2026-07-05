@@ -5,7 +5,7 @@
 <a href="{{ '/logs' if finding.source == 'logs' else '/compose' }}" class="back-link">← back</a>
 
 <section>
-  <h1 class="mono">{{ finding.subject }}</h1>
+  <h1 class="mono">{{ display_name }}</h1>
   <p class="meta">
     {{ finding.title }}
     · <span class="badge badge-sev-{{ finding.severity }}">{{ finding.severity }}</span>

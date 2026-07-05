@@ -36,6 +36,60 @@
   <button type="submit">Save schedules</button>
 </form>
 
+<form method="post" action="/settings/notifications">
+  <section class="settings-section">
+    <h2>Notifications</h2>
+    <label class="checkbox-label">
+      <input type="checkbox" name="notify_enabled" {{ 'checked' if notify.enabled else '' }}>
+      Enable notifications
+    </label>
+
+    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated. See <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for the full list of supported services.</p>
+    <textarea name="apprise_urls" rows="2" class="mono" style="width:100%;max-width:520px" placeholder="discord://webhook_id/webhook_token">{{ notify.apprise_urls }}</textarea>
+
+    <div style="margin-top:10px">
+      <button type="button" hx-post="/settings/notifications/test" hx-target="#test-notification-result" hx-swap="innerHTML">
+        Send test notification
+      </button>
+      <span id="test-notification-result"></span>
+    </div>
+
+    <h3 style="margin-top:20px;font-size:13px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em">General minimum severity</h3>
+    <select name="severity_master">
+      {% for s in ['suggestion', 'warning', 'critical'] %}
+      <option value="{{ s }}" {{ 'selected' if notify.severity_master == s else '' }}>{{ s|capitalize }}</option>
+      {% endfor %}
+    </select>
+
+    {% for feature, title, has_severity in [('updates', 'Updates', False), ('logs', 'Log health', True), ('compose', 'Compose health', True)] %}
+    <div class="settings-subsection">
+      <h4>{{ title }}</h4>
+      <label class="checkbox-label">
+        <input type="checkbox" name="notify_{{ feature }}_enabled" {{ 'checked' if notify.features[feature].enabled else '' }}>
+        Notify for {{ title }}
+      </label>
+      {% if has_severity %}
+      <label class="checkbox-label">
+        <input type="checkbox" id="notify_{{ feature }}_use_master_sev" name="notify_{{ feature }}_use_master_severity"
+               {{ 'checked' if notify.features[feature].use_master_severity else '' }}
+               onchange="document.getElementById('notify_{{ feature }}_severity_block').classList.toggle('hidden', this.checked)">
+        Use general severity
+      </label>
+      <div id="notify_{{ feature }}_severity_block" class="{{ 'hidden' if notify.features[feature].use_master_severity else '' }}">
+        <select name="notify_{{ feature }}_severity">
+          {% for s in ['suggestion', 'warning', 'critical'] %}
+          <option value="{{ s }}" {{ 'selected' if notify.features[feature].severity == s else '' }}>{{ s|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <button type="submit" style="margin-top:16px">Save notifications</button>
+  </section>
+</form>
+
 <script>
 function updateScheduleVisibility(scope) {
   const container = document.querySelector(`.schedule-fields[data-scope="${scope}"]`);
@@ -43,6 +97,18 @@ function updateScheduleVisibility(scope) {
   container.querySelectorAll('.schedule-mode-field').forEach(el => {
     el.style.display = el.dataset.mode === mode ? '' : 'none';
   });
+}
+function setScheduleInputType(scope, type) {
+  const container = document.querySelector(`.schedule-fields[data-scope="${scope}"]`);
+  container.querySelector('.schedule-input-type-value').value = type;
+  container.querySelectorAll('.schedule-type-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.type === type);
+  });
+  container.querySelector('.schedule-datetime-block').classList.toggle('faded', type === 'cron');
+  container.querySelector('.schedule-cron-block').classList.toggle('faded', type === 'datetime');
+}
+function onCronInput(scope) {
+  setScheduleInputType(scope, 'cron');
 }
 function updateMasterOverride(feature) {
   const checkbox = document.getElementById(`${feature}_use_master`);

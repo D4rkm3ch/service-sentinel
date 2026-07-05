@@ -5,8 +5,22 @@
 {% include "_feature_header.html" %}
 
 <section>
-  <div id="logs-table" hx-get="/logs/partial" hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
-    {% include "_findings_table.html" %}
+  <div class="section-header">
+    <h2>Issues</h2>
+    <a href="/logs{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
+      {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
+    </a>
+  </div>
+  <div id="logs-issues" hx-get="/logs/partial/issues{{ '?show_silenced=1' if show_silenced else '' }}"
+       hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
+    {% with source = "logs" %}{% include "_issues_grouped_table.html" %}{% endwith %}
+  </div>
+</section>
+
+<section>
+  <h2>All containers</h2>
+  <div id="logs-containers" hx-get="/logs/partial/containers" hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
+    {% with items = containers, detail_base = "/logs/container", use_query_param = false %}{% include "_status_list_table.html" %}{% endwith %}
   </div>
 </section>
 

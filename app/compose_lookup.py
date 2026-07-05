@@ -95,6 +95,30 @@ def _search_file(path, container_name: str) -> dict | None:
     return None
 
 
+def get_service_names_for_file(file_path: str) -> list[str]:
+    """Returns the service names defined in a compose file, for display purposes — a raw
+    absolute path isn't as meaningful to read as 'sonarr' or 'sonarr, sonarr-config'."""
+    from pathlib import Path
+    path = Path(file_path)
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (yaml.YAMLError, OSError):
+        return []
+    if not isinstance(data, dict) or "services" not in data:
+        return []
+    return list((data.get("services") or {}).keys())
+
+
+def subject_display_name(source: str, subject: str) -> str:
+    """Friendly display label for a finding's subject: container name as-is for logs, or
+    the service name(s) defined in the file for compose (falling back to the raw path if
+    the file can't be parsed, e.g. it was deleted since the finding was recorded)."""
+    if source == "logs":
+        return subject
+    names = get_service_names_for_file(subject)
+    return ", ".join(names) if names else subject
+
+
 def list_compose_files() -> list:
     """Returns every compose file release-radar can see under COMPOSE_ROOT."""
     if not settings.compose_root.exists():

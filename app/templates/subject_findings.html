@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }} — release-radar{% endblock %}
+{% block content %}
+
+<a href="{{ back_url }}" class="back-link">← back</a>
+
+<section>
+  <div class="feature-header">
+    <h1 class="mono">{{ display_name }}</h1>
+    <a href="{{ toggle_url }}{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
+      {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
+    </a>
+  </div>
+
+  {% if findings %}
+  <table class="findings-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Category</th>
+        <th>Severity</th>
+        <th>Seen</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in findings %}
+      <tr>
+        <td>{{ f.title }}{% if f.status == 'silenced' %} <span class="badge badge-silenced">silenced</span>{% endif %}</td>
+        <td>{{ f.category }}</td>
+        <td><span class="badge badge-sev-{{ f.severity }}">{{ f.severity }}</span></td>
+        <td>{{ f.occurrence_count }}× · last {{ f.last_seen_at[:16].replace('T', ' ') }}</td>
+        <td><a href="/findings/{{ f.id }}">view →</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No findings for this one{{ ' (including silenced)' if show_silenced else '' }}.</p>
+  {% endif %}
+</section>
+
+{% endblock %}
