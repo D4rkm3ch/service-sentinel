@@ -1,4 +1,5 @@
 import hashlib
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -126,6 +127,82 @@ def set_feature_enabled(feature: str, enabled: bool) -> None:
 
 def get_all_feature_states() -> dict:
     return {name: get_feature_enabled(name) for name in DEFAULT_FEATURE_STATE}
+
+
+# ---------------------------------------------------------------------------
+# Schedules — a "master" schedule everything uses by default, with an optional
+# per-feature override. Stored as small JSON specs rather than raw cron strings
+# so the UI can offer friendly presets (daily / every N hours / weekly) as well
+# as a custom-cron escape hatch.
+# ---------------------------------------------------------------------------
+
+DEFAULT_MASTER_SCHEDULE = {"mode": "daily", "hour": 6, "minute": 0}
+
+
+def _get_json_setting(key: str, default: dict) -> dict:
+    with get_conn() as conn:
+        cur = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+        row = cur.fetchone()
+    if row is None:
+        return default
+    try:
+        return json.loads(row["value"])
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
+def _set_json_setting(key: str, value: dict) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, json.dumps(value)),
+        )
+
+
+def get_master_schedule() -> dict:
+    return _get_json_setting("schedule_master", DEFAULT_MASTER_SCHEDULE)
+
+
+def set_master_schedule(spec: dict) -> None:
+    _set_json_setting("schedule_master", spec)
+
+
+def get_feature_uses_master_schedule(feature: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute("SELECT value FROM app_settings WHERE key = ?", (f"schedule_{feature}_use_master",))
+        row = cur.fetchone()
+        return row is None or row["value"] == "true"
+
+
+def set_feature_uses_master_schedule(feature: str, use_master: bool) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (f"schedule_{feature}_use_master", "true" if use_master else "false"),
+        )
+
+
+def get_feature_schedule(feature: str) -> dict:
+    """The feature's own schedule spec, used only when it's not following the master."""
+    return _get_json_setting(f"schedule_{feature}", DEFAULT_MASTER_SCHEDULE)
+
+
+def set_feature_schedule(feature: str, spec: dict) -> None:
+    _set_json_setting(f"schedule_{feature}", spec)
+
+
+def get_effective_schedule(feature: str) -> dict:
+    """What actually governs this feature's timing right now — its own override if it has
+    one enabled, otherwise the master schedule."""
+    if get_feature_uses_master_schedule(feature):
+        return get_master_schedule()
+    return get_feature_schedule(feature)
 
 
 # ---------------------------------------------------------------------------

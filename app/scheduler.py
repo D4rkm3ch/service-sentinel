@@ -1,16 +1,35 @@
 import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 
+from app import db
 from app.compose_reviewer import run_compose_check
 from app.config import settings
 from app.log_watcher import run_log_check
 from app.reconcile import run_check
+from app.schedule_spec import build_trigger
 
 logger = logging.getLogger("release_radar.scheduler")
 
 _scheduler = BackgroundScheduler(timezone=settings.tz)
+
+_JOBS = {
+    "updates": (run_check, "periodic_updates_check"),
+    "logs": (run_log_check, "periodic_logs_check"),
+    "compose": (run_compose_check, "periodic_compose_check"),
+}
+
+
+def apply_schedules() -> None:
+    """(Re)schedules all three periodic jobs using whatever the database currently says each
+    feature's effective schedule is (its own override, or the master schedule). Safe to call
+    at any time — e.g. right after the settings page saves a change — since replace_existing
+    means it just updates the existing job's trigger rather than duplicating it."""
+    for feature, (func, job_id) in _JOBS.items():
+        spec = db.get_effective_schedule(feature)
+        trigger = build_trigger(spec)
+        _scheduler.add_job(func, trigger=trigger, id=job_id, replace_existing=True)
+        logger.info("Schedule applied for %s: %s", feature, spec)
 
 
 def start_scheduler() -> None:
@@ -18,23 +37,9 @@ def start_scheduler() -> None:
     # calls) if that feature is disabled — so all three jobs are always scheduled, and
     # turning a feature on/off from the UI takes effect on the next tick without needing to
     # touch the scheduler at all.
-    _scheduler.add_job(
-        run_check, trigger=CronTrigger.from_crontab(settings.check_schedule_cron),
-        id="periodic_updates_check", replace_existing=True,
-    )
-    _scheduler.add_job(
-        run_log_check, trigger=CronTrigger.from_crontab(settings.log_check_schedule_cron),
-        id="periodic_logs_check", replace_existing=True,
-    )
-    _scheduler.add_job(
-        run_compose_check, trigger=CronTrigger.from_crontab(settings.compose_check_schedule_cron),
-        id="periodic_compose_check", replace_existing=True,
-    )
+    apply_schedules()
     _scheduler.start()
-    logger.info(
-        "Scheduler started: updates='%s' logs='%s' compose='%s'",
-        settings.check_schedule_cron, settings.log_check_schedule_cron, settings.compose_check_schedule_cron,
-    )
+    logger.info("Scheduler started")
 
 
 def trigger_check_now() -> None:

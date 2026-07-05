@@ -10,7 +10,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app import db
 from app.check_state import format_summary, get_state, set_running
 from app.config import settings
+from app.schedule_spec import describe as describe_schedule
 from app.scheduler import (
+    apply_schedules,
     start_scheduler,
     trigger_check_now,
     trigger_compose_check_now,
@@ -179,6 +181,63 @@ def compose_status(request: Request):
 def compose_partial(request: Request):
     findings = db.list_findings("compose")
     return templates.TemplateResponse("_findings_table.html", {"request": request, "findings": findings})
+
+
+# ---------------------------------------------------------------------------
+# Settings (schedules)
+# ---------------------------------------------------------------------------
+
+def _spec_from_form(form, scope: str) -> dict:
+    mode = form.get(f"{scope}_mode", "daily")
+    time_str = form.get(f"{scope}_time", "06:00") or "06:00"
+    try:
+        hour, minute = (int(x) for x in time_str.split(":"))
+    except (ValueError, TypeError):
+        hour, minute = 6, 0
+
+    if mode == "hourly":
+        try:
+            interval = int(form.get(f"{scope}_interval_hours", 4) or 4)
+        except ValueError:
+            interval = 4
+        return {"mode": "hourly", "interval_hours": max(1, interval)}
+    if mode == "weekly":
+        return {"mode": "weekly", "day_of_week": form.get(f"{scope}_day_of_week", "mon"), "hour": hour, "minute": minute}
+    if mode == "custom":
+        return {"mode": "custom", "cron": form.get(f"{scope}_cron", "0 6 * * *") or "0 6 * * *"}
+    return {"mode": "daily", "hour": hour, "minute": minute}
+
+
+@app.get("/settings")
+def settings_page(request: Request):
+    master = db.get_master_schedule()
+    features = {
+        feature: {
+            "use_master": db.get_feature_uses_master_schedule(feature),
+            "spec": db.get_feature_schedule(feature),
+        }
+        for feature in ("updates", "logs", "compose")
+    }
+    return templates.TemplateResponse(
+        "settings.html",
+        {
+            "request": request, "master": master, "features": features,
+            "describe": describe_schedule, "active_tab": "settings",
+        },
+    )
+
+
+@app.post("/settings")
+async def save_settings(request: Request):
+    form = await request.form()
+    db.set_master_schedule(_spec_from_form(form, "master"))
+    for feature in ("updates", "logs", "compose"):
+        use_master = form.get(f"{feature}_use_master") == "on"
+        db.set_feature_uses_master_schedule(feature, use_master)
+        if not use_master:
+            db.set_feature_schedule(feature, _spec_from_form(form, feature))
+    apply_schedules()
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 # ---------------------------------------------------------------------------

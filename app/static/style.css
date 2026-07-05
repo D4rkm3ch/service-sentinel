@@ -304,3 +304,47 @@ button:hover { background: var(--accent); color: #0e1210; }
 .badge-sev-warning { background: rgba(217, 164, 65, 0.15); color: var(--warn); }
 .badge-sev-suggestion { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }
 .badge-silenced { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }
+
+/* Settings page */
+.settings-section {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+.settings-section h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.schedule-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+}
+.schedule-mode-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.schedule-fields select, .schedule-fields input[type="text"], .schedule-fields input[type="time"], .schedule-fields input[type="number"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.hidden { display: none; }

@@ -14,8 +14,6 @@ class Settings:
         self.github_token: str = os.environ.get("GITHUB_TOKEN", "")
         self.claude_model: str = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5")
 
-        self.check_schedule_cron: str = os.environ.get("CHECK_SCHEDULE_CRON", "0 6 * * *")
-
         self.compose_root: Path = Path(os.environ.get("COMPOSE_ROOT", "/compose"))
         self.data_dir: Path = Path(os.environ.get("DATA_DIR", "/data"))
         self.db_path: Path = self.data_dir / "release_radar.db"
@@ -42,18 +40,10 @@ class Settings:
         # wait time, so doing them one at a time is what makes a large stack slow to check.
         self.registry_check_concurrency: int = int(os.environ.get("REGISTRY_CHECK_CONCURRENCY", "10"))
 
-        # Log watcher — own schedule, separate from the update check, since it's a heavier
-        # daily job rather than something you'd want running every few minutes.
-        self.log_check_schedule_cron: str = os.environ.get("LOG_CHECK_SCHEDULE_CRON", "0 7 * * *")
-        # How far back to look the very first time a container is checked (no checkpoint yet).
+        # Log watcher tuning — schedule itself now lives in the database (Settings tab),
+        # not here, but these control how much log data gets pulled and pre-filtered.
         self.log_lookback_hours: int = int(os.environ.get("LOG_LOOKBACK_HOURS", "24"))
-        # Hard cap per container so one noisy container can't dominate a check or blow the
-        # token budget for the AI triage step.
         self.log_max_lines_per_container: int = int(os.environ.get("LOG_MAX_LINES_PER_CONTAINER", "5000"))
-
-        # Compose reviewer — hash-triggered rather than time-triggered, but still needs a
-        # schedule to decide how often to even check the hashes (which itself is nearly free).
-        self.compose_check_schedule_cron: str = os.environ.get("COMPOSE_CHECK_SCHEDULE_CRON", "10 6 * * *")
 
         # Minimum severity that triggers a notification (storage on the dashboard always
         # happens regardless — this only gates Discord/Apprise). One of: suggestion, warning,

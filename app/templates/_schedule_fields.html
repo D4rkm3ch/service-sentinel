@@ -1,0 +1,33 @@
+{% macro schedule_fields(scope, spec) %}
+<div class="schedule-fields" data-scope="{{ scope }}">
+  <select name="{{ scope }}_mode" class="schedule-mode-select" onchange="updateScheduleVisibility('{{ scope }}')">
+    <option value="daily" {{ 'selected' if spec.mode == 'daily' or not spec.mode else '' }}>Daily</option>
+    <option value="hourly" {{ 'selected' if spec.mode == 'hourly' else '' }}>Every N hours</option>
+    <option value="weekly" {{ 'selected' if spec.mode == 'weekly' else '' }}>Weekly</option>
+    <option value="custom" {{ 'selected' if spec.mode == 'custom' else '' }}>Custom cron</option>
+  </select>
+
+  <div class="schedule-mode-field" data-mode="daily">
+    <label>Time <input type="time" name="{{ scope }}_time" value="{{ '%02d:%02d'|format(spec.get('hour', 6), spec.get('minute', 0)) }}"></label>
+  </div>
+
+  <div class="schedule-mode-field" data-mode="hourly">
+    <label>Every <input type="number" name="{{ scope }}_interval_hours" min="1" max="24" value="{{ spec.get('interval_hours', 4) }}" style="width:60px"> hours</label>
+  </div>
+
+  <div class="schedule-mode-field" data-mode="weekly">
+    <label>Day
+      <select name="{{ scope }}_day_of_week">
+        {% for d, label in [('mon','Monday'),('tue','Tuesday'),('wed','Wednesday'),('thu','Thursday'),('fri','Friday'),('sat','Saturday'),('sun','Sunday')] %}
+        <option value="{{ d }}" {{ 'selected' if spec.get('day_of_week','mon') == d else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Time <input type="time" name="{{ scope }}_time" value="{{ '%02d:%02d'|format(spec.get('hour', 6), spec.get('minute', 0)) }}"></label>
+  </div>
+
+  <div class="schedule-mode-field" data-mode="custom">
+    <label>Cron <input type="text" name="{{ scope }}_cron" value="{{ spec.get('cron', '0 6 * * *') }}" placeholder="0 6 * * *" class="mono"></label>
+  </div>
+</div>
+{% endmacro %}

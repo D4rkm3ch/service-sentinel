@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "_schedule_fields.html" as sf %}
+{% block title %}Settings — release-radar{% endblock %}
+{% block content %}
+
+<h1>Settings</h1>
+
+<form method="post" action="/settings">
+
+  <section class="settings-section">
+    <h2>General schedule</h2>
+    <p class="meta">Used by any feature below that isn't set to its own custom schedule. Currently: {{ describe(master) }}</p>
+    {{ sf.schedule_fields('master', master) }}
+  </section>
+
+  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
+  <section class="settings-section">
+    <h2>{{ title }}</h2>
+    <label class="checkbox-label">
+      <input type="checkbox" id="{{ feature }}_use_master" name="{{ feature }}_use_master"
+             {{ 'checked' if features[feature].use_master else '' }}
+             onchange="updateMasterOverride('{{ feature }}')">
+      Use general schedule
+    </label>
+    <div id="{{ feature }}_override_block" class="{{ 'hidden' if features[feature].use_master else '' }}">
+      {{ sf.schedule_fields(feature, features[feature].spec) }}
+    </div>
+    {% if features[feature].use_master %}
+      <p class="meta">Currently following the general schedule: {{ describe(master) }}</p>
+    {% else %}
+      <p class="meta">Currently: {{ describe(features[feature].spec) }}</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <button type="submit">Save schedules</button>
+</form>
+
+<script>
+function updateScheduleVisibility(scope) {
+  const container = document.querySelector(`.schedule-fields[data-scope="${scope}"]`);
+  const mode = container.querySelector('.schedule-mode-select').value;
+  container.querySelectorAll('.schedule-mode-field').forEach(el => {
+    el.style.display = el.dataset.mode === mode ? '' : 'none';
+  });
+}
+function updateMasterOverride(feature) {
+  const checkbox = document.getElementById(`${feature}_use_master`);
+  const block = document.getElementById(`${feature}_override_block`);
+  block.classList.toggle('hidden', checkbox.checked);
+}
+document.querySelectorAll('.schedule-fields').forEach(el => updateScheduleVisibility(el.dataset.scope));
+</script>
+
+{% endblock %}
