@@ -5,6 +5,7 @@
       <th>Container</th>
       <th>Image</th>
       <th>Detected</th>
+      <th>Importance</th>
       <th>Status</th>
       <th></th>
     </tr>
@@ -15,6 +16,7 @@
       <td class="mono">{{ u.container_name }}</td>
       <td class="mono">{{ u.image_repo }}:{{ u.tag }}</td>
       <td>{{ u.created_at[:16].replace('T', ' ') }}</td>
+      <td><span class="badge badge-sev-{{ u.severity }}">{{ u.severity }}</span></td>
       <td>
         {% if u.error %}
           <span class="badge badge-error">needs manual check</span>

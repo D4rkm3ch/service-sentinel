@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS updates (
     source_url TEXT,
     status TEXT NOT NULL DEFAULT 'unread',
     error TEXT,
+    severity TEXT NOT NULL DEFAULT 'warning',
     created_at TEXT NOT NULL
 );
 
@@ -108,6 +109,14 @@ def init_db() -> None:
                 "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
                 (f"feature_{key}_enabled", value),
             )
+        # Migration: existing installs created the updates table before it had a severity
+        # column. CREATE TABLE IF NOT EXISTS above won't add it to an already-existing table,
+        # so add it explicitly, tolerating the case where it's already there.
+        try:
+            conn.execute("ALTER TABLE updates ADD COLUMN severity TEXT NOT NULL DEFAULT 'warning'")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
 
 
 @contextmanager
@@ -338,15 +347,16 @@ def record_update(
     summary_markdown: str | None,
     source_url: str | None,
     error: str | None = None,
+    severity: str = "warning",
 ) -> int:
     with get_conn() as conn:
         cur = conn.execute(
             """
             INSERT INTO updates
-                (container_name, image_repo, tag, old_digest, new_digest, summary_markdown, source_url, error, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (container_name, image_repo, tag, old_digest, new_digest, summary_markdown, source_url, error, severity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (container_name, image_repo, tag, old_digest, new_digest, summary_markdown, source_url, error, now_iso()),
+            (container_name, image_repo, tag, old_digest, new_digest, summary_markdown, source_url, error, severity, now_iso()),
         )
         return cur.lastrowid
 

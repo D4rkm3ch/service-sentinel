@@ -31,9 +31,14 @@ def _send(title: str, body: str) -> None:
         logger.exception("Apprise notification failed")
 
 
-def notify_update(container_name: str, image_repo: str, tag: str, update_id: int, error: str | None = None) -> None:
+def notify_update(container_name: str, image_repo: str, tag: str, update_id: int, severity: str = "warning", error: str | None = None) -> None:
     if not db.get_notifications_enabled() or not db.get_feature_notify_enabled("updates"):
         return
+
+    threshold = db.get_effective_severity("updates")
+    if SEVERITY_ORDER.get(severity, 0) < SEVERITY_ORDER.get(threshold, 0):
+        return
+
     url = _dashboard_url(f"/updates/{update_id}")
     title = f"Update available: {container_name}"
     if error:
@@ -62,11 +67,16 @@ def notify_finding(source: str, subject: str, title: str, severity: str, categor
     _send(full_title, body)
 
 
-def send_test_notification() -> tuple[bool, str]:
+def send_test_notification(urls: list[str] | None = None) -> tuple[bool, str]:
     """Used by the 'Send test notification' button on the Settings page — reports back
     whether it actually worked rather than silently succeeding either way, since a
-    misconfigured Apprise URL is otherwise invisible until a real notification fails."""
-    urls = db.get_apprise_urls()
+    misconfigured Apprise URL is otherwise invisible until a real notification fails.
+
+    Accepts an explicit URL list so the caller can test whatever's currently typed in the
+    box, whether or not it's been saved yet — the route only persists it if this succeeds.
+    """
+    if urls is None:
+        urls = db.get_apprise_urls()
     if not urls:
         return False, "No Apprise URL configured yet."
 

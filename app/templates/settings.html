@@ -1,96 +1,157 @@
 {% extends "base.html" %}
 {% import "_schedule_fields.html" as sf %}
+{% import "_toggle_switch.html" as ts %}
+{% import "_severity_buttons.html" as sb %}
 {% block title %}Settings — release-radar{% endblock %}
 {% block content %}
 
-<h1>Settings</h1>
+<section class="settings-section">
+  <h2 class="settings-heading-lg">Schedule</h2>
 
-<form method="post" action="/settings">
-
-  <section class="settings-section">
-    <h2>General schedule</h2>
-    <p class="meta">Used by any feature below that isn't set to its own custom schedule. Currently: {{ describe(master) }}</p>
-    {{ sf.schedule_fields('master', master) }}
-  </section>
+  <div class="settings-subsection settings-subsection-first">
+    <h4>General</h4>
+    <p class="meta">Used by any feature below that isn't set to its own custom schedule.</p>
+    {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
+  </div>
 
   {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
-  <section class="settings-section">
-    <h2>{{ title }}</h2>
-    <label class="checkbox-label">
-      <input type="checkbox" id="{{ feature }}_use_master" name="{{ feature }}_use_master"
-             {{ 'checked' if features[feature].use_master else '' }}
-             onchange="updateMasterOverride('{{ feature }}')">
-      Use general schedule
-    </label>
-    <div id="{{ feature }}_override_block" class="{{ 'hidden' if features[feature].use_master else '' }}">
-      {{ sf.schedule_fields(feature, features[feature].spec) }}
+  <div class="settings-subsection">
+    <h4>{{ title }}</h4>
+    <div class="toggle-with-label">
+      {{ ts.toggle_switch(feature ~ '_use_master_sched', features[feature].use_master, '/settings/schedule/use-master/' ~ feature, "toggleScheduleOverride('" ~ feature ~ "', this.checked)") }}
+      <span class="toggle-label">Use general schedule</span>
     </div>
-    {% if features[feature].use_master %}
-      <p class="meta">Currently following the general schedule: {{ describe(master) }}</p>
-    {% else %}
-      <p class="meta">Currently: {{ describe(features[feature].spec) }}</p>
-    {% endif %}
-  </section>
+    <div id="{{ feature }}_schedule_wrapper" class="schedule-wrapper {{ 'faded' if features[feature].use_master else '' }}">
+      {{ sf.schedule_fields(feature, features[feature].spec, '/settings/schedule/' ~ feature, features[feature].use_master) }}
+    </div>
+  </div>
   {% endfor %}
+</section>
 
-  <button type="submit">Save schedules</button>
-</form>
+<section class="settings-section">
+  <h2 class="settings-heading-lg">Notifications</h2>
 
-<form method="post" action="/settings/notifications">
-  <section class="settings-section">
-    <h2>Notifications</h2>
-    <label class="checkbox-label">
-      <input type="checkbox" name="notify_enabled" {{ 'checked' if notify.enabled else '' }}>
-      Enable notifications
-    </label>
+  <div class="settings-subsection settings-subsection-first">
+    <div class="toggle-with-label">
+      {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', "toggleAppriseField(this.checked)") }}
+      <span class="toggle-label">Enable notifications</span>
+    </div>
 
-    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated. See <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for the full list of supported services.</p>
-    <textarea name="apprise_urls" rows="2" class="mono" style="width:100%;max-width:520px" placeholder="discord://webhook_id/webhook_token">{{ notify.apprise_urls }}</textarea>
-
-    <div style="margin-top:10px">
-      <button type="button" hx-post="/settings/notifications/test" hx-target="#test-notification-result" hx-swap="innerHTML">
+    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated. See <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for supported services.</p>
+    <textarea name="apprise_urls" id="apprise_urls_field" rows="2" class="mono apprise-textarea {{ '' if notify.enabled else 'dimmed' }}"
+              placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}>{{ notify.apprise_urls }}</textarea>
+    <p class="meta apprise-disclaimer">Click "Send test notification" to save this URL — typing alone doesn't save it, and a failed test won't be saved either.</p>
+    <div>
+      <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
         Send test notification
       </button>
-      <span id="test-notification-result"></span>
+      <span id="apprise-test-result"></span>
     </div>
+  </div>
 
-    <h3 style="margin-top:20px;font-size:13px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em">General minimum severity</h3>
-    <select name="severity_master">
-      {% for s in ['suggestion', 'warning', 'critical'] %}
-      <option value="{{ s }}" {{ 'selected' if notify.severity_master == s else '' }}>{{ s|capitalize }}</option>
-      {% endfor %}
-    </select>
+  <div class="settings-subsection">
+    <h4>General minimum severity</h4>
+    {{ sb.severity_buttons('master', notify.severity_master, '/settings/notify/severity/master', false) }}
+  </div>
 
-    {% for feature, title, has_severity in [('updates', 'Updates', False), ('logs', 'Log health', True), ('compose', 'Compose health', True)] %}
-    <div class="settings-subsection">
-      <h4>{{ title }}</h4>
-      <label class="checkbox-label">
-        <input type="checkbox" name="notify_{{ feature }}_enabled" {{ 'checked' if notify.features[feature].enabled else '' }}>
-        Notify for {{ title }}
-      </label>
-      {% if has_severity %}
-      <label class="checkbox-label">
-        <input type="checkbox" id="notify_{{ feature }}_use_master_sev" name="notify_{{ feature }}_use_master_severity"
-               {{ 'checked' if notify.features[feature].use_master_severity else '' }}
-               onchange="document.getElementById('notify_{{ feature }}_severity_block').classList.toggle('hidden', this.checked)">
-        Use general severity
-      </label>
-      <div id="notify_{{ feature }}_severity_block" class="{{ 'hidden' if notify.features[feature].use_master_severity else '' }}">
-        <select name="notify_{{ feature }}_severity">
-          {% for s in ['suggestion', 'warning', 'critical'] %}
-          <option value="{{ s }}" {{ 'selected' if notify.features[feature].severity == s else '' }}>{{ s|capitalize }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      {% endif %}
+  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
+  <div class="settings-subsection">
+    <h4>{{ title }}</h4>
+    <div class="toggle-with-label">
+      {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature) }}
+      <span class="toggle-label">Enable notifications</span>
     </div>
-    {% endfor %}
-
-    <button type="submit" style="margin-top:16px">Save notifications</button>
-  </section>
-</form>
+    <div class="toggle-with-label" style="margin-top:8px">
+      {{ ts.toggle_switch('notify_' ~ feature ~ '_use_master_sev', notify.features[feature].use_master_severity, '/settings/notify/use-master-severity/' ~ feature, "toggleSeverityOverride('" ~ feature ~ "', this.checked)") }}
+      <span class="toggle-label">Use general severity</span>
+    </div>
+    <div style="margin-top:8px">
+      {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, notify.features[feature].use_master_severity) }}
+    </div>
+  </div>
+  {% endfor %}
+</section>
 
 <script>
+// ---- Cron validation (numeric 5-field cron only — no day/month name aliases) ----
+function isValidCronItem(item, min, max) {
+  const stepMatch = item.match(/^(.+)\/(\d+)$/);
+  let base = item;
+  if (stepMatch) {
+    base = stepMatch[1];
+    const step = parseInt(stepMatch[2], 10);
+    if (isNaN(step) || step <= 0) return false;
+  }
+  if (base === '*') return true;
+  const rangeMatch = base.match(/^(\d+)-(\d+)$/);
+  if (rangeMatch) {
+    const a = parseInt(rangeMatch[1], 10);
+    const b = parseInt(rangeMatch[2], 10);
+    return a >= min && a <= max && b >= min && b <= max && a <= b;
+  }
+  if (/^\d+$/.test(base)) {
+    const n = parseInt(base, 10);
+    return n >= min && n <= max;
+  }
+  return false;
+}
+function isValidCronField(field, min, max) {
+  if (field.length === 0) return false;
+  const items = field.split(',');
+  for (const item of items) {
+    if (!isValidCronItem(item, min, max)) return false;
+  }
+  return true;
+}
+function isValidCron(expr) {
+  if (typeof expr !== 'string') return false;
+  const trimmed = expr.trim();
+  if (trimmed.length === 0) return false;
+  const parts = trimmed.split(/\s+/);
+  if (parts.length !== 5) return false;
+  const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
+  for (let i = 0; i < 5; i++) {
+    if (!isValidCronField(parts[i], ranges[i][0], ranges[i][1])) return false;
+  }
+  return true;
+}
+
+// ---- Schedule picker: automatic Date/Time vs Cron ----
+function applyScheduleInputState(scope, useCron) {
+  const dtBlock = document.getElementById(`${scope}_dt_block`);
+  const cronBlock = document.getElementById(`${scope}_cron_block`);
+  const hiddenType = document.getElementById(`${scope}_input_type_value`);
+  if (!dtBlock || !cronBlock || !hiddenType) return;
+  hiddenType.value = useCron ? 'cron' : 'datetime';
+
+  dtBlock.classList.toggle('faded', useCron);
+  dtBlock.querySelectorAll('select, input').forEach(el => { el.disabled = useCron; });
+
+  // The cron field dims when it isn't in control, but stays editable — you have to be
+  // able to type into it to make it take over in the first place.
+  cronBlock.classList.toggle('dimmed', !useCron);
+}
+
+function handleCronInput(scope) {
+  const input = document.getElementById(`${scope}_cron_input`);
+  const hint = document.getElementById(`${scope}_cron_hint`);
+  const valid = isValidCron(input.value);
+  applyScheduleInputState(scope, valid);
+  if (hint) hint.textContent = (input.value.trim().length > 0 && !valid) ? 'Not a valid cron expression yet' : '';
+  if (valid) {
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
+
+function clearCron(scope) {
+  const input = document.getElementById(`${scope}_cron_input`);
+  input.value = '';
+  applyScheduleInputState(scope, false);
+  const hint = document.getElementById(`${scope}_cron_hint`);
+  if (hint) hint.textContent = '';
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 function updateScheduleVisibility(scope) {
   const container = document.querySelector(`.schedule-fields[data-scope="${scope}"]`);
   const mode = container.querySelector('.schedule-mode-select').value;
@@ -98,24 +159,46 @@ function updateScheduleVisibility(scope) {
     el.style.display = el.dataset.mode === mode ? '' : 'none';
   });
 }
-function setScheduleInputType(scope, type) {
-  const container = document.querySelector(`.schedule-fields[data-scope="${scope}"]`);
-  container.querySelector('.schedule-input-type-value').value = type;
-  container.querySelectorAll('.schedule-type-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.type === type);
-  });
-  container.querySelector('.schedule-datetime-block').classList.toggle('faded', type === 'cron');
-  container.querySelector('.schedule-cron-block').classList.toggle('faded', type === 'datetime');
+
+document.querySelectorAll('.schedule-fields').forEach(form => {
+  const scope = form.dataset.scope;
+  updateScheduleVisibility(scope);
+  const modeSelect = form.querySelector('.schedule-mode-select');
+  if (modeSelect && modeSelect.disabled) {
+    return; // this feature is currently following the general schedule — leave as rendered
+  }
+  const cronInput = document.getElementById(`${scope}_cron_input`);
+  const valid = cronInput && isValidCron(cronInput.value);
+  applyScheduleInputState(scope, valid);
+});
+
+// ---- Feature-level "use general schedule" gating ----
+function toggleScheduleOverride(feature, useGeneral) {
+  const wrapper = document.getElementById(`${feature}_schedule_wrapper`);
+  wrapper.classList.toggle('faded', useGeneral);
+  const form = wrapper.querySelector('.schedule-fields');
+  form.querySelectorAll('select, input, button').forEach(el => { el.disabled = useGeneral; });
+  if (!useGeneral) {
+    const cronInput = document.getElementById(`${feature}_cron_input`);
+    const valid = cronInput && isValidCron(cronInput.value);
+    applyScheduleInputState(feature, valid);
+  }
 }
-function onCronInput(scope) {
-  setScheduleInputType(scope, 'cron');
+
+// ---- Feature-level "use general severity" gating ----
+function toggleSeverityOverride(feature, useGeneral) {
+  const group = document.querySelector(`.severity-group[data-scope="${feature}"]`);
+  if (!group) return;
+  group.classList.toggle('faded', useGeneral);
+  group.querySelectorAll('input').forEach(el => { el.disabled = useGeneral; });
 }
-function updateMasterOverride(feature) {
-  const checkbox = document.getElementById(`${feature}_use_master`);
-  const block = document.getElementById(`${feature}_override_block`);
-  block.classList.toggle('hidden', checkbox.checked);
+
+// ---- Apprise URL field gating ----
+function toggleAppriseField(enabled) {
+  const field = document.getElementById('apprise_urls_field');
+  field.disabled = !enabled;
+  field.classList.toggle('dimmed', !enabled);
 }
-document.querySelectorAll('.schedule-fields').forEach(el => updateScheduleVisibility(el.dataset.scope));
 </script>
 
 {% endblock %}

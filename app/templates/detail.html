@@ -8,6 +8,7 @@
   <h1 class="mono">{{ update.container_name }}</h1>
   <p class="meta">
     <span class="mono">{{ update.image_repo }}:{{ update.tag }}</span>
+    · <span class="badge badge-sev-{{ update.severity }}">{{ update.severity }}</span>
     · detected {{ update.created_at[:16].replace('T', ' ') }}
     {% if update.source_url %}· <a href="{{ update.source_url }}" target="_blank" rel="noopener">source ↗</a>{% endif %}
   </p>

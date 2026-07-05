@@ -211,10 +211,21 @@ def compose_partial_files(request: Request):
 # Settings (schedules + notifications)
 # ---------------------------------------------------------------------------
 
+VALID_SCOPES = ("master", "updates", "logs", "compose")
+VALID_FEATURES = ("updates", "logs", "compose")
+
+
 def _spec_from_form(form, scope: str) -> dict:
     input_type = form.get(f"{scope}_input_type", "datetime")
     if input_type == "cron":
-        return {"mode": "custom", "cron": form.get(f"{scope}_cron", "0 6 * * *") or "0 6 * * *"}
+        cron_str = (form.get(f"{scope}_cron", "") or "").strip()
+        if cron_str:
+            try:
+                from apscheduler.triggers.cron import CronTrigger
+                CronTrigger.from_crontab(cron_str)  # raises if malformed
+                return {"mode": "custom", "cron": cron_str}
+            except Exception:
+                pass  # malformed despite passing client-side validation — fall back safely below
 
     mode = form.get(f"{scope}_mode", "daily")
     time_field = f"{scope}_time_weekly" if mode == "weekly" else f"{scope}_time"
@@ -271,38 +282,81 @@ def settings_page(request: Request):
     )
 
 
-@app.post("/settings")
-async def save_settings(request: Request):
+def _saved(request: Request):
+    return templates.TemplateResponse("_saved_indicator.html", {"request": request})
+
+
+@app.post("/settings/schedule/{scope}")
+async def save_schedule(scope: str, request: Request):
+    if scope not in VALID_SCOPES:
+        raise HTTPException(status_code=404)
     form = await request.form()
-    db.set_master_schedule(_spec_from_form(form, "master"))
-    for feature in ("updates", "logs", "compose"):
-        use_master = form.get(f"{feature}_use_master") == "on"
-        db.set_feature_uses_master_schedule(feature, use_master)
-        if not use_master:
-            db.set_feature_schedule(feature, _spec_from_form(form, feature))
+    spec = _spec_from_form(form, scope)
+    if scope == "master":
+        db.set_master_schedule(spec)
+    else:
+        db.set_feature_schedule(scope, spec)
     apply_schedules()
-    return RedirectResponse(url="/settings", status_code=303)
+    return _saved(request)
 
 
-@app.post("/settings/notifications")
-async def save_notifications(request: Request):
+@app.post("/settings/schedule/use-master/{feature}")
+async def save_schedule_use_master(feature: str, request: Request):
+    if feature not in VALID_FEATURES:
+        raise HTTPException(status_code=404)
     form = await request.form()
-    db.set_notifications_enabled(form.get("notify_enabled") == "on")
-    db.set_apprise_urls(form.get("apprise_urls", ""))
-    db.set_severity_master(form.get("severity_master", "suggestion"))
-    for feature in ("updates", "logs", "compose"):
-        db.set_feature_notify_enabled(feature, form.get(f"notify_{feature}_enabled") == "on")
-        if feature in ("logs", "compose"):
-            use_master = form.get(f"notify_{feature}_use_master_severity") == "on"
-            db.set_feature_uses_master_severity(feature, use_master)
-            if not use_master:
-                db.set_feature_severity(feature, form.get(f"notify_{feature}_severity", "suggestion"))
-    return RedirectResponse(url="/settings", status_code=303)
+    db.set_feature_uses_master_schedule(feature, form.get("enabled") == "on")
+    apply_schedules()
+    return _saved(request)
 
 
-@app.post("/settings/notifications/test")
-def test_notifications(request: Request):
-    success, message = send_test_notification()
+@app.post("/settings/notify/enabled/{scope}")
+async def save_notify_enabled(scope: str, request: Request):
+    if scope not in VALID_SCOPES:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    enabled = form.get("enabled") == "on"
+    if scope == "master":
+        db.set_notifications_enabled(enabled)
+    else:
+        db.set_feature_notify_enabled(scope, enabled)
+    return _saved(request)
+
+
+@app.post("/settings/notify/severity/{scope}")
+async def save_notify_severity(scope: str, request: Request):
+    if scope not in VALID_SCOPES:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    severity = form.get("severity", "suggestion")
+    if severity not in ("suggestion", "warning", "critical"):
+        severity = "suggestion"
+    if scope == "master":
+        db.set_severity_master(severity)
+    else:
+        db.set_feature_severity(scope, severity)
+    return _saved(request)
+
+
+@app.post("/settings/notify/use-master-severity/{feature}")
+async def save_notify_use_master_severity(feature: str, request: Request):
+    if feature not in VALID_FEATURES:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    db.set_feature_uses_master_severity(feature, form.get("enabled") == "on")
+    return _saved(request)
+
+
+@app.post("/settings/notify/apprise-test")
+async def test_apprise(request: Request):
+    form = await request.form()
+    raw = form.get("apprise_urls", "") or ""
+    urls = [u.strip() for u in raw.replace("\n", ",").split(",") if u.strip()]
+    success, message = send_test_notification(urls=urls)
+    if success:
+        # Only persist the URL once it's actually proven to work — an unsaved textarea
+        # that hasn't been tested (or failed its test) never gets written to the database.
+        db.set_apprise_urls(raw)
     css_class = "test-result-ok" if success else "test-result-error"
     return templates.TemplateResponse(
         "_test_notification_result.html", {"request": request, "message": message, "css_class": css_class}

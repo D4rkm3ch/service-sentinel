@@ -1,4 +1,5 @@
 import json
+import re
 
 import anthropic
 
@@ -27,7 +28,17 @@ the release touches their actual configuration, say so plainly and keep this sec
 don't pad it.
 
 Be concise. This is read on a dashboard, not a blog post. No preamble, no closing summary, no \
-restating the version numbers."""
+restating the version numbers.
+
+After the three sections above, add one final line with nothing else on it, in exactly this \
+format: `SEVERITY: X` where X is one of critical, warning, or suggestion.
+- critical: a major overhaul, a breaking change, or a security fix — something that needs \
+attention before or during the update, not just "nice to know."
+- warning: a notable new feature or a non-trivial change worth reading about, but nothing that \
+requires special care to update.
+- suggestion: a minor or routine release — small fixes, no meaningful impact either way."""
+
+SEVERITY_LINE_PATTERN = re.compile(r"^\s*SEVERITY:\s*(critical|warning|suggestion)\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 def summarize_update(
@@ -37,7 +48,10 @@ def summarize_update(
     new_tag_or_digest: str | None,
     release_notes: str,
     compose_config: dict | None,
-) -> str:
+) -> tuple[str, str]:
+    """Returns (summary_markdown, severity). Severity is parsed out of the model's response
+    and stripped from the markdown before it's returned, since it's for our own use (dashboard
+    badge, notification threshold), not something that reads naturally inline in the note."""
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not configured")
 
@@ -72,7 +86,13 @@ Operator's compose configuration for this service:
         messages=[{"role": "user", "content": user_message}],
     )
 
-    return "".join(block.text for block in response.content if block.type == "text")
+    text = "".join(block.text for block in response.content if block.type == "text")
+
+    match = SEVERITY_LINE_PATTERN.search(text)
+    severity = match.group(1).lower() if match else "warning"
+    summary_markdown = SEVERITY_LINE_PATTERN.sub("", text).strip()
+
+    return summary_markdown, severity
 
 
 LOG_TRIAGE_SYSTEM_PROMPT = """You are triaging pre-filtered log excerpts from a homelab \
