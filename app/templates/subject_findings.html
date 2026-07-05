@@ -7,10 +7,14 @@
 <section>
   <div class="feature-header">
     <h1 class="mono">{{ display_name }}</h1>
-    <a href="{{ toggle_url }}{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
+    <a href="{{ toggle_url }}" class="show-silenced-link">
       {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
     </a>
   </div>
+
+  {% if overview %}
+  <div class="overview-summary">{{ overview }}</div>
+  {% endif %}
 
   {% if findings %}
   <table class="findings-table">

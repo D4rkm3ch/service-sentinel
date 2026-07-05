@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS findings (
     category TEXT NOT NULL,             -- error, security, reliability, optimization
     severity TEXT NOT NULL,             -- suggestion, warning, critical
     description_markdown TEXT,
+    suggested_fix TEXT,                 -- only populated when Deep Analysis is on for this source
     occurrence_count INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'active',  -- active or silenced
     first_seen_at TEXT NOT NULL,
@@ -65,6 +66,15 @@ CREATE TABLE IF NOT EXISTS compose_file_state (
     content_hash TEXT NOT NULL,
     last_reviewed_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS subject_summaries (
+    source TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    findings_hash TEXT NOT NULL,
+    summary_markdown TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source, subject)
+);
 """
 
 # All three features ship off by default — nothing runs, nothing spends tokens, until the
@@ -76,6 +86,7 @@ DEFAULT_FEATURE_STATE = {
 }
 
 SEVERITY_ORDER = {"suggestion": 0, "warning": 1, "critical": 2}
+DEFAULT_SEVERITY = "suggestion"
 
 
 def now_iso() -> str:
@@ -117,6 +128,28 @@ def init_db() -> None:
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
+        # Same pattern for the findings table's suggested_fix column (Deep Analysis feature).
+        try:
+            conn.execute("ALTER TABLE findings ADD COLUMN suggested_fix TEXT")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+
+        # Explicitly seed defaults rather than relying only on read-time fallbacks — this is
+        # the same belt-and-suspenders approach as the feature toggles above, and avoids any
+        # ambiguity in what a fresh install's severity pickers show on first load.
+        default_settings = {
+            "notify_severity_master": DEFAULT_SEVERITY,
+            "notify_severity_updates": DEFAULT_SEVERITY,
+            "notify_severity_logs": DEFAULT_SEVERITY,
+            "notify_severity_compose": DEFAULT_SEVERITY,
+            "deep_analysis_logs_enabled": "false",
+            "deep_analysis_compose_enabled": "false",
+        }
+        for key, value in default_settings.items():
+            conn.execute(
+                "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)", (key, value)
+            )
 
 
 @contextmanager
@@ -239,8 +272,6 @@ def get_effective_schedule(feature: str) -> dict:
 # per-feature override for Logs and Compose — Updates notifications aren't
 # severity-graded, so there's no severity setting for that one).
 # ---------------------------------------------------------------------------
-
-DEFAULT_SEVERITY = "suggestion"
 
 
 def get_notifications_enabled() -> bool:
@@ -406,6 +437,7 @@ def upsert_finding(
     category: str,
     severity: str,
     description_markdown: str,
+    suggested_fix: str | None = None,
 ) -> tuple[int, bool]:
     """Inserts a new finding, or if the same (source, fingerprint) already exists, bumps its
     occurrence count and last-seen time instead of creating a duplicate. A silenced finding
@@ -426,10 +458,11 @@ def upsert_finding(
                 UPDATE findings
                 SET occurrence_count = occurrence_count + 1,
                     last_seen_at = ?,
-                    description_markdown = ?
+                    description_markdown = ?,
+                    suggested_fix = ?
                 WHERE id = ?
                 """,
-                (now, description_markdown, existing["id"]),
+                (now, description_markdown, suggested_fix, existing["id"]),
             )
             return existing["id"], False
 
@@ -437,10 +470,11 @@ def upsert_finding(
             """
             INSERT INTO findings
                 (source, subject, fingerprint, title, category, severity, description_markdown,
-                 occurrence_count, status, first_seen_at, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)
+                 suggested_fix, occurrence_count, status, first_seen_at, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)
             """,
-            (source, subject, fingerprint, title, category, severity, description_markdown, now, now),
+            (source, subject, fingerprint, title, category, severity, description_markdown,
+             suggested_fix, now, now),
         )
         return cur.lastrowid, True
 
@@ -624,3 +658,45 @@ def set_compose_file_hash(file_path: str, content_hash: str) -> None:
             """,
             (file_path, content_hash, now),
         )
+
+
+# ---------------------------------------------------------------------------
+# Cached combined findings overview (per subject)
+# ---------------------------------------------------------------------------
+
+def get_subject_summary(source: str, subject: str) -> dict | None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "SELECT * FROM subject_summaries WHERE source = ? AND subject = ?", (source, subject)
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def set_subject_summary(source: str, subject: str, findings_hash: str, summary_markdown: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO subject_summaries (source, subject, findings_hash, summary_markdown, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(source, subject) DO UPDATE SET
+                findings_hash = excluded.findings_hash,
+                summary_markdown = excluded.summary_markdown,
+                created_at = excluded.created_at
+            """,
+            (source, subject, findings_hash, summary_markdown, now_iso()),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Deep Analysis — opt-in, per-feature (Logs and Compose only), off by default.
+# When on, findings get an AI-suggested fix in addition to the problem report,
+# which costs more tokens per finding.
+# ---------------------------------------------------------------------------
+
+def get_deep_analysis_enabled(feature: str) -> bool:
+    return _get_setting(f"deep_analysis_{feature}_enabled", "false") == "true"
+
+
+def set_deep_analysis_enabled(feature: str, enabled: bool) -> None:
+    _set_setting(f"deep_analysis_{feature}_enabled", "true" if enabled else "false")

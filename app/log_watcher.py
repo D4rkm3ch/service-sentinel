@@ -57,7 +57,8 @@ def run_log_check() -> dict:
         return result
 
     try:
-        findings = analyze_logs_batch(excerpts_by_container)
+        include_fix = db.get_deep_analysis_enabled("logs")
+        findings = analyze_logs_batch(excerpts_by_container, include_fix=include_fix)
     except Exception:
         logger.exception("Log triage AI call failed")
         result = {"checked": checked, "findings_found": 0, "errors": 1}
@@ -76,6 +77,7 @@ def run_log_check() -> dict:
             category=finding.get("category", "error"),
             severity=finding.get("severity", "warning"),
             description_markdown=finding.get("description", ""),
+            suggested_fix=finding.get("fix"),
         )
         findings_found += 1
         if is_new:

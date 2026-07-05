@@ -6,7 +6,7 @@
 {% block content %}
 
 <section class="settings-section">
-  <h2 class="settings-heading-lg">Schedule</h2>
+  <h2 class="settings-heading-lg">Scheduling</h2>
 
   <div class="settings-subsection settings-subsection-first">
     <h4>General</h4>
@@ -72,7 +72,52 @@
   {% endfor %}
 </section>
 
+<section class="settings-section">
+  <h2 class="settings-heading-lg">Deep Analysis</h2>
+  <p class="meta">Adds an AI-suggested fix alongside each finding, not just the problem report. \
+This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
+
+  {% for feature, title in [('logs', 'Log health'), ('compose', 'Compose health')] %}
+  <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
+    <h4>{{ title }}</h4>
+    <div class="toggle-with-label">
+      <span class="toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="deep_analysis_{{ feature }}" {{ 'checked' if deep_analysis[feature] else '' }}
+                 onchange="handleDeepAnalysisToggle(this, '{{ feature }}')">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="saved-indicator-slot" id="saved-deep_analysis_{{ feature }}"></span>
+      </span>
+      <span class="toggle-label">Suggest fixes for {{ title }} findings (uses more tokens)</span>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+
 <script>
+function handleDeepAnalysisToggle(el, feature) {
+  if (el.checked) {
+    const ok = confirm(
+      'Deep Analysis asks Claude to work out a suggested fix for every finding, not just ' +
+      'report the problem. This uses noticeably more tokens per finding.\n\n' +
+      'Enable Deep Analysis for ' + feature + '?'
+    );
+    if (!ok) {
+      el.checked = false;
+      return;
+    }
+  }
+  fetch('/settings/deep-analysis/' + feature, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'enabled=' + (el.checked ? 'on' : ''),
+  }).then(() => {
+    const slot = document.getElementById('saved-deep_analysis_' + feature);
+    if (slot) slot.innerHTML = '<span class="saved-indicator">Saved</span>';
+  });
+}
+</script>
 // ---- Cron validation (numeric 5-field cron only — no day/month name aliases) ----
 function isValidCronItem(item, min, max) {
   const stepMatch = item.match(/^(.+)\/(\d+)$/);

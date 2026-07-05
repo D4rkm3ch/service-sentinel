@@ -19,6 +19,13 @@
     {{ description_html | safe }}
   </div>
 
+  {% if suggested_fix_html %}
+  <div class="summary suggested-fix">
+    <h3>Suggested fix</h3>
+    {{ suggested_fix_html | safe }}
+  </div>
+  {% endif %}
+
   {% if finding.status == 'active' %}
   <form method="post" action="/findings/{{ finding.id }}/silence">
     <button type="submit">Silence</button>

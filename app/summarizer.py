@@ -95,7 +95,7 @@ Operator's compose configuration for this service:
     return summary_markdown, severity
 
 
-LOG_TRIAGE_SYSTEM_PROMPT = """You are triaging pre-filtered log excerpts from a homelab \
+LOG_TRIAGE_SYSTEM_PROMPT_BASE = """You are triaging pre-filtered log excerpts from a homelab \
 operator's self-hosted Docker containers. Each excerpt already only contains lines that matched \
 suspicious keywords (error, exception, failed, etc.) plus a little surrounding context — most \
 routine noise has already been stripped out before it reached you.
@@ -108,19 +108,26 @@ can see directly in the excerpt (e.g. a container repeatedly restarting, an obvi
 misconfiguration visible in the error text).
 
 Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
-{"container": "the container name from the excerpt's header", "title": "a short, specific title \
+{{"container": "the container name from the excerpt's header", "title": "a short, specific title \
 (under 8 words) that would let someone recognize this same issue if it recurred", "category": \
 one of "error", "reliability", "optimization", "severity": one of "critical", "warning", \
-"suggestion", "description": "1-3 sentences explaining what's happening and, if obvious, what to \
-check or try"}
+"suggestion", "description": "1-3 sentences explaining what's happening"{fix_field}}}
 
 If nothing in the provided excerpts represents a real issue, respond with an empty JSON array: []"""
 
+FIX_FIELD_LOG = ', "fix": "a concrete, specific suggestion for how to resolve this — commands, ' \
+    'config changes, or what to check, not generic advice"'
 
-def analyze_logs_batch(excerpts_by_container: dict[str, str]) -> list[dict]:
+
+def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool = False) -> list[dict]:
     """Sends pre-filtered log excerpts (already keyword-matched locally) to Claude for triage.
     Returns a list of finding dicts, or an empty list if nothing real was found — callers
-    should treat an empty list as a clean, quiet result, not an error."""
+    should treat an empty list as a clean, quiet result, not an error.
+
+    include_fix requests an additional "fix" field (Deep Analysis) — left off by default since
+    asking the model to actually work out a remediation costs meaningfully more output tokens
+    than just naming the problem.
+    """
     if not settings.anthropic_api_key or not excerpts_by_container:
         return []
 
@@ -129,11 +136,13 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str]) -> list[dict]:
         sections.append(f"=== Container: {container_name} ===\n{excerpt}")
     user_message = "\n\n".join(sections)
 
+    system_prompt = LOG_TRIAGE_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_LOG if include_fix else "")
+
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
         model=settings.claude_model,
-        max_tokens=2000,
-        system=LOG_TRIAGE_SYSTEM_PROMPT,
+        max_tokens=2500 if include_fix else 2000,
+        system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
     )
     text = "".join(block.text for block in response.content if block.type == "text")
@@ -141,7 +150,7 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str]) -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-COMPOSE_REVIEW_SYSTEM_PROMPT = """You are reviewing a docker-compose file from a homelab \
+COMPOSE_REVIEW_SYSTEM_PROMPT_BASE = """You are reviewing a docker-compose file from a homelab \
 operator's self-hosted setup. Secret-looking values have already been redacted before you see \
 this — you're reviewing structure and configuration, not credentials.
 
@@ -160,26 +169,67 @@ Only report things with real substance — skip purely stylistic nitpicks. If th
 say so by returning an empty array.
 
 Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
-{"title": "a short, specific title (under 8 words)", "category": one of "security", \
+{{"title": "a short, specific title (under 8 words)", "category": one of "security", \
 "reliability", "optimization", "severity": one of "critical", "warning", "suggestion", \
-"description": "1-3 sentences explaining the issue and a concrete suggestion"}"""
+"description": "1-3 sentences explaining the issue"{fix_field}}}"""
+
+FIX_FIELD_COMPOSE = ', "fix": "a concrete suggested compose file change — the specific key(s) ' \
+    'to add or edit, not generic advice"'
 
 
-def review_compose_file(file_path: str, redacted_yaml: str) -> list[dict]:
+def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = False) -> list[dict]:
     """Sends a secret-redacted compose file to Claude for a structural review. Returns a list
-    of finding dicts, or an empty list if the file looks fine."""
+    of finding dicts, or an empty list if the file looks fine.
+
+    include_fix requests an additional "fix" field (Deep Analysis) — off by default for the
+    same token-cost reason as the log triage function.
+    """
     if not settings.anthropic_api_key:
         return []
 
     user_message = f"File: {file_path}\n\n{redacted_yaml}"
+    system_prompt = COMPOSE_REVIEW_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_COMPOSE if include_fix else "")
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
         model=settings.claude_model,
-        max_tokens=1500,
-        system=COMPOSE_REVIEW_SYSTEM_PROMPT,
+        max_tokens=2000 if include_fix else 1500,
+        system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
     )
     text = "".join(block.text for block in response.content if block.type == "text")
     data = extract_json(text)
     return data if isinstance(data, list) else []
+
+
+FINDINGS_OVERVIEW_SYSTEM_PROMPT = """You are summarizing a set of findings for a homelab \
+operator, all belonging to the same container or compose file. The individual findings are \
+already listed separately below where this appears — your job is a short combined overview, \
+not a restatement of each one.
+
+Write 2-4 sentences of plain prose: lead with the most important issue, note anything that's \
+related or should probably be addressed together, and give an overall sense of how concerning \
+the current state is. No markdown headers, no bullet list, no restating every title."""
+
+
+def summarize_findings_overview(subject_display: str, findings: list[dict]) -> str:
+    """Short combined AI overview shown above a subject's findings list. Only meaningful for
+    2+ findings — callers should skip calling this for 0 or 1."""
+    if not settings.anthropic_api_key or not findings:
+        return ""
+
+    listing = "\n".join(
+        f"- [{f.get('severity', 'warning')}] {f.get('title', '')} ({f.get('category', '')}): "
+        f"{f.get('description_markdown') or ''}"
+        for f in findings
+    )
+    user_message = f"Subject: {subject_display}\n\nFindings:\n{listing}"
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    response = client.messages.create(
+        model=settings.claude_model,
+        max_tokens=400,
+        system=FINDINGS_OVERVIEW_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    return "".join(block.text for block in response.content if block.type == "text").strip()

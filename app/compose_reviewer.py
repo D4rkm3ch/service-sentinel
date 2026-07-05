@@ -51,7 +51,8 @@ def run_compose_check() -> dict:
             continue
 
         try:
-            findings = review_compose_file(str(path), redacted)
+            include_fix = db.get_deep_analysis_enabled("compose")
+            findings = review_compose_file(str(path), redacted, include_fix=include_fix)
         except Exception:
             logger.exception("Compose review AI call failed for %s", path)
             errors += 1
@@ -69,6 +70,7 @@ def run_compose_check() -> dict:
                 category=finding.get("category", "reliability"),
                 severity=finding.get("severity", "warning"),
                 description_markdown=finding.get("description", ""),
+                suggested_fix=finding.get("fix"),
             )
             findings_found += 1
             if is_new:

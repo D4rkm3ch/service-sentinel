@@ -1,5 +1,6 @@
+import hashlib
 import logging
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import markdown
 from fastapi import FastAPI, Request, HTTPException
@@ -12,6 +13,7 @@ from app import compose_lookup, db
 from app.check_state import format_summary, get_state, set_running
 from app.config import settings
 from app.notifications import send_test_notification
+from app.summarizer import summarize_findings_overview
 from app.schedule_spec import describe as describe_schedule
 from app.scheduler import (
     apply_schedules,
@@ -20,7 +22,10 @@ from app.scheduler import (
     trigger_compose_check_now,
     trigger_log_check_now,
 )
+from app.uptime import get_uptime_str
 from app.webhook import router as webhook_router
+
+RELEASE_RADAR_VERSION = "0.6.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("release_radar")
@@ -40,6 +45,10 @@ app = FastAPI(title="release-radar")
 app.add_middleware(NoStoreMiddleware)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+templates.env.globals["app_version"] = RELEASE_RADAR_VERSION
+templates.env.globals["github_url"] = "https://github.com/D4rkm3ch/release-radar"
+templates.env.globals["app_timezone"] = settings.tz
+templates.env.globals["get_uptime_str"] = get_uptime_str
 app.include_router(webhook_router)
 
 TRIGGER_FUNCS = {
@@ -207,6 +216,31 @@ def compose_partial_files(request: Request):
     return templates.TemplateResponse("_status_list_table.html", {"request": request, "items": items, "detail_base": "/compose/file", "use_query_param": True})
 
 
+def _get_or_build_overview(source: str, subject: str, display_name: str, findings) -> str | None:
+    """Combined AI overview shown above a subject's findings list. Cached by a hash of the
+    current finding set so it's only regenerated (costing an API call) when something about
+    the findings actually changes, not on every page view. Never called for 0 or 1 findings —
+    those cases either show nothing or get redirected straight to the single finding."""
+    if len(findings) < 2:
+        return None
+
+    fingerprint_input = "|".join(sorted(f"{f['id']}:{f['title']}:{f['status']}" for f in findings))
+    findings_hash = hashlib.sha256(fingerprint_input.encode()).hexdigest()[:16]
+
+    cached = db.get_subject_summary(source, subject)
+    if cached and cached["findings_hash"] == findings_hash:
+        return cached["summary_markdown"]
+
+    try:
+        summary = summarize_findings_overview(display_name, [dict(f) for f in findings])
+    except Exception:
+        logger.exception("Findings overview generation failed for %s:%s", source, subject)
+        return cached["summary_markdown"] if cached else None
+
+    db.set_subject_summary(source, subject, findings_hash, summary)
+    return summary
+
+
 # ---------------------------------------------------------------------------
 # Settings (schedules + notifications)
 # ---------------------------------------------------------------------------
@@ -272,11 +306,15 @@ def settings_page(request: Request):
         }
         for feature in ("updates", "logs", "compose")
     }
+    deep_analysis = {
+        feature: db.get_deep_analysis_enabled(feature) for feature in ("logs", "compose")
+    }
     return templates.TemplateResponse(
         "settings.html",
         {
             "request": request, "master": master, "features": features,
             "describe": describe_schedule, "notify": _build_notify_context(),
+            "deep_analysis": deep_analysis,
             "active_tab": "settings",
         },
     )
@@ -284,6 +322,15 @@ def settings_page(request: Request):
 
 def _saved(request: Request):
     return templates.TemplateResponse("_saved_indicator.html", {"request": request})
+
+
+@app.post("/settings/deep-analysis/{feature}")
+async def save_deep_analysis(feature: str, request: Request):
+    if feature not in ("logs", "compose"):
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    db.set_deep_analysis_enabled(feature, form.get("enabled") == "on")
+    return {"status": "ok"}
 
 
 @app.post("/settings/schedule/{scope}")
@@ -402,12 +449,18 @@ def logs_page(request: Request, show_silenced: bool = False):
 @app.get("/logs/container/{container_name}")
 def logs_container_detail(request: Request, container_name: str, show_silenced: bool = False):
     findings = db.list_findings_for_subject("logs", container_name, include_silenced=show_silenced)
+
+    if not show_silenced and len(findings) == 1:
+        return RedirectResponse(url=f"/findings/{findings[0]['id']}", status_code=303)
+
+    overview = _get_or_build_overview("logs", container_name, container_name, findings)
+    toggle_url = f"/logs/container/{quote(container_name)}?{urlencode({'show_silenced': 0 if show_silenced else 1})}"
     return templates.TemplateResponse(
         "subject_findings.html",
         {
             "request": request, "findings": findings, "display_name": container_name,
-            "back_url": "/logs", "show_silenced": show_silenced,
-            "toggle_url": f"/logs/container/{quote(container_name)}",
+            "back_url": "/logs", "show_silenced": show_silenced, "overview": overview,
+            "toggle_url": toggle_url,
             "active_tab": "logs",
         },
     )
@@ -436,13 +489,19 @@ def compose_page(request: Request, show_silenced: bool = False):
 @app.get("/compose/file")
 def compose_file_detail(request: Request, path: str, show_silenced: bool = False):
     findings = db.list_findings_for_subject("compose", path, include_silenced=show_silenced)
+
+    if not show_silenced and len(findings) == 1:
+        return RedirectResponse(url=f"/findings/{findings[0]['id']}", status_code=303)
+
     display_name = compose_lookup.subject_display_name("compose", path)
+    overview = _get_or_build_overview("compose", path, display_name, findings)
+    toggle_url = f"/compose/file?{urlencode({'path': path, 'show_silenced': 0 if show_silenced else 1})}"
     return templates.TemplateResponse(
         "subject_findings.html",
         {
             "request": request, "findings": findings, "display_name": display_name,
-            "back_url": "/compose", "show_silenced": show_silenced,
-            "toggle_url": f"/compose/file?path={quote(path)}",
+            "back_url": "/compose", "show_silenced": show_silenced, "overview": overview,
+            "toggle_url": toggle_url,
             "active_tab": "compose",
         },
     )
@@ -480,11 +539,13 @@ def finding_detail(request: Request, finding_id: int):
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
     description_html = markdown.markdown(finding["description_markdown"] or "")
+    suggested_fix_html = markdown.markdown(finding["suggested_fix"]) if finding["suggested_fix"] else None
     display_name = compose_lookup.subject_display_name(finding["source"], finding["subject"])
     return templates.TemplateResponse(
         "finding_detail.html",
         {
             "request": request, "finding": finding, "description_html": description_html,
+            "suggested_fix_html": suggested_fix_html,
             "display_name": display_name, "active_tab": finding["source"],
         },
     )

@@ -21,5 +21,11 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  <footer class="app-footer">
+    release-radar v{{ app_version }}
+    · <a href="{{ github_url }}" target="_blank" rel="noopener">GitHub</a>
+    · {{ app_timezone }}
+    · uptime {{ get_uptime_str() }}
+  </footer>
 </body>
 </html>

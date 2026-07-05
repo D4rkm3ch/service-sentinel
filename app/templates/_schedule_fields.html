@@ -31,7 +31,7 @@
     </div>
   </div>
 
-  <div class="schedule-cron-block {{ 'faded' if input_type == 'datetime' else '' }}" id="{{ scope }}_cron_block">
+  <div class="schedule-cron-block {{ 'dimmed' if input_type == 'datetime' else '' }}" id="{{ scope }}_cron_block">
     <label>Cron <input type="text" name="{{ scope }}_cron" id="{{ scope }}_cron_input" value="{{ spec.get('cron', '') }}"
                         placeholder="0 6 * * * (numeric fields only)" class="mono"
                         oninput="handleCronInput('{{ scope }}')" {{ 'disabled' if disabled else '' }}></label>
