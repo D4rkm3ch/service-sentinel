@@ -1,8 +1,10 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app import db
 from app.check_state import set_finished, set_running
 from app.compose_lookup import find_service_config
+from app.config import settings
 from app.docker_client import list_tracked_containers
 from app.notifications import notify_update
 from app.registry import get_latest_digest
@@ -29,15 +31,33 @@ def run_check() -> dict:
         set_finished(result)
         return result
 
+    # Registry checks are almost entirely network wait (DNS + TLS + auth handshake + the
+    # actual request), so running them one container at a time is what makes a large stack
+    # slow — the CPU work here is negligible either way. Fetch all of them concurrently, then
+    # go back to handling results one at a time: that part touches SQLite, which isn't safe
+    # to hit from multiple threads at once, but it's fast enough that it was never the issue.
+    digest_by_container: dict[str, str | None] = {}
+    error_containers: set[str] = set()
+    with ThreadPoolExecutor(max_workers=settings.registry_check_concurrency) as pool:
+        future_to_container = {
+            pool.submit(get_latest_digest, c.image_repo, c.tag): c for c in containers
+        }
+        for future in as_completed(future_to_container):
+            container = future_to_container[future]
+            try:
+                digest_by_container[container.name] = future.result()
+            except Exception:
+                logger.exception("Registry check failed for %s", container.name)
+                error_containers.add(container.name)
+                digest_by_container[container.name] = None
+
     for container in containers:
         checked += 1
-        try:
-            latest_digest = get_latest_digest(container.image_repo, container.tag)
-        except Exception:
-            logger.exception("Registry check failed for %s", container.name)
+        if container.name in error_containers:
             errors += 1
             continue
 
+        latest_digest = digest_by_container.get(container.name)
         if latest_digest is None:
             # Couldn't resolve a digest from the registry (auth issue, unsupported
             # registry, network blip). Leave existing state alone and try again next cycle.
