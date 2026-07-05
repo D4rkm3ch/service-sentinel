@@ -6,6 +6,11 @@ whatever realm/service/scope it specifies and retry. This is what every complian
 registry (Docker Hub, GHCR, lscr.io, Quay, etc.) expects, and means we don't need to
 special-case each registry by hostname.
 
+For registries we already know always challenge (Docker Hub, GHCR, lscr.io — which is a
+front for GHCR), we skip straight to requesting a token instead of wasting a round trip on
+a request we know will get a 401. Unknown/self-hosted registries still go through the full
+try-then-challenge flow, since we can't assume they require auth at all.
+
 TODO / known gaps (fine for a homelab MVP, flag before relying on this more broadly):
 - No private registry credential support yet (DOCKHAND_REGISTRY_USER-style env vars would
   be the natural place to add this, mirroring Dockhand's own approach).
@@ -21,6 +26,14 @@ import re
 import httpx
 
 DOCKER_HUB_REGISTRY = "registry-1.docker.io"
+
+# (realm, service) for registries known to always require a bearer token. lscr.io is a
+# redirect front for GHCR (confirmed via its own challenge response), so it uses GHCR's realm.
+KNOWN_REALMS: dict[str, tuple[str, str]] = {
+    DOCKER_HUB_REGISTRY: ("https://auth.docker.io/token", "registry.docker.io"),
+    "ghcr.io": ("https://ghcr.io/token", "ghcr.io"),
+    "lscr.io": ("https://ghcr.io/token", "ghcr.io"),
+}
 
 MANIFEST_ACCEPT = ", ".join(
     [
@@ -48,9 +61,16 @@ def _normalize_repo(repo: str) -> tuple[str, str]:
     return DOCKER_HUB_REGISTRY, repo
 
 
+def _token_from_realm(realm: str, service: str, repo_path: str, client: httpx.Client) -> str | None:
+    resp = client.get(realm, params={"service": service, "scope": f"repository:{repo_path}:pull"})
+    resp.raise_for_status()
+    return resp.json().get("token")
+
+
 def _bearer_token_for_challenge(challenge: str, client: httpx.Client) -> str | None:
     """Parses a 'Bearer realm="...",service="...",scope="..."' WWW-Authenticate header
-    and fetches a token from the realm it specifies."""
+    and fetches a token from the realm it specifies. Used for registries not in
+    KNOWN_REALMS, where we have to discover the realm from the challenge itself."""
     if not challenge.lower().startswith("bearer"):
         return None
     params = dict(_CHALLENGE_PARAM.findall(challenge))
@@ -75,9 +95,28 @@ def get_latest_digest(image_repo: str, tag: str) -> str | None:
     with httpx.Client(timeout=10.0, follow_redirects=True) as client:
         try:
             headers = {"Accept": MANIFEST_ACCEPT}
-            resp = client.head(manifest_url, headers=headers)
 
-            if resp.status_code == 401:
+            known = KNOWN_REALMS.get(registry_host)
+            if known:
+                # Skip the wasted "try unauthenticated first" round trip — we already know
+                # this host always challenges.
+                realm, service = known
+                token = _token_from_realm(realm, service, repo_path, client)
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+                resp = client.head(manifest_url, headers=headers)
+            else:
+                resp = client.head(manifest_url, headers=headers)
+                if resp.status_code == 401:
+                    challenge = resp.headers.get("WWW-Authenticate", "")
+                    token = _bearer_token_for_challenge(challenge, client)
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
+                        resp = client.head(manifest_url, headers=headers)
+
+            if resp.status_code == 401 and known:
+                # Our hardcoded realm assumption was wrong for this host after all —
+                # fall back to discovering it from the actual challenge instead of giving up.
                 challenge = resp.headers.get("WWW-Authenticate", "")
                 token = _bearer_token_for_challenge(challenge, client)
                 if token:
