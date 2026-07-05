@@ -10,12 +10,12 @@
 <body>
   <header class="topbar">
     <a href="/" class="brand">release-radar</a>
-    <div class="topbar-right">
-      <div id="check-status">{% include "_status.html" %}</div>
-      <button hx-post="/check-now" hx-target="#check-status" hx-swap="innerHTML" hx-disabled-elt="this">
-        Check now
-      </button>
-    </div>
+    <nav class="tabs">
+      <a href="/" class="{{ 'active' if active_tab == 'overview' else '' }}">Overview</a>
+      <a href="/updates" class="{{ 'active' if active_tab == 'updates' else '' }}">Updates</a>
+      <a href="/logs" class="{{ 'active' if active_tab == 'logs' else '' }}">Logs</a>
+      <a href="/compose" class="{{ 'active' if active_tab == 'compose' else '' }}">Compose</a>
+    </nav>
   </header>
   <main>
     {% block content %}{% endblock %}

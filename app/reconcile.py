@@ -18,7 +18,10 @@ def run_check() -> dict:
     """Runs one full pass: list containers, check each against its registry, and for
     anything new, fetch notes + summarize + record. Returns a small summary dict for
     logging / the manual-trigger endpoint."""
-    set_running()
+    if not db.get_feature_enabled("updates"):
+        return {"skipped": True}
+
+    set_running("updates")
     checked = 0
     updates_found = 0
     errors = 0
@@ -28,7 +31,7 @@ def run_check() -> dict:
     except Exception:
         logger.exception("Could not reach the Docker socket — skipping this check")
         result = {"checked": 0, "updates_found": 0, "errors": 1}
-        set_finished(result)
+        set_finished("updates", result)
         return result
 
     # Registry checks are almost entirely network wait (DNS + TLS + auth handshake + the
@@ -91,7 +94,7 @@ def run_check() -> dict:
 
     logger.info("Check complete: %d containers checked, %d updates found, %d errors", checked, updates_found, errors)
     result = {"checked": checked, "updates_found": updates_found, "errors": errors}
-    set_finished(result)
+    set_finished("updates", result)
     return result
 
 

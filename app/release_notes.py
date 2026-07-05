@@ -15,12 +15,12 @@ Returns (notes_text, source_url) or (None, None) if nothing could be found — c
 treat that as "flag for manual review" rather than failing the whole check.
 """
 
-import json
 import logging
 
 import anthropic
 import httpx
 
+from app.ai_json import extract_json
 from app.config import settings
 
 logger = logging.getLogger("release_radar.release_notes")
@@ -104,11 +104,8 @@ faithful description of what changed in this release in your own words, or null 
         return None, None
 
     text = "".join(block.text for block in response.content if block.type == "text").strip()
-    text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
+    data = extract_json(text)
+    if data is None:
         logger.warning("Web search fallback returned non-JSON for %s:%s", image_repo, tag)
         return None, None
 

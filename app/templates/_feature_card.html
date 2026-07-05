@@ -1,0 +1,15 @@
+<div class="feature-card {{ '' if card.enabled else 'card-disabled' }}" id="card-{{ card.feature }}">
+  <div class="feature-card-header">
+    <span class="feature-card-title">{{ card.title }}</span>
+    <label class="toggle-switch">
+      <input type="checkbox" {{ 'checked' if card.enabled else '' }}
+             hx-post="/settings/toggle/{{ card.feature }}" hx-target="#card-{{ card.feature }}" hx-swap="outerHTML">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+  <div class="feature-card-body">
+    <p class="feature-card-headline">{{ card.headline }}</p>
+    <p class="feature-card-detail">{{ card.detail }}{% if not card.enabled %} · disabled{% endif %}</p>
+  </div>
+  <a href="{{ card.tab_url }}" class="feature-card-link">View all →</a>
+</div>

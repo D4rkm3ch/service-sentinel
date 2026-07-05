@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Updates — release-radar{% endblock %}
+{% block content %}
+
+{% include "_feature_header.html" %}
+
+<section>
+  <div id="updates-table" hx-get="/updates/partial" hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
+    {% include "_updates_table.html" %}
+  </div>
+</section>
+
+<section>
+  <h2>Tracked containers</h2>
+  <div id="containers-table" hx-get="/updates/partial/containers" hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
+    {% include "_containers_table.html" %}
+  </div>
+</section>
+
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Overview — release-radar{% endblock %}
+{% block content %}
+
+<section class="feature-cards">
+  {% for c in cards %}
+    {% with card = c %}{% include "_feature_card.html" %}{% endwith %}
+  {% endfor %}
+</section>
+
+{% endblock %}

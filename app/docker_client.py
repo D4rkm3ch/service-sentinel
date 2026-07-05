@@ -5,6 +5,7 @@ import docker
 from app.config import settings
 
 IGNORE_LABEL = "releaseradar.ignore"
+LOGS_IGNORE_LABEL = "releaseradar.logs.ignore"
 SOURCE_LABEL = "releaseradar.source"
 CHANGELOG_LABEL = "releaseradar.changelog_url"
 
@@ -24,6 +25,10 @@ class TrackedContainer:
     @property
     def changelog_url_override(self) -> str | None:
         return self.labels.get(CHANGELOG_LABEL)
+
+    @property
+    def logs_ignored(self) -> bool:
+        return self.labels.get(LOGS_IGNORE_LABEL, "").lower() == "true"
 
 
 def _split_image_ref(image_ref: str) -> tuple[str, str]:
@@ -73,5 +78,58 @@ def list_tracked_containers() -> list[TrackedContainer]:
                 )
             )
         return result
+    finally:
+        client.close()
+
+
+def list_running_containers_for_logs() -> list[TrackedContainer]:
+    """Like list_tracked_containers, but only excludes containers via LOGS_IGNORE_LABEL
+    rather than IGNORE_LABEL — a container can be excluded from update-checking without
+    being excluded from log watching, or vice versa."""
+    client = docker.DockerClient(base_url=settings.docker_socket)
+    try:
+        containers = client.containers.list(filters={"status": "running"})
+        result = []
+        for c in containers:
+            labels = c.labels or {}
+            if labels.get(LOGS_IGNORE_LABEL, "").lower() == "true":
+                continue
+            image_ref = c.attrs["Config"]["Image"]
+            repo, tag = _split_image_ref(image_ref)
+            result.append(TrackedContainer(name=c.name, image_repo=repo, tag=tag, current_digest=None, labels=labels))
+        return result
+    finally:
+        client.close()
+
+
+def get_container_logs_since(container_name: str, since_iso: str | None, max_lines: int) -> str | None:
+    """Returns up to max_lines of log text for a container since the given ISO timestamp
+    (or the configured lookback window if since_iso is None — first time this container has
+    been checked). Returns None if the container can't be found or logs can't be read."""
+    client = docker.DockerClient(base_url=settings.docker_socket)
+    try:
+        try:
+            container = client.containers.get(container_name)
+        except docker.errors.NotFound:
+            return None
+
+        kwargs = {"tail": max_lines, "timestamps": False}
+        if since_iso:
+            # docker-py accepts a datetime or a unix timestamp for `since`.
+            from datetime import datetime
+            try:
+                kwargs["since"] = datetime.fromisoformat(since_iso)
+            except ValueError:
+                pass
+        else:
+            from datetime import datetime, timedelta, timezone
+            kwargs["since"] = datetime.now(timezone.utc) - timedelta(hours=settings.log_lookback_hours)
+
+        raw = container.logs(**kwargs)
+        text = raw.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        if len(lines) > max_lines:
+            lines = lines[-max_lines:]
+        return "\n".join(lines)
     finally:
         client.close()

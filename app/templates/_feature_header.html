@@ -1,0 +1,14 @@
+<div class="feature-header">
+  <h1>
+    {%- if feature == "updates" -%}Updates
+    {%- elif feature == "logs" -%}Log health
+    {%- elif feature == "compose" -%}Compose health
+    {%- endif -%}
+  </h1>
+  <div class="topbar-right">
+    <div id="check-status">{% include "_status.html" %}</div>
+    <button hx-post="/{{ feature }}/check-now" hx-target="#check-status" hx-swap="innerHTML" hx-disabled-elt="this">
+      Check now
+    </button>
+  </div>
+</div>

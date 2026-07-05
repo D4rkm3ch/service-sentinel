@@ -14,6 +14,17 @@ services:
       - DATA_DIR=/data
       - TZ=${TZ:-Australia/Sydney}
       - WEBHOOK_TOKEN=${WEBHOOK_TOKEN}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - APPRISE_URLS=${APPRISE_URLS}
+      - PUBLIC_URL=${PUBLIC_URL}
+      - REGISTRY_CHECK_CONCURRENCY=${REGISTRY_CHECK_CONCURRENCY:-10}
+      - LOG_CHECK_SCHEDULE_CRON=${LOG_CHECK_SCHEDULE_CRON:-0 7 * * *}
+      - LOG_LOOKBACK_HOURS=${LOG_LOOKBACK_HOURS:-24}
+      - LOG_MAX_LINES_PER_CONTAINER=${LOG_MAX_LINES_PER_CONTAINER:-5000}
+      - COMPOSE_CHECK_SCHEDULE_CRON=${COMPOSE_CHECK_SCHEDULE_CRON:-10 6 * * *}
+      - MIN_SEVERITY=${MIN_SEVERITY:-suggestion}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
     volumes:
       # Read-only: only needs to list containers and inspect images, never starts/stops/pulls anything.
       - /var/run/docker.sock:/var/run/docker.sock:ro

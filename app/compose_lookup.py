@@ -93,3 +93,29 @@ def _search_file(path, container_name: str) -> dict | None:
                 "compose_file": str(path),
             }
     return None
+
+
+def list_compose_files() -> list:
+    """Returns every compose file release-radar can see under COMPOSE_ROOT."""
+    if not settings.compose_root.exists():
+        return []
+    return list(settings.compose_root.rglob("*.yml")) + list(settings.compose_root.rglob("*.yaml"))
+
+
+def redact_compose_file_text(path) -> str | None:
+    """Loads a compose file and returns it re-serialized with secret-looking env values
+    redacted across every service, for sending to Claude for review. Returns None if the
+    file can't be parsed."""
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (yaml.YAMLError, OSError):
+        return None
+
+    if not isinstance(data, dict) or "services" not in data:
+        return None
+
+    for service_def in (data.get("services") or {}).values():
+        if isinstance(service_def, dict) and "environment" in service_def:
+            service_def["environment"] = _redact_env(service_def["environment"])
+
+    return yaml.dump(data, default_flow_style=False, sort_keys=False)

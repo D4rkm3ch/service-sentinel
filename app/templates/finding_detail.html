@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ finding.title }} — release-radar{% endblock %}
+{% block content %}
+
+<a href="{{ '/logs' if finding.source == 'logs' else '/compose' }}" class="back-link">← back</a>
+
+<section>
+  <h1 class="mono">{{ finding.subject }}</h1>
+  <p class="meta">
+    {{ finding.title }}
+    · <span class="badge badge-sev-{{ finding.severity }}">{{ finding.severity }}</span>
+    · {{ finding.category }}
+    · seen {{ finding.occurrence_count }}× · first {{ finding.first_seen_at[:16].replace('T', ' ') }}
+    · last {{ finding.last_seen_at[:16].replace('T', ' ') }}
+    {% if finding.status == 'silenced' %}· <span class="badge badge-silenced">silenced</span>{% endif %}
+  </p>
+
+  <div class="summary">
+    {{ description_html | safe }}
+  </div>
+
+  {% if finding.status == 'active' %}
+  <form method="post" action="/findings/{{ finding.id }}/silence">
+    <button type="submit">Silence</button>
+  </form>
+  {% else %}
+  <form method="post" action="/findings/{{ finding.id }}/unsilence">
+    <button type="submit">Unsilence</button>
+  </form>
+  {% endif %}
+</section>
+
+{% endblock %}
