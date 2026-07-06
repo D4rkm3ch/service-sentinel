@@ -118,9 +118,9 @@ def _handle_update(container, old_digest: str | None, new_digest: str | None) ->
             source_url=source_url,
             error="Couldn't find release notes automatically. Check manually, or set the "
             "'releaseradar.source' or 'releaseradar.changelog_url' label on this container.",
-            severity="warning",
+            severity="action_needed",
         )
-        notify_update(container.name, container.image_repo, container.tag, update_id, "warning",
+        notify_update(container.name, container.image_repo, container.tag, update_id, "action_needed",
                        error="Couldn't find release notes automatically — check manually.")
         return
 
@@ -155,7 +155,7 @@ def _handle_update(container, old_digest: str | None, new_digest: str | None) ->
             summary_markdown=None,
             source_url=source_url,
             error=f"Summarization failed: {exc}",
-            severity="warning",
+            severity="action_needed",
         )
-        notify_update(container.name, container.image_repo, container.tag, update_id, "warning",
+        notify_update(container.name, container.image_repo, container.tag, update_id, "action_needed",
                        error=f"Summarization failed: {exc}")

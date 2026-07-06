@@ -10,7 +10,8 @@ from app.config import settings
 
 logger = logging.getLogger("release_radar.notifications")
 
-SEVERITY_ORDER = {"suggestion": 0, "warning": 1, "critical": 2}
+FINDING_SEVERITY_ORDER = {"suggestion": 0, "warning": 1, "critical": 2}
+UPDATE_SEVERITY_ORDER = {"bugfix": 0, "feature": 1, "action_needed": 2, "breaking": 3}
 
 
 def _dashboard_url(path: str) -> str:
@@ -31,12 +32,12 @@ def _send(title: str, body: str) -> None:
         logger.exception("Apprise notification failed")
 
 
-def notify_update(container_name: str, image_repo: str, tag: str, update_id: int, severity: str = "warning", error: str | None = None) -> None:
+def notify_update(container_name: str, image_repo: str, tag: str, update_id: int, severity: str = "feature", error: str | None = None) -> None:
     if not db.get_notifications_enabled() or not db.get_feature_notify_enabled("updates"):
         return
 
     threshold = db.get_effective_severity("updates")
-    if SEVERITY_ORDER.get(severity, 0) < SEVERITY_ORDER.get(threshold, 0):
+    if UPDATE_SEVERITY_ORDER.get(severity, 0) < UPDATE_SEVERITY_ORDER.get(threshold, 0):
         return
 
     url = _dashboard_url(f"/updates/{update_id}")
@@ -57,7 +58,7 @@ def notify_finding(source: str, subject: str, title: str, severity: str, categor
         return
 
     threshold = db.get_effective_severity(source)
-    if SEVERITY_ORDER.get(severity, 0) < SEVERITY_ORDER.get(threshold, 0):
+    if FINDING_SEVERITY_ORDER.get(severity, 0) < FINDING_SEVERITY_ORDER.get(threshold, 0):
         return
 
     url = _dashboard_url(f"/findings/{finding_id}")

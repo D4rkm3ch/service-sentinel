@@ -138,9 +138,11 @@ def init_db() -> None:
         # Explicitly seed defaults rather than relying only on read-time fallbacks — this is
         # the same belt-and-suspenders approach as the feature toggles above, and avoids any
         # ambiguity in what a fresh install's severity pickers show on first load.
+        # Updates uses its own 4-tier scale (bugfix/feature/action_needed/breaking), separate
+        # from the 3-tier scale (suggestion/warning/critical) Logs and Compose still use.
         default_settings = {
             "notify_severity_master": DEFAULT_SEVERITY,
-            "notify_severity_updates": DEFAULT_SEVERITY,
+            "notify_severity_updates": "bugfix",
             "notify_severity_logs": DEFAULT_SEVERITY,
             "notify_severity_compose": DEFAULT_SEVERITY,
             "deep_analysis_logs_enabled": "false",
@@ -149,6 +151,16 @@ def init_db() -> None:
         for key, value in default_settings.items():
             conn.execute(
                 "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)", (key, value)
+            )
+
+        # Migration: an existing install may already have notify_severity_updates seeded with
+        # a value from the old shared 3-tier scale — correct it to the new scale's default.
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'notify_severity_updates'"
+        ).fetchone()
+        if row and row["value"] not in ("bugfix", "feature", "action_needed", "breaking"):
+            conn.execute(
+                "UPDATE app_settings SET value = 'bugfix' WHERE key = 'notify_severity_updates'"
             )
 
 
@@ -326,6 +338,11 @@ def set_feature_severity(feature: str, value: str) -> None:
 
 
 def get_effective_severity(feature: str) -> str:
+    if feature == "updates":
+        # Updates uses its own 4-tier scale (bugfix/feature/action_needed/breaking), which
+        # has no meaningful correspondence to the shared 3-tier scale General/Logs/Compose
+        # use — it always uses its own value directly, never the master toggle.
+        return get_feature_severity(feature)
     if get_feature_uses_master_severity(feature):
         return get_severity_master()
     return get_feature_severity(feature)
@@ -390,7 +407,7 @@ def record_update(
     summary_markdown: str | None,
     source_url: str | None,
     error: str | None = None,
-    severity: str = "warning",
+    severity: str = "feature",
 ) -> int:
     with get_conn() as conn:
         cur = conn.execute(
@@ -408,7 +425,11 @@ UPDATE_SORT_COLUMNS = {
     "container": "container_name COLLATE NOCASE",
     "image": "image_repo COLLATE NOCASE",
     "detected": "created_at",
-    "importance": "CASE severity WHEN 'suggestion' THEN 0 WHEN 'warning' THEN 1 WHEN 'critical' THEN 2 ELSE 3 END",
+    "importance": (
+        "CASE severity "
+        "WHEN 'bugfix' THEN 0 WHEN 'feature' THEN 1 WHEN 'action_needed' THEN 2 WHEN 'breaking' THEN 3 "
+        "ELSE 4 END"
+    ),
     "status": "CASE WHEN error IS NOT NULL THEN 'needs manual check' WHEN status = 'unread' THEN 'new' ELSE 'read' END",
 }
 
@@ -439,6 +460,16 @@ def list_recent_updates(limit: int = 100, sort: str = "importance", direction: s
             (limit,),
         )
         return cur.fetchall()
+
+
+def reset_updates_data() -> None:
+    """TEMPORARY — testing tool for migrating to the new 4-tier Updates severity system.
+    Wipes all Updates history and the digest-tracking baseline, so the next check treats
+    every currently-installed container as fresh and regenerates its summary (and severity
+    tag) using the current AI prompt. Remove this once the new system has settled in."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM updates")
+        conn.execute("DELETE FROM container_state")
 
 
 def get_update(update_id: int) -> sqlite3.Row | None:

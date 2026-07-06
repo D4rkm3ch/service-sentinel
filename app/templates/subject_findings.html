@@ -34,7 +34,7 @@
         <td>{{ f.category|capitalize }}</td>
         <td><span class="badge badge-sev-{{ f.severity }}">{{ severity_label(active_tab, f.severity) }}</span></td>
         <td>{{ f.occurrence_count }}× · last {{ f.last_seen_at[:16].replace('T', ' ') }}</td>
-        <td><a href="/findings/{{ f.id }}">View</a></td>
+        <td><a href="/findings/{{ f.id }}" class="row-chevron">›</a></td>
       </tr>
       {% endfor %}
     </tbody>

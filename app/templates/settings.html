@@ -61,6 +61,12 @@
       {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature) }}
       <span class="toggle-label">Enable notifications</span>
     </div>
+    {% if feature == 'updates' %}
+    <p class="meta" style="margin-top:8px">Updates uses its own importance scale, so it always sets its own threshold directly rather than following the general severity above.</p>
+    <div style="margin-top:8px">
+      {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
+    </div>
+    {% else %}
     <div class="toggle-with-label" style="margin-top:8px">
       {{ ts.toggle_switch('notify_' ~ feature ~ '_use_master_sev', notify.features[feature].use_master_severity, '/settings/notify/use-master-severity/' ~ feature, "toggleSeverityOverride('" ~ feature ~ "', this.checked)") }}
       <span class="toggle-label">Use general severity</span>
@@ -68,6 +74,7 @@
     <div style="margin-top:8px">
       {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, notify.features[feature].use_master_severity) }}
     </div>
+    {% endif %}
   </div>
   {% endfor %}
 </section>

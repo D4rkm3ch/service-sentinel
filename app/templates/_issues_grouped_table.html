@@ -27,9 +27,9 @@
       <td>{{ issue.last_seen_at[:16].replace('T', ' ') }}</td>
       <td>
         {% if source == 'logs' %}
-        <a href="/logs/container/{{ issue.subject }}{{ '?show_silenced=1' if show_silenced else '' }}">View</a>
+        <a href="/logs/container/{{ issue.subject }}{{ '?show_silenced=1' if show_silenced else '' }}" class="row-chevron">›</a>
         {% else %}
-        <a href="/compose/file?path={{ issue.subject|urlencode }}{{ '&show_silenced=1' if show_silenced else '' }}">View</a>
+        <a href="/compose/file?path={{ issue.subject|urlencode }}{{ '&show_silenced=1' if show_silenced else '' }}" class="row-chevron">›</a>
         {% endif %}
       </td>
     </tr>

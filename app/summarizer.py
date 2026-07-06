@@ -36,14 +36,23 @@ Be concise. This is read on a dashboard, not a blog post. No preamble, no closin
 restating the version numbers.
 
 After the three sections above, add one final line with nothing else on it, in exactly this \
-format: `SEVERITY: X` where X is one of critical, warning, or suggestion.
-- critical: a major overhaul, a breaking change, or a security fix — something that needs \
-attention before or during the update, not just "nice to know."
-- warning: a notable new feature or a non-trivial change worth reading about, but nothing that \
-requires special care to update.
-- suggestion: a minor or routine release — small fixes, no meaningful impact either way."""
+format: `SEVERITY: X` where X is one of: bugfix, feature, action_needed, breaking.
 
-SEVERITY_LINE_PATTERN = re.compile(r"^\s*SEVERITY:\s*(critical|warning|suggestion)\s*$", re.IGNORECASE | re.MULTILINE)
+Determine X using this exact order — stop at the first line that applies, don't judge it \
+separately from what you already wrote above:
+1. breaking — the Breaking Changes section above says anything other than "None found."
+2. action_needed — the Relevant to your Setup section above concludes the operator must \
+actually change something in their own configuration (an env var, a volume, a port, a label) \
+for this update to work correctly, or to keep working the same way. This is not for optional \
+new configuration they could choose to use — only for something they must do.
+3. feature — New Features above has real content (not "Nothing notable"), and neither of the \
+above applies.
+4. bugfix — everything else: routine fixes, internal-only changes, dependency bumps with no \
+user-facing effect, and nothing the operator needs to act on."""
+
+SEVERITY_LINE_PATTERN = re.compile(
+    r"^\s*SEVERITY:\s*(bugfix|feature|action_needed|breaking)\s*$", re.IGNORECASE | re.MULTILINE
+)
 
 
 def summarize_update(
@@ -94,7 +103,7 @@ Operator's compose configuration for this service:
     text = "".join(block.text for block in response.content if block.type == "text")
 
     match = SEVERITY_LINE_PATTERN.search(text)
-    severity = match.group(1).lower() if match else "warning"
+    severity = match.group(1).lower() if match else "feature"
     summary_markdown = SEVERITY_LINE_PATTERN.sub("", text).strip()
 
     return summary_markdown, severity

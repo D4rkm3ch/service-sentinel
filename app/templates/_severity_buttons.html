@@ -1,7 +1,7 @@
-{% macro severity_buttons(scope, current, save_url, disabled) %}
+{% macro severity_buttons(scope, current, save_url, disabled, severities=['suggestion', 'warning', 'critical']) %}
 <span class="severity-group-row">
   <div class="severity-group" data-scope="{{ scope }}">
-    {% for s in ['suggestion', 'warning', 'critical'] %}
+    {% for s in severities %}
     <input type="radio" id="{{ scope }}_sev_{{ s }}" name="severity" value="{{ s }}"
            {{ 'checked' if current == s else '' }} {{ 'disabled' if disabled else '' }}
            hx-post="{{ save_url }}" hx-trigger="change" hx-target="#saved-{{ scope }}-sev" hx-swap="innerHTML">

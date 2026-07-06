@@ -53,7 +53,16 @@ templates.env.globals["get_uptime_str"] = get_uptime_str
 # "Suggestion" reads oddly for an update ("this release is a suggestion"?) — "Safe" matches
 # the actual meaning (nothing risky here, safe to update) without changing the underlying
 # severity value used for storage, sorting, and notification thresholds everywhere else.
-SEVERITY_LABELS = {"updates": {"suggestion": "Safe"}}
+SEVERITY_LABELS = {
+    "updates": {
+        "bugfix": "Bug Fixes",
+        "feature": "New Features",
+        "action_needed": "Action Needed",
+        "breaking": "Breaking Change",
+    },
+}
+UPDATE_SEVERITIES = ("bugfix", "feature", "action_needed", "breaking")
+FINDING_SEVERITIES = ("suggestion", "warning", "critical")
 
 
 def severity_label(context: str, value: str) -> str:
@@ -334,7 +343,7 @@ def settings_page(request: Request):
         {
             "request": request, "master": master, "features": features,
             "describe": describe_schedule, "notify": _build_notify_context(),
-            "deep_analysis": deep_analysis,
+            "deep_analysis": deep_analysis, "update_severities": list(UPDATE_SEVERITIES),
             "active_tab": "settings",
         },
     )
@@ -395,9 +404,11 @@ async def save_notify_severity(scope: str, request: Request):
     if scope not in VALID_SCOPES:
         raise HTTPException(status_code=404)
     form = await request.form()
-    severity = form.get("severity", "suggestion")
-    if severity not in ("suggestion", "warning", "critical"):
-        severity = "suggestion"
+    valid_values = UPDATE_SEVERITIES if scope == "updates" else FINDING_SEVERITIES
+    default_value = "bugfix" if scope == "updates" else "suggestion"
+    severity = form.get("severity", default_value)
+    if severity not in valid_values:
+        severity = default_value
     if scope == "master":
         db.set_severity_master(severity)
     else:
@@ -428,6 +439,18 @@ async def test_apprise(request: Request):
     return templates.TemplateResponse(
         "_test_notification_result.html", {"request": request, "message": message, "css_class": css_class}
     )
+
+
+# ---------------------------------------------------------------------------
+# TEMPORARY — testing tool for the 4-tier severity migration. Remove once settled.
+# ---------------------------------------------------------------------------
+
+@app.post("/updates/reset-and-recheck")
+def reset_and_recheck_updates():
+    db.reset_updates_data()
+    set_running("updates")
+    trigger_check_now()
+    return RedirectResponse(url="/updates", status_code=303)
 
 
 # ---------------------------------------------------------------------------
