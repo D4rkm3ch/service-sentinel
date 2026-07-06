@@ -2,9 +2,8 @@
 {% block title %}Updates — release-radar{% endblock %}
 {% block content %}
 
-{% include "_feature_header.html" %}
-
 <section class="panel">
+  {% include "_feature_header.html" %}
   <div id="updates-table" hx-get="/updates/partial?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}"
        hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
     {% include "_updates_table.html" %}

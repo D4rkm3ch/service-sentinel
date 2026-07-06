@@ -26,9 +26,6 @@ services:
       - /opt/stacks:/compose:ro
       # Read-write: SQLite database of detected updates and generated notes.
       - release-radar-data:/data
-    labels:
-      # Skip this container from its own scanning to avoid noise — remove if you want it watched too.
-      - "releaseradar.ignore=true"
 
 volumes:
   release-radar-data:
