@@ -27,21 +27,46 @@
   {% endif %}
 
   {% if members %}
-  <table class="containers-table">
+  <table class="updates-table">
     <thead>
       <tr>
         <th>Container</th>
         <th>Image</th>
-        <th>Last checked</th>
+        <th>Detected</th>
+        <th>Importance</th>
+        <th>Status</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for m in members %}
+      {% if m.latest_update %}
+      <tr class="row-{{ m.latest_update.status }} row-clickable" onclick="window.location='/updates/{{ m.latest_update.id }}'">
+        <td class="mono">{{ m.container_name }}</td>
+        <td class="mono truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</td>
+        <td class="nowrap">{{ m.latest_update.created_at[:16].replace('T', ' ') }}</td>
+        <td><span class="badge badge-sev-{{ m.latest_update.severity }}">{{ severity_label('updates', m.latest_update.severity) }}</span></td>
+        <td>
+          {% if m.latest_update.error %}
+            <span class="badge badge-error">Needs manual check</span>
+          {% elif m.latest_update.status == 'unread' %}
+            <span class="badge badge-unread">New</span>
+          {% else %}
+            <span class="badge badge-read">Read</span>
+          {% endif %}
+        </td>
+        <td><a href="/updates/{{ m.latest_update.id }}" class="row-chevron">›</a></td>
+      </tr>
+      {% else %}
       <tr>
         <td class="mono">{{ m.container_name }}</td>
         <td class="mono truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</td>
-        <td class="nowrap">{{ m.last_checked_at[:16].replace('T', ' ') if m.last_checked_at else '—' }}</td>
+        <td class="nowrap">—</td>
+        <td><span class="badge badge-healthy">Up to date</span></td>
+        <td><span class="meta">—</span></td>
+        <td></td>
       </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>

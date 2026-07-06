@@ -493,6 +493,15 @@ def get_update(update_id: int) -> sqlite3.Row | None:
         return cur.fetchone()
 
 
+def get_latest_update_for_container(container_name: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "SELECT * FROM updates WHERE container_name = ? ORDER BY created_at DESC LIMIT 1",
+            (container_name,),
+        )
+        return cur.fetchone()
+
+
 def mark_update_status(update_id: int, status: str) -> None:
     with get_conn() as conn:
         conn.execute("UPDATE updates SET status = ? WHERE id = ?", (status, update_id))

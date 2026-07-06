@@ -185,7 +185,7 @@ def updates_partial(request: Request, sort: str = "importance", dir: str = "desc
     updates = _annotate_with_stack(updates, "container_name", sort, dir)
     return templates.TemplateResponse(
         "_updates_table.html",
-        {"request": request, "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir},
+        {"request": request, "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "is_partial": True},
     )
 
 
@@ -196,7 +196,7 @@ def updates_partial_containers(request: Request, sort: str = "importance", dir: 
     containers = _annotate_with_stack(containers, "container_name", csort, cdir)
     return templates.TemplateResponse(
         "_containers_table.html",
-        {"request": request, "containers": containers, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir},
+        {"request": request, "containers": containers, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "is_partial": True},
     )
 
 
@@ -262,14 +262,24 @@ def _annotate_with_stack(rows, name_key: str, sort: str, direction: str):
     """Attaches stack_id/stack_name to each row (container/update record) so the table can
     show and optionally sort by which compose stack it belongs to. Ungrouped containers
     (no resolvable compose file) get stack_name=None and always sort to the end regardless
-    of direction — they're a lower-priority bucket, not something to alphabetize normally."""
+    of direction — they're a lower-priority bucket, not something to alphabetize normally.
+
+    Builds the compose index once for the whole batch of rows rather than once per row —
+    each row calling its own full compose-tree scan was the actual cause of slow page
+    loads on setups with many tracked containers."""
+    index = compose_lookup.build_stack_index()
+    name_cache: dict[str, str] = {}
     annotated = []
     for row in rows:
         d = dict(row)
-        info = compose_lookup.get_stack_info(d[name_key])
+        info = compose_lookup.match_container_to_stack(d[name_key], index)
         if info:
             d["stack_id"] = info["stack_id"]
-            d["stack_name"] = stacks.get_or_generate_stack_name(info["stack_id"], info["service_names"])
+            if info["stack_id"] not in name_cache:
+                name_cache[info["stack_id"]] = stacks.get_or_generate_stack_name(
+                    info["stack_id"], info["service_names"]
+                )
+            d["stack_name"] = name_cache[info["stack_id"]]
         else:
             d["stack_id"] = None
             d["stack_name"] = None
@@ -501,22 +511,31 @@ def reset_and_recheck_updates():
 @app.get("/updates/stack")
 def stack_detail(request: Request, id: str):
     stack_row = db.get_stack(id)
-    info_by_container = {}
-    for c in db.all_container_states():
-        info = compose_lookup.get_stack_info(c["container_name"])
-        if info and info["stack_id"] == id:
-            info_by_container[c["container_name"]] = c
-
-    member_names = sorted(info_by_container.keys())
+    index = compose_lookup.build_stack_index()
+    member_names = sorted(
+        c["container_name"] for c in db.all_container_states()
+        if (match := compose_lookup.match_container_to_stack(c["container_name"], index)) and match["stack_id"] == id
+    )
     display_name = stack_row["display_name"] if stack_row else (member_names[0] if member_names else "Unknown stack")
     analysis_row = db.get_stack_analysis(id)
     analysis_html = markdown.markdown(analysis_row["analysis_markdown"]) if analysis_row else None
+
+    members = []
+    for name in member_names:
+        container_row = db.get_container_state(name)
+        latest_update = db.get_latest_update_for_container(name)
+        members.append({
+            "container_name": name,
+            "image_repo": container_row["image_repo"] if container_row else "",
+            "tag": container_row["tag"] if container_row else "",
+            "latest_update": dict(latest_update) if latest_update else None,
+        })
 
     return templates.TemplateResponse(
         "stack_detail.html",
         {
             "request": request, "stack_id": id, "display_name": display_name,
-            "members": [dict(info_by_container[n]) for n in member_names],
+            "members": members,
             "analysis_html": analysis_html, "active_tab": "updates",
         },
     )

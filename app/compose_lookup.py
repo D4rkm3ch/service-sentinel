@@ -95,12 +95,55 @@ def _search_file(path, container_name: str) -> dict | None:
     return None
 
 
+def build_stack_index() -> list[dict]:
+    """Walks COMPOSE_ROOT and parses every compose file exactly once, returning a list of
+    {"stack_id", "service_names", "services"} per file. Callers should build this ONCE per
+    page load and reuse it for every row via match_container_to_stack — calling
+    find_service_config per-row instead re-walks and re-parses the entire compose tree once
+    per row, which is what made pages with many tracked containers slow to load."""
+    if not settings.compose_root.exists():
+        return []
+
+    index = []
+    paths = list(settings.compose_root.rglob("*.yml")) + list(settings.compose_root.rglob("*.yaml"))
+    for path in paths:
+        try:
+            data = yaml.safe_load(path.read_text())
+        except (yaml.YAMLError, OSError):
+            continue
+        if not isinstance(data, dict) or "services" not in data:
+            continue
+        services = {
+            name: d for name, d in (data.get("services") or {}).items() if isinstance(d, dict)
+        }
+        if services:
+            index.append({
+                "stack_id": str(path),
+                "service_names": list(services.keys()),
+                "services": services,
+            })
+    return index
+
+
+def match_container_to_stack(container_name: str, index: list[dict]) -> dict | None:
+    """Matches a container against an already-built index (see build_stack_index) — no file
+    I/O or YAML parsing here, just an in-memory comparison."""
+    for entry in index:
+        for service_name, service_def in entry["services"].items():
+            if _service_matches_container(service_name, service_def, container_name):
+                return {"stack_id": entry["stack_id"], "service_names": entry["service_names"]}
+    return None
+
+
 def get_stack_info(container_name: str) -> dict | None:
     """Resolves which compose file (stack) a container belongs to, and who else lives in
     that same file. The stack's identity is the compose file's own path — stable as long
     as the file isn't moved, and naturally shared by every service defined in it. Returns
     None for containers release-radar can't match to any compose file (not Dockge-managed,
-    or the compose file lives somewhere it can't see) — these are left ungrouped."""
+    or the compose file lives somewhere it can't see) — these are left ungrouped.
+
+    This does a fresh directory walk — for annotating many rows at once (e.g. a whole
+    table), use build_stack_index() once and match_container_to_stack() per row instead."""
     config = find_service_config(container_name)
     if not config:
         return None

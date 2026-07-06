@@ -44,7 +44,7 @@ body {
 }
 
 main {
-  max-width: 960px;
+  max-width: 1060px;
   margin: 0 auto;
   padding: 32px 24px 64px;
 }
@@ -125,10 +125,19 @@ tr.row-clickable {
 }
 
 .truncate-cell {
-  max-width: 260px;
+  max-width: 190px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.stack-cell {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
 }
 
 a {
@@ -159,6 +168,7 @@ a {
   border-radius: 3px;
   font-size: 11px;
   font-weight: 500;
+  white-space: nowrap;
 }
 .badge-unread { background: rgba(94, 201, 166, 0.15); color: var(--accent); }
 .badge-read { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }
@@ -251,7 +261,7 @@ a {
 }
 
 .app-footer {
-  max-width: 960px;
+  max-width: 1060px;
   margin: 40px auto 24px;
   padding: 16px 24px 0;
   border-top: 1px solid var(--border);
