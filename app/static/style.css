@@ -142,13 +142,22 @@ a {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-bottom: 20px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   font-size: 13px;
   color: var(--text-dim);
   text-decoration: none;
 }
-.back-link:hover { color: var(--text); }
+.back-link:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.03);
+}
 
 .badge {
   display: inline-block;
@@ -160,6 +169,12 @@ a {
 .badge-unread { background: rgba(94, 201, 166, 0.15); color: var(--accent); }
 .badge-read { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }
 .badge-error { background: rgba(217, 112, 94, 0.15); color: var(--error); }
+.badge-lg {
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 5px;
+}
 
 .empty {
   color: var(--text-dim);
@@ -170,6 +185,18 @@ a {
   color: var(--text-dim);
   font-size: 13px;
   margin: 0 0 24px;
+}
+
+.subject-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.subject-heading {
+  font-size: 28px;
+  font-weight: 600;
+  margin: 0;
 }
 
 .notice {
@@ -191,9 +218,10 @@ a {
   padding: 24px 28px;
 }
 .summary h2 {
-  margin: 24px 0 10px;
+  margin: 32px 0 14px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 17px;
+  font-weight: 700;
   text-transform: none;
   letter-spacing: normal;
 }
@@ -202,13 +230,18 @@ a {
 .summary li { margin-bottom: 4px; }
 
 .summary h3 {
-  margin: 0 0 10px;
-  font-size: 14px;
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--text);
 }
 .suggested-fix {
   border-color: var(--accent-dim);
   margin-top: 16px;
+}
+
+.action-row {
+  margin-top: 20px;
 }
 
 .overview-summary {

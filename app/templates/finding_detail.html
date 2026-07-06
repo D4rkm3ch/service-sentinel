@@ -5,14 +5,16 @@
 <a href="{{ '/logs' if finding.source == 'logs' else '/compose' }}" class="back-link">← back</a>
 
 <section>
-  <h1 class="mono">{{ display_name }}</h1>
+  <div class="subject-title-row">
+    <h1 class="mono subject-heading">{{ display_name }}</h1>
+    <span class="badge badge-lg badge-sev-{{ finding.severity }}">{{ finding.severity }}</span>
+    {% if finding.status == 'silenced' %}<span class="badge badge-lg badge-silenced">silenced</span>{% endif %}
+  </div>
   <p class="meta">
     {{ finding.title }}
-    · <span class="badge badge-sev-{{ finding.severity }}">{{ finding.severity }}</span>
     · {{ finding.category }}
     · seen {{ finding.occurrence_count }}× · first {{ finding.first_seen_at[:16].replace('T', ' ') }}
     · last {{ finding.last_seen_at[:16].replace('T', ' ') }}
-    {% if finding.status == 'silenced' %}· <span class="badge badge-silenced">silenced</span>{% endif %}
   </p>
 
   <div class="summary">
@@ -27,11 +29,11 @@
   {% endif %}
 
   {% if finding.status == 'active' %}
-  <form method="post" action="/findings/{{ finding.id }}/silence">
+  <form method="post" action="/findings/{{ finding.id }}/silence" class="action-row">
     <button type="submit">Silence</button>
   </form>
   {% else %}
-  <form method="post" action="/findings/{{ finding.id }}/unsilence">
+  <form method="post" action="/findings/{{ finding.id }}/unsilence" class="action-row">
     <button type="submit">Unsilence</button>
   </form>
   {% endif %}
