@@ -90,6 +90,13 @@ CREATE TABLE IF NOT EXISTS stack_analyses (
     analysis_markdown TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS release_notes_cache (
+    image_repo TEXT PRIMARY KEY,
+    method TEXT NOT NULL,               -- 'github' or 'url'
+    location TEXT NOT NULL,             -- 'owner/repo' for github, or a URL
+    last_success_at TEXT NOT NULL
+);
 """
 
 # All three features ship off by default — nothing runs, nothing spends tokens, until the
@@ -883,6 +890,38 @@ def set_stack_analysis(stack_id: str, content_hash: str, analysis_markdown: str)
                 created_at = excluded.created_at
             """,
             (stack_id, content_hash, analysis_markdown, now_iso()),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Release notes source cache — remembers where we successfully found real
+# release notes for an image last time, so future checks try that exact
+# location first instead of re-discovering it from scratch (guessing, then
+# web search) every single time. Only updated on genuine success; a stale
+# cached location that stops working just falls through to full discovery.
+# ---------------------------------------------------------------------------
+
+def get_release_notes_source(image_repo: str) -> dict | None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "SELECT * FROM release_notes_cache WHERE image_repo = ?", (image_repo,)
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def set_release_notes_source(image_repo: str, method: str, location: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO release_notes_cache (image_repo, method, location, last_success_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(image_repo) DO UPDATE SET
+                method = excluded.method,
+                location = excluded.location,
+                last_success_at = excluded.last_success_at
+            """,
+            (image_repo, method, location, now_iso()),
         )
 
 

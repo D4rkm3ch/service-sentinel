@@ -1,4 +1,5 @@
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app import compose_lookup, db, stacks
@@ -36,24 +37,61 @@ def run_check() -> dict:
 
     # Registry checks are almost entirely network wait (DNS + TLS + auth handshake + the
     # actual request), so running them one container at a time is what makes a large stack
-    # slow — the CPU work here is negligible either way. Fetch all of them concurrently, then
-    # go back to handling results one at a time: that part touches SQLite, which isn't safe
-    # to hit from multiple threads at once, but it's fast enough that it was never the issue.
-    digest_by_container: dict[str, str | None] = {}
-    error_containers: set[str] = set()
+    # slow — the CPU work here is negligible either way. Fetch all of them concurrently.
+    #
+    # Deduplicated by (image_repo, tag): containers that share an image (spare/backup
+    # instances, multiple *arr copies, etc.) were each independently re-checking the exact
+    # same manifest — wasted requests, and part of what was causing registry rate limiting
+    # (429s) on busier registries. Check each unique image once, then apply the result to
+    # every container that shares it.
+    image_tag_pairs = {(c.image_repo, c.tag) for c in containers}
+    digest_by_pair: dict[tuple[str, str], str | None] = {}
+    error_pairs: set[tuple[str, str]] = set()
     with ThreadPoolExecutor(max_workers=settings.registry_check_concurrency) as pool:
-        future_to_container = {
-            pool.submit(get_latest_digest, c.image_repo, c.tag): c for c in containers
+        future_to_pair = {
+            pool.submit(get_latest_digest, repo, tag): (repo, tag) for repo, tag in image_tag_pairs
         }
-        for future in as_completed(future_to_container):
-            container = future_to_container[future]
+        for future in as_completed(future_to_pair):
+            pair = future_to_pair[future]
             try:
-                digest_by_container[container.name] = future.result()
+                digest_by_pair[pair] = future.result()
             except Exception:
-                logger.exception("Registry check failed for %s", container.name)
-                error_containers.add(container.name)
-                digest_by_container[container.name] = None
+                logger.exception("Registry check failed for %s:%s", *pair)
+                error_pairs.add(pair)
+                digest_by_pair[pair] = None
 
+    digest_by_container = {c.name: digest_by_pair.get((c.image_repo, c.tag)) for c in containers}
+    error_containers = {c.name for c in containers if (c.image_repo, c.tag) in error_pairs}
+
+    # Kick off the stack-wide cross-service analysis now, in the background — it only needs
+    # container names/images/tags (never the per-container AI summary text), so it has no
+    # real dependency on the summarization phase below and can run at the same time instead
+    # of strictly after it. Joined at the end so the check isn't reported "done" until this
+    # has genuinely finished too.
+    stack_analysis_thread = None
+    if db.get_deep_analysis_enabled("updates"):
+        index = compose_lookup.build_stack_index()
+        members_by_stack: dict[str, list] = {}
+        for container in containers:
+            if container.name in error_containers:
+                continue
+            info = compose_lookup.match_container_to_stack(container.name, index)
+            if info and len(info["service_names"]) >= 2:
+                members_by_stack.setdefault(info["stack_id"], []).append(container)
+
+        def _run_stack_pass():
+            try:
+                stacks.run_stack_analysis_pass(members_by_stack, digest_by_container)
+            except Exception:
+                logger.exception("Stack analysis pass failed")
+
+        stack_analysis_thread = threading.Thread(target=_run_stack_pass, daemon=True)
+        stack_analysis_thread.start()
+
+    # Figure out which containers actually need a fresh AI-generated summary. This is pure
+    # comparison against already-fetched digests — no network or AI calls — so it stays
+    # sequential; it's fast regardless of how many containers there are.
+    to_process: list[tuple] = []
     for container in containers:
         checked += 1
         if container.name in error_containers:
@@ -89,30 +127,61 @@ def run_check() -> dict:
 
         # A new update, either just-detected or the registry moved again since we last notified.
         updates_found += 1
-        _handle_update(container, container.current_digest, latest_digest)
+        to_process.append((container, container.current_digest, latest_digest))
         db.upsert_container_state(container.name, container.image_repo, container.tag, latest_digest)
 
-    if db.get_deep_analysis_enabled("updates"):
-        # Grouping happens regardless of whether a given member individually has a pending
-        # update — a change in one service can affect a stack-mate whose own digest didn't
-        # move, so the whole stack gets reconsidered whenever anything in it changed.
-        #
-        # Build the compose index ONCE and reuse it for every container — calling
-        # get_stack_info per-container re-walks and re-parses the entire compose tree once
-        # per container, which is exactly the bug that made page loads slow before it was
-        # fixed there, just showing up here in the check pipeline instead.
-        index = compose_lookup.build_stack_index()
-        members_by_stack: dict[str, list] = {}
-        for container in containers:
-            if container.name in error_containers:
-                continue
-            info = compose_lookup.match_container_to_stack(container.name, index)
-            if info and len(info["service_names"]) >= 2:
-                members_by_stack.setdefault(info["stack_id"], []).append(container)
-        try:
-            stacks.run_stack_analysis_pass(members_by_stack, digest_by_container)
-        except Exception:
-            logger.exception("Stack analysis pass failed")
+    # Fetching release notes is the genuinely slow, expensive part (network round-trips,
+    # occasionally a web search) — and it depends only on the image/tag/digest transition,
+    # never on any individual container's own compose config. Containers sharing the exact
+    # same image (spare/backup instances, duplicate *arr setups) were each independently
+    # paying for this, including a second web search for identical content. Group by the
+    # notes-determining key and fetch once per group, concurrently.
+    notes_groups: dict[tuple, list] = {}
+    for container, old_d, new_d in to_process:
+        key = (container.image_repo, old_d, new_d, container.source_override, container.changelog_url_override)
+        notes_groups.setdefault(key, []).append((container, old_d, new_d))
+
+    notes_by_key: dict[tuple, tuple] = {}
+    if notes_groups:
+        def _fetch_for_key(key):
+            image_repo, old_d, new_d, source_override, changelog_url_override = key
+            tag = notes_groups[key][0][0].tag
+            return get_release_notes(
+                image_repo=image_repo, tag=tag,
+                source_override=source_override, changelog_url_override=changelog_url_override,
+            )
+
+        with ThreadPoolExecutor(max_workers=settings.ai_summarize_concurrency) as pool:
+            future_to_key = {pool.submit(_fetch_for_key, key): key for key in notes_groups}
+            for future in as_completed(future_to_key):
+                key = future_to_key[future]
+                try:
+                    notes_by_key[key] = future.result()
+                except Exception:
+                    logger.exception("Release notes fetch failed for %s", key[0])
+                    notes_by_key[key] = (None, None)
+
+    # Summarization still has to run per-container — each one's own compose config (env
+    # vars, volumes, ports, labels) genuinely can differ even when the underlying release is
+    # identical, and "Relevant to your Setup" is supposed to reflect that. But this step is
+    # now just a single fast completion call reusing already-fetched notes, not a second
+    # round of notes-fetching too.
+    if to_process:
+        with ThreadPoolExecutor(max_workers=settings.ai_summarize_concurrency) as pool:
+            futures = []
+            for key, group in notes_groups.items():
+                prefetched = notes_by_key.get(key, (None, None))
+                for container, old_d, new_d in group:
+                    futures.append(pool.submit(_handle_update, container, old_d, new_d, prefetched))
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception:
+                    logger.exception("Unexpected error while handling an update")
+                    errors += 1
+
+    if stack_analysis_thread is not None:
+        stack_analysis_thread.join()
 
     logger.info("Check complete: %d containers checked, %d updates found, %d errors", checked, updates_found, errors)
     result = {"checked": checked, "updates_found": updates_found, "errors": errors}
@@ -122,14 +191,23 @@ def run_check() -> dict:
 
 def _generate_update_content(container_name: str, image_repo: str, tag: str,
                               old_digest: str | None, new_digest: str | None,
-                              source_override: str | None, changelog_url_override: str | None) -> dict:
+                              source_override: str | None, changelog_url_override: str | None,
+                              prefetched_notes: tuple | None = None) -> dict:
     """Returns {summary_markdown, severity, error, source_url} — the shared generation path
     used both by a normal check (which inserts a new record) and a manual retry (which
-    updates an existing one in place), so they can never drift out of sync with each other."""
-    notes, source_url = get_release_notes(
-        image_repo=image_repo, tag=tag,
-        source_override=source_override, changelog_url_override=changelog_url_override,
-    )
+    updates an existing one in place), so they can never drift out of sync with each other.
+
+    prefetched_notes lets a caller supply an already-resolved (notes, source_url) pair —
+    used when multiple containers share the exact same image/tag/digest transition, so the
+    (potentially slow) notes lookup only happens once per unique combination rather than
+    once per container."""
+    if prefetched_notes is not None:
+        notes, source_url = prefetched_notes
+    else:
+        notes, source_url = get_release_notes(
+            image_repo=image_repo, tag=tag,
+            source_override=source_override, changelog_url_override=changelog_url_override,
+        )
     compose_config = find_service_config(container_name)
 
     if not notes:
@@ -219,10 +297,12 @@ def _safe_list_tracked_containers() -> list:
         return []
 
 
-def _handle_update(container, old_digest: str | None, new_digest: str | None) -> None:
+def _handle_update(container, old_digest: str | None, new_digest: str | None,
+                    prefetched_notes: tuple | None = None) -> None:
     content = _generate_update_content(
         container.name, container.image_repo, container.tag, old_digest, new_digest,
         container.source_override, container.changelog_url_override,
+        prefetched_notes=prefetched_notes,
     )
     update_id = db.record_update(
         container_name=container.name, image_repo=container.image_repo, tag=container.tag,

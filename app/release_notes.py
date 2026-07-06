@@ -2,13 +2,19 @@
 
 Priority order:
 1. A per-container 'releaseradar.changelog_url' label override — fetched as plain text/markdown.
-2. A per-container 'releaseradar.source' label override (owner/repo) — used against GitHub Releases.
-3. Best-effort guess: ghcr.io/owner/repo images map directly to a GitHub repo.
-4. Web search fallback: asks Claude (with the Anthropic API's web search tool enabled) to find
-   the actual official release notes/changelog when the guesses above come up empty. This costs
-   a small amount per search on top of normal token usage, so it only runs when the free/direct
-   sources fail.
-5. Docker Hub's repository overview page as an absolute last resort (rarely has real changelog
+2. The cached location that worked last time for this exact image (see release_notes_cache
+   in db.py) — skips straight past guessing and web search if it still works, and falls
+   through to full discovery below if it doesn't (e.g. the repo was renamed or moved).
+3. A per-container 'releaseradar.source' label override (owner/repo) — used against GitHub Releases.
+4. Best-effort guesses based on naming convention: ghcr.io images map directly to a GitHub
+   repo; LinuxServer images follow their docker-<name>/<name> convention; a plain Docker Hub
+   image's namespace is often the same as the project's GitHub username too.
+5. Web search fallback: asks Claude (with the Anthropic API's web search tool enabled, capped
+   at 3 searches) to find the actual official release notes/changelog when the guesses above
+   come up empty. This costs a small amount per search on top of normal token usage, so it
+   only runs when the free/direct sources fail. On success, the discovered location is cached
+   for next time — most images only ever pay this cost once.
+6. Docker Hub's repository overview page as an absolute last resort (rarely has real changelog
    content, but better than nothing to click on).
 
 Returns (notes_text, source_url) or (None, None) if nothing could be found — callers should
@@ -16,10 +22,12 @@ treat that as "flag for manual review" rather than failing the whole check.
 """
 
 import logging
+import re
 
 import anthropic
 import httpx
 
+from app import db
 from app.ai_json import extract_json
 from app.config import settings
 
@@ -54,11 +62,38 @@ def _fetch_github_release_notes(owner_repo: str, tag: str) -> tuple[str | None, 
     return None, None
 
 
-def _guess_github_repo(image_repo: str) -> str | None:
+def _guess_github_repos(image_repo: str) -> list[str]:
+    """Returns candidate GitHub repos to try, in priority order, based on naming
+    conventions common enough in a typical homelab to be worth trying before ever paying
+    for a web search. Not exhaustive by design — anything that doesn't match a known
+    convention falls through to web search, same as before."""
     if image_repo.startswith("ghcr.io/"):
         parts = image_repo.removeprefix("ghcr.io/").split("/")
         if len(parts) >= 2:
-            return "/".join(parts[:2])
+            return ["/".join(parts[:2])]
+        return []
+
+    stripped = image_repo.removeprefix("lscr.io/")
+    if stripped.startswith("linuxserver/"):
+        name = stripped.split("/", 1)[1]
+        # LinuxServer's actual GitHub convention is docker-<name>; a handful of newer
+        # images just use <name> directly. Try both.
+        return [f"linuxserver/docker-{name}", f"linuxserver/{name}"]
+
+    # A plain two-part Docker Hub image (namespace/name, not a registry host, not the
+    # unnamespaced "library" images) very often shares its namespace with the project's
+    # GitHub username too.
+    parts = image_repo.split("/")
+    if len(parts) == 2 and "." not in parts[0] and parts[0] != "library":
+        return [f"{parts[0]}/{parts[1]}"]
+
+    return []
+
+
+def _extract_github_repo_from_url(url: str) -> str | None:
+    match = re.match(r"https?://github\.com/([^/]+)/([^/]+)", url)
+    if match:
+        return f"{match.group(1)}/{match.group(2)}"
     return None
 
 
@@ -75,7 +110,8 @@ def _fetch_manual_url(url: str) -> tuple[str | None, str | None]:
 def _web_search_release_notes(image_repo: str, tag: str) -> tuple[str | None, str | None]:
     """Last-resort fallback: asks Claude to search the web for the real release notes when
     guessing the source repo directly didn't work. Only called when the free options above
-    have already failed, since this costs a small amount per search."""
+    have already failed, since this costs a small amount per search. Capped at 3 searches so
+    even this worst case has a predictable ceiling rather than open-ended exploration."""
     if not settings.anthropic_api_key:
         return None, None
 
@@ -133,14 +169,39 @@ def get_release_notes(
     if changelog_url_override:
         return _fetch_manual_url(changelog_url_override)
 
-    owner_repo = source_override or _guess_github_repo(image_repo)
-    if owner_repo:
+    # Try wherever worked last time for this exact image first — this is the whole point:
+    # once we've paid the cost of discovering where an image's release notes actually live
+    # (however that happened, including the expensive web search), never pay it again
+    # unless that location genuinely stops working.
+    cached = db.get_release_notes_source(image_repo)
+    if cached:
+        if cached["method"] == "github":
+            notes, url = _fetch_github_release_notes(cached["location"], tag)
+            if notes:
+                return notes, url
+        elif cached["method"] == "url":
+            notes, url = _fetch_manual_url(cached["location"])
+            if notes:
+                return notes, url
+        # Cached location no longer works (renamed, moved, deleted) — fall through to full
+        # discovery below, same as if nothing had ever been cached.
+
+    candidates = [source_override] if source_override else []
+    candidates += _guess_github_repos(image_repo)
+    for owner_repo in candidates:
         notes, url = _fetch_github_release_notes(owner_repo, tag)
         if notes:
+            db.set_release_notes_source(image_repo, "github", owner_repo)
             return notes, url
 
     notes, url = _web_search_release_notes(image_repo, tag)
     if notes:
+        if url:
+            github_repo = _extract_github_repo_from_url(url)
+            if github_repo:
+                db.set_release_notes_source(image_repo, "github", github_repo)
+            else:
+                db.set_release_notes_source(image_repo, "url", url)
         return notes, url
 
     # Absolute last resort: point at the Docker Hub tags page so there's at least something to

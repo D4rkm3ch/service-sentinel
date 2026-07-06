@@ -32,6 +32,13 @@ class Settings:
         # wait time, so doing them one at a time is what makes a large stack slow to check.
         self.registry_check_concurrency: int = int(os.environ.get("REGISTRY_CHECK_CONCURRENCY", "10"))
 
+        # Release notes + AI summarization involve real network and model latency per
+        # container (several seconds to tens of seconds each, especially with the web search
+        # fallback) — running these one at a time is what makes a check with many pending
+        # updates at once (e.g. right after a full reset) take many minutes. Kept lower than
+        # the registry check concurrency since these are meaningfully more expensive calls.
+        self.ai_summarize_concurrency: int = int(os.environ.get("AI_SUMMARIZE_CONCURRENCY", "4"))
+
         # Log watcher tuning — schedule itself now lives in the database (Settings tab),
         # not here, but these control how much log data gets pulled and pre-filtered.
         self.log_lookback_hours: int = int(os.environ.get("LOG_LOOKBACK_HOURS", "24"))
