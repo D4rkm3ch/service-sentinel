@@ -103,8 +103,18 @@ faithful description of what changed in this release in your own words, or null 
         logger.exception("Web search fallback failed for %s:%s", image_repo, tag)
         return None, None
 
-    text = "".join(block.text for block in response.content if block.type == "text").strip()
-    data = extract_json(text)
+    text_blocks = [block.text for block in response.content if block.type == "text"]
+    if not text_blocks:
+        logger.warning("Web search fallback returned no text for %s:%s", image_repo, tag)
+        return None, None
+
+    # The model often narrates its search process in earlier text blocks and only puts the
+    # final JSON answer in the last one — concatenating everything breaks JSON parsing, so
+    # try the last block alone first, and only fall back to the full concatenation (in case
+    # the model put the JSON somewhere else) if that doesn't parse.
+    data = extract_json(text_blocks[-1].strip())
+    if data is None:
+        data = extract_json("".join(text_blocks).strip())
     if data is None:
         logger.warning("Web search fallback returned non-JSON for %s:%s", image_repo, tag)
         return None, None

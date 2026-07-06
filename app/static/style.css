@@ -322,7 +322,7 @@ tr:hover .row-chevron {
   border: 2px solid rgba(94, 201, 166, 0.25);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  animation: spin 0.75s linear infinite;
 }
 
 @keyframes spin {

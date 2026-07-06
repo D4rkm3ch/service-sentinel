@@ -106,6 +106,14 @@ Operator's compose configuration for this service:
     severity = match.group(1).lower() if match else "feature"
     summary_markdown = SEVERITY_LINE_PATTERN.sub("", text).strip()
 
+    if not summary_markdown:
+        # The model returned essentially nothing beyond the severity line — treat this as a
+        # failure rather than silently storing a blank "successful" record with no content
+        # for the operator to read. Raising here routes it into reconcile.py's existing
+        # error-handling path (visible notice, action_needed severity), same as any other
+        # summarization failure.
+        raise RuntimeError("Model returned no summary content beyond the severity line")
+
     return summary_markdown, severity
 
 

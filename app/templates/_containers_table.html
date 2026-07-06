@@ -1,4 +1,5 @@
 {% import "_sort_header.html" as sh %}
+<span id="containers-count-badge" class="heading-count" hx-swap-oob="true">({{ containers|length }})</span>
 {% set preserve_other = '&sort=' ~ sort ~ '&dir=' ~ dir %}
 {% if containers %}
 <table class="containers-table">

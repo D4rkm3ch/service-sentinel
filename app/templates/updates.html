@@ -11,7 +11,7 @@
 </section>
 
 <section class="panel">
-  <h1>Tracked containers <span class="heading-count">({{ containers_count }})</span></h1>
+  <h1>Tracked containers <span class="heading-count" id="containers-count-badge">({{ containers_count }})</span></h1>
   <div id="containers-table" hx-get="/updates/partial/containers?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}"
        hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
     {% include "_containers_table.html" %}
