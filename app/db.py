@@ -502,6 +502,34 @@ def get_latest_update_for_container(container_name: str) -> sqlite3.Row | None:
         return cur.fetchone()
 
 
+def update_existing_update(update_id: int, summary_markdown: str | None, severity: str,
+                           error: str | None, source_url: str | None) -> None:
+    """Regenerates an existing update record in place (used by the manual Retry button) —
+    keeps the same id, container, tag, and digests, just refreshes the AI-generated content
+    and clears/resets status back to unread so the fresh content gets seen."""
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE updates
+            SET summary_markdown = ?, severity = ?, error = ?, source_url = ?, status = 'unread'
+            WHERE id = ?
+            """,
+            (summary_markdown, severity, error, source_url, update_id),
+        )
+
+
+def list_updates_for_stack_containers(container_names: list[str]) -> list[sqlite3.Row]:
+    if not container_names:
+        return []
+    with get_conn() as conn:
+        placeholders = ",".join("?" * len(container_names))
+        cur = conn.execute(
+            f"SELECT * FROM updates WHERE container_name IN ({placeholders})",
+            container_names,
+        )
+        return cur.fetchall()
+
+
 def mark_update_status(update_id: int, status: str) -> None:
     with get_conn() as conn:
         conn.execute("UPDATE updates SET status = ? WHERE id = ?", (status, update_id))

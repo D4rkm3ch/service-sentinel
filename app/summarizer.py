@@ -1,10 +1,13 @@
 import json
+import logging
 import re
 
 import anthropic
 
 from app.ai_json import extract_json
 from app.config import settings
+
+logger = logging.getLogger("release_radar.summarizer")
 
 SYSTEM_PROMPT = """You write short, practical release-note summaries for a homelab operator \
 deciding whether to update a self-hosted Docker container.
@@ -93,28 +96,34 @@ Operator's compose configuration for this service:
 {compose_block}
 ---"""
 
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=1000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
+    for attempt in range(2):
+        response = client.messages.create(
+            model=settings.claude_model,
+            max_tokens=1000,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_message}],
+        )
 
-    text = "".join(block.text for block in response.content if block.type == "text")
+        text = "".join(block.text for block in response.content if block.type == "text")
 
-    match = SEVERITY_LINE_PATTERN.search(text)
-    severity = match.group(1).lower() if match else "feature"
-    summary_markdown = SEVERITY_LINE_PATTERN.sub("", text).strip()
+        match = SEVERITY_LINE_PATTERN.search(text)
+        severity = match.group(1).lower() if match else "feature"
+        summary_markdown = SEVERITY_LINE_PATTERN.sub("", text).strip()
 
-    if not summary_markdown:
-        # The model returned essentially nothing beyond the severity line — treat this as a
-        # failure rather than silently storing a blank "successful" record with no content
-        # for the operator to read. Raising here routes it into reconcile.py's existing
-        # error-handling path (visible notice, action_needed severity), same as any other
-        # summarization failure.
-        raise RuntimeError("Model returned no summary content beyond the severity line")
+        if summary_markdown:
+            return summary_markdown, severity
 
-    return summary_markdown, severity
+        logger.warning(
+            "Model returned no summary content for %s beyond the severity line (attempt %d/2)",
+            container_name, attempt + 1,
+        )
+
+    # The model returned essentially nothing beyond the severity line, twice in a row —
+    # treat this as a real failure rather than silently storing a blank "successful" record
+    # with no content for the operator to read. Raising here routes it into reconcile.py's
+    # existing error-handling path (visible notice, action_needed severity), same as any
+    # other summarization failure.
+    raise RuntimeError("Model returned no summary content beyond the severity line, even after a retry")
 
 
 LOG_TRIAGE_SYSTEM_PROMPT_BASE = """You are triaging pre-filtered log excerpts from a homelab \

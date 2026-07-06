@@ -22,6 +22,18 @@
 
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
 
+  <div class="action-row" style="display:flex; gap:10px;">
+    <form method="post" action="/updates/stack/retry">
+      <input type="hidden" name="stack_id" value="{{ stack_id }}">
+      <button type="submit">Retry</button>
+    </form>
+    <form method="post" action="/updates/stack/reset-and-recheck"
+          onsubmit="return confirm('This wipes update history for every service in this stack and re-checks them all fresh. Continue?')">
+      <input type="hidden" name="stack_id" value="{{ stack_id }}">
+      <button type="submit" class="button-danger">Reset &amp; re-check</button>
+    </form>
+  </div>
+
   {% if analysis_html %}
   <div class="overview-summary">{{ analysis_html | safe }}</div>
   {% endif %}
@@ -49,7 +61,7 @@
     <tbody>
       {% for m in members %}
       {% if m.latest_update %}
-      <tr class="row-{{ m.latest_update.status }} row-clickable" onclick="window.location='/updates/{{ m.latest_update.id }}'">
+      <tr id="row-{{ m.container_name }}" class="row-{{ m.latest_update.status }} row-clickable" onclick="window.location='/updates/{{ m.latest_update.id }}'">
         <td class="mono truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</td>
         <td class="mono truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</td>
         <td class="nowrap">{{ m.latest_update.created_at[:16].replace('T', ' ') }}</td>
@@ -66,7 +78,7 @@
         <td><a href="/updates/{{ m.latest_update.id }}" class="row-chevron">›</a></td>
       </tr>
       {% else %}
-      <tr>
+      <tr id="row-{{ m.container_name }}">
         <td class="mono truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</td>
         <td class="mono truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</td>
         <td class="nowrap">—</td>

@@ -40,37 +40,43 @@ def reset_stack_name(stack_id: str) -> None:
 
 def run_stack_analysis_pass(members_by_stack: dict[str, list], digest_by_container: dict[str, str | None]) -> None:
     """Called once at the end of a full Updates check, after every container's own digest
-    has already been resolved. For each stack with 2+ members, only regenerates the
-    cross-service analysis if the set of (member, current digest) pairs has actually
-    changed since last time — covers "anything in the stack changed" per how this was
-    asked for, not just "multiple members happened to update at once"."""
+    has already been resolved. Only runs at all if the Deep Analysis toggle is on — this is
+    the automatic, scheduled path. Manual retries (see regenerate_stack_analysis) bypass
+    this toggle entirely, since clicking Retry is an explicit request regardless of the
+    automatic setting."""
     if not db.get_deep_analysis_enabled("updates"):
         return
-
     for stack_id, members in members_by_stack.items():
-        if len(members) < 2:
-            continue
+        regenerate_stack_analysis(stack_id, members, digest_by_container)
 
-        service_names = [m.name for m in members]
-        fingerprint_input = "|".join(
-            sorted(f"{m.name}:{digest_by_container.get(m.name) or m.current_digest}" for m in members)
-        )
-        content_hash = hashlib.sha256(fingerprint_input.encode()).hexdigest()[:16]
 
+def regenerate_stack_analysis(stack_id: str, members: list, digest_by_container: dict[str, str | None],
+                               force: bool = False) -> None:
+    """The actual cache-aware regeneration logic — for each stack with 2+ members, only
+    calls the AI if the set of (member, current digest) pairs has actually changed since
+    last time, unless force=True (manual retry always regenerates, cache or not)."""
+    if len(members) < 2:
+        return
+
+    service_names = [m.name for m in members]
+    fingerprint_input = "|".join(
+        sorted(f"{m.name}:{digest_by_container.get(m.name) or m.current_digest}" for m in members)
+    )
+    content_hash = hashlib.sha256(fingerprint_input.encode()).hexdigest()[:16]
+
+    if not force:
         cached = db.get_stack_analysis(stack_id)
         if cached and cached["content_hash"] == content_hash:
-            continue
+            return
 
-        display_name = get_or_generate_stack_name(stack_id, service_names)
-        changed_summary = "\n".join(
-            f"- {m.name} ({m.image_repo}:{m.tag})" for m in members
-        )
+    display_name = get_or_generate_stack_name(stack_id, service_names)
+    changed_summary = "\n".join(f"- {m.name} ({m.image_repo}:{m.tag})" for m in members)
 
-        try:
-            analysis = analyze_stack_impact(display_name, service_names, changed_summary)
-        except Exception:
-            logger.exception("Stack analysis failed for %s", stack_id)
-            continue
+    try:
+        analysis = analyze_stack_impact(display_name, service_names, changed_summary)
+    except Exception:
+        logger.exception("Stack analysis failed for %s", stack_id)
+        return
 
-        if analysis:
-            db.set_stack_analysis(stack_id, content_hash, analysis)
+    if analysis:
+        db.set_stack_analysis(stack_id, content_hash, analysis)

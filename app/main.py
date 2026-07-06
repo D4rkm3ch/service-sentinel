@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re
 from urllib.parse import quote, urlencode
 
 import markdown
@@ -9,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import compose_lookup, db, stacks
+from app import compose_lookup, db, reconcile, stacks
 from app.check_state import format_summary, get_state, set_running
 from app.config import settings
 from app.notifications import send_test_notification
@@ -273,7 +274,7 @@ def _annotate_with_stack(rows, name_key: str, sort: str, direction: str):
     for row in rows:
         d = dict(row)
         info = compose_lookup.match_container_to_stack(d[name_key], index)
-        if info:
+        if info and len(info["service_names"]) >= 2:
             d["stack_id"] = info["stack_id"]
             if info["stack_id"] not in name_cache:
                 name_cache[info["stack_id"]] = stacks.get_or_generate_stack_name(
@@ -508,6 +509,19 @@ def reset_and_recheck_updates():
     return RedirectResponse(url="/updates", status_code=303)
 
 
+def _linkify_stack_mentions(text: str, service_names: list[str]) -> str:
+    """Turns exact mentions of a stack's own service names within the analysis text into
+    jump-links to that service's row on the same page. Runs on the raw markdown before
+    rendering, since inline HTML passes through markdown.markdown() unescaped. Longest names
+    are matched first in one combined pass so a shorter name that happens to be a substring
+    of a longer one (rare, but possible) can't steal part of the match."""
+    if not text or not service_names:
+        return text
+    names_sorted = sorted(set(service_names), key=len, reverse=True)
+    pattern = re.compile(r"\b(" + "|".join(re.escape(n) for n in names_sorted) + r")\b")
+    return pattern.sub(lambda m: f'<a href="#row-{m.group(1)}">{m.group(1)}</a>', text)
+
+
 @app.get("/updates/stack")
 def stack_detail(request: Request, id: str):
     stack_row = db.get_stack(id)
@@ -518,7 +532,10 @@ def stack_detail(request: Request, id: str):
     )
     display_name = stack_row["display_name"] if stack_row else (member_names[0] if member_names else "Unknown stack")
     analysis_row = db.get_stack_analysis(id)
-    analysis_html = markdown.markdown(analysis_row["analysis_markdown"]) if analysis_row else None
+    analysis_html = None
+    if analysis_row:
+        linked_text = _linkify_stack_mentions(analysis_row["analysis_markdown"], member_names)
+        analysis_html = markdown.markdown(linked_text)
 
     members = []
     for name in member_names:
@@ -558,14 +575,29 @@ async def reset_stack_name_route(request: Request):
     if stack_id:
         stacks.reset_stack_name(stack_id)
         # Regenerate immediately rather than leaving it nameless until the next check.
-        info = None
-        for c in db.all_container_states():
-            candidate = compose_lookup.get_stack_info(c["container_name"])
-            if candidate and candidate["stack_id"] == stack_id:
-                info = candidate
+        index = compose_lookup.build_stack_index()
+        for entry in index:
+            if entry["stack_id"] == stack_id:
+                stacks.get_or_generate_stack_name(stack_id, entry["service_names"])
                 break
-        if info:
-            stacks.get_or_generate_stack_name(stack_id, info["service_names"])
+    return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
+
+
+@app.post("/updates/stack/retry")
+async def retry_stack_route(request: Request):
+    form = await request.form()
+    stack_id = form.get("stack_id", "")
+    if stack_id:
+        reconcile.retry_stack(stack_id)
+    return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
+
+
+@app.post("/updates/stack/reset-and-recheck")
+async def reset_and_recheck_stack_route(request: Request):
+    form = await request.form()
+    stack_id = form.get("stack_id", "")
+    if stack_id:
+        reconcile.reset_and_recheck_stack(stack_id)
     return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
 
 
@@ -682,9 +714,10 @@ def update_detail(request: Request, update_id: int):
         raise HTTPException(status_code=404, detail="Update not found")
     summary_html = markdown.markdown(update["summary_markdown"]) if update["summary_markdown"] else None
     stack_info = compose_lookup.get_stack_info(update["container_name"])
-    stack_id = stack_info["stack_id"] if stack_info else None
+    stack_id = None
     stack_name = None
-    if stack_info:
+    if stack_info and len(stack_info["service_names"]) >= 2:
+        stack_id = stack_info["stack_id"]
         stack_name = stacks.get_or_generate_stack_name(stack_info["stack_id"], stack_info["service_names"])
     return templates.TemplateResponse(
         "detail.html",
@@ -698,6 +731,25 @@ def update_detail(request: Request, update_id: int):
 @app.post("/updates/{update_id}/read")
 def mark_read(update_id: int):
     db.mark_update_status(update_id, "read")
+    return RedirectResponse(url="/updates", status_code=303)
+
+
+@app.post("/updates/{update_id}/retry")
+def retry_update_route(update_id: int):
+    reconcile.retry_update(update_id)
+    return RedirectResponse(url=f"/updates/{update_id}", status_code=303)
+
+
+@app.post("/updates/{update_id}/reset-and-recheck")
+def reset_and_recheck_update_route(update_id: int):
+    update = db.get_update(update_id)
+    if update is None:
+        raise HTTPException(status_code=404)
+    container_name = update["container_name"]
+    reconcile.reset_and_recheck_container(container_name)
+    fresh = db.get_latest_update_for_container(container_name)
+    if fresh:
+        return RedirectResponse(url=f"/updates/{fresh['id']}", status_code=303)
     return RedirectResponse(url="/updates", status_code=303)
 
 
