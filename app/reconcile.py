@@ -1,7 +1,7 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import db
+from app import compose_lookup, db, stacks
 from app.check_state import set_finished, set_running
 from app.compose_lookup import find_service_config
 from app.config import settings
@@ -91,6 +91,22 @@ def run_check() -> dict:
         updates_found += 1
         _handle_update(container, container.current_digest, latest_digest)
         db.upsert_container_state(container.name, container.image_repo, container.tag, latest_digest)
+
+    if db.get_deep_analysis_enabled("updates"):
+        # Grouping happens regardless of whether a given member individually has a pending
+        # update — a change in one service can affect a stack-mate whose own digest didn't
+        # move, so the whole stack gets reconsidered whenever anything in it changed.
+        members_by_stack: dict[str, list] = {}
+        for container in containers:
+            if container.name in error_containers:
+                continue
+            info = compose_lookup.get_stack_info(container.name)
+            if info:
+                members_by_stack.setdefault(info["stack_id"], []).append(container)
+        try:
+            stacks.run_stack_analysis_pass(members_by_stack, digest_by_container)
+        except Exception:
+            logger.exception("Stack analysis pass failed")
 
     logger.info("Check complete: %d containers checked, %d updates found, %d errors", checked, updates_found, errors)
     result = {"checked": checked, "updates_found": updates_found, "errors": errors}

@@ -75,6 +75,21 @@ CREATE TABLE IF NOT EXISTS subject_summaries (
     created_at TEXT NOT NULL,
     PRIMARY KEY (source, subject)
 );
+
+CREATE TABLE IF NOT EXISTS stacks (
+    stack_id TEXT PRIMARY KEY,          -- the compose file's own path, stable identifier
+    display_name TEXT NOT NULL,
+    name_source TEXT NOT NULL DEFAULT 'ai',  -- 'ai' or 'manual' — manual names never auto-regenerate
+    services_hash TEXT,                 -- hash of the service list the AI name was based on
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS stack_analyses (
+    stack_id TEXT PRIMARY KEY,
+    content_hash TEXT NOT NULL,         -- hash of member names + their current digests
+    analysis_markdown TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 # All three features ship off by default — nothing runs, nothing spends tokens, until the
@@ -772,6 +787,66 @@ def get_deep_analysis_enabled(feature: str) -> bool:
 
 def set_deep_analysis_enabled(feature: str, enabled: bool) -> None:
     _set_setting(f"deep_analysis_{feature}_enabled", "true" if enabled else "false")
+
+
+# ---------------------------------------------------------------------------
+# Stacks — grouping containers that share a compose file. Names are AI-generated
+# by default but can be manually overridden; a manual name never gets auto-regenerated.
+# ---------------------------------------------------------------------------
+
+def get_stack(stack_id: str) -> dict | None:
+    with get_conn() as conn:
+        cur = conn.execute("SELECT * FROM stacks WHERE stack_id = ?", (stack_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def set_stack_name(stack_id: str, display_name: str, name_source: str, services_hash: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO stacks (stack_id, display_name, name_source, services_hash, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(stack_id) DO UPDATE SET
+                display_name = excluded.display_name,
+                name_source = excluded.name_source,
+                services_hash = excluded.services_hash,
+                updated_at = excluded.updated_at
+            """,
+            (stack_id, display_name, name_source, services_hash, now_iso()),
+        )
+
+
+def reset_stack_name(stack_id: str) -> None:
+    """Clears a manual override so the next check regenerates an AI name from scratch."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM stacks WHERE stack_id = ?", (stack_id,))
+
+
+# ---------------------------------------------------------------------------
+# Cached stack-wide cross-service analysis
+# ---------------------------------------------------------------------------
+
+def get_stack_analysis(stack_id: str) -> dict | None:
+    with get_conn() as conn:
+        cur = conn.execute("SELECT * FROM stack_analyses WHERE stack_id = ?", (stack_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def set_stack_analysis(stack_id: str, content_hash: str, analysis_markdown: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO stack_analyses (stack_id, content_hash, analysis_markdown, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(stack_id) DO UPDATE SET
+                content_hash = excluded.content_hash,
+                analysis_markdown = excluded.analysis_markdown,
+                created_at = excluded.created_at
+            """,
+            (stack_id, content_hash, analysis_markdown, now_iso()),
+        )
 
 
 # ---------------------------------------------------------------------------

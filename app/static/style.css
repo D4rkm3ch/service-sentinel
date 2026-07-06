@@ -315,6 +315,42 @@ tr:hover .row-chevron {
 }
 .status-running { color: var(--accent); }
 
+.status-poller {
+  display: none;
+}
+
+.icon-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+.icon-button:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.stack-rename-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0 16px;
+}
+.stack-rename-form input[type="text"] {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  min-width: 240px;
+}
+
 .spinner {
   display: inline-block;
   width: 11px;
@@ -322,7 +358,7 @@ tr:hover .row-chevron {
   border: 2px solid rgba(94, 201, 166, 0.25);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.75s linear infinite;
+  animation: spin 0.7s linear infinite;
 }
 
 @keyframes spin {

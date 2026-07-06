@@ -95,6 +95,22 @@ def _search_file(path, container_name: str) -> dict | None:
     return None
 
 
+def get_stack_info(container_name: str) -> dict | None:
+    """Resolves which compose file (stack) a container belongs to, and who else lives in
+    that same file. The stack's identity is the compose file's own path — stable as long
+    as the file isn't moved, and naturally shared by every service defined in it. Returns
+    None for containers release-radar can't match to any compose file (not Dockge-managed,
+    or the compose file lives somewhere it can't see) — these are left ungrouped."""
+    config = find_service_config(container_name)
+    if not config:
+        return None
+    compose_file = config["compose_file"]
+    return {
+        "stack_id": compose_file,
+        "service_names": get_service_names_for_file(compose_file),
+    }
+
+
 def get_service_names_for_file(file_path: str) -> list[str]:
     """Returns the service names defined in a compose file, for display purposes — a raw
     absolute path isn't as meaningful to read as 'sonarr' or 'sonarr, sonarr-config'."""

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }} — release-radar{% endblock %}
+{% block content %}
+
+<a href="/updates" class="back-link">← Back to Updates</a>
+
+<section>
+  <div class="subject-title-row">
+    <h1 class="subject-heading" id="stack-name-display">{{ display_name }}</h1>
+    <button type="button" class="icon-button" title="Rename this stack" onclick="document.getElementById('stack-rename-form').classList.toggle('hidden')">✎</button>
+    <form method="post" action="/updates/stack/reset-name" style="display:inline" onsubmit="return confirm('Reset to the AI-generated name for this stack?')">
+      <input type="hidden" name="stack_id" value="{{ stack_id }}">
+      <button type="submit" class="icon-button" title="Reset to the AI-generated name">⟲</button>
+    </form>
+  </div>
+
+  <form id="stack-rename-form" method="post" action="/updates/stack/rename" class="hidden stack-rename-form">
+    <input type="hidden" name="stack_id" value="{{ stack_id }}">
+    <input type="text" name="name" value="{{ display_name }}" class="mono" placeholder="Stack name">
+    <button type="submit">Save name</button>
+  </form>
+
+  <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
+
+  {% if analysis_html %}
+  <div class="overview-summary">{{ analysis_html | safe }}</div>
+  {% endif %}
+
+  {% if members %}
+  <table class="containers-table">
+    <thead>
+      <tr>
+        <th>Container</th>
+        <th>Image</th>
+        <th>Last checked</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in members %}
+      <tr>
+        <td class="mono">{{ m.container_name }}</td>
+        <td class="mono truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</td>
+        <td class="nowrap">{{ m.last_checked_at[:16].replace('T', ' ') if m.last_checked_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No tracked members found for this stack.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

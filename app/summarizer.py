@@ -255,3 +255,72 @@ def summarize_findings_overview(subject_display: str, findings: list[dict]) -> s
         messages=[{"role": "user", "content": user_message}],
     )
     return "".join(block.text for block in response.content if block.type == "text").strip()
+
+
+def generate_stack_name(service_names: list[str]) -> str:
+    """Picks the most central/important service in a compose stack to use as its short
+    display label. Falls back to the first service name (alphabetically, for stability)
+    if the API isn't configured or the model's answer doesn't match anything we gave it —
+    never invents a name outside the actual service list."""
+    if not service_names:
+        return "Unnamed stack"
+    if len(service_names) == 1 or not settings.anthropic_api_key:
+        return sorted(service_names)[0]
+
+    prompt = (
+        f"These services run together in one docker-compose stack: {', '.join(service_names)}.\n\n"
+        "Reply with ONLY the name of the single most important or central service, exactly as "
+        "written above — no extra text, no punctuation, nothing else."
+    )
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        response = client.messages.create(
+            model=settings.claude_model,
+            max_tokens=30,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        answer = "".join(block.text for block in response.content if block.type == "text").strip()
+        if answer in service_names:
+            return answer
+    except Exception:
+        pass
+    return sorted(service_names)[0]
+
+
+STACK_ANALYSIS_SYSTEM_PROMPT = """You are looking at one docker-compose stack for a homelab \
+operator — several services that run together and can affect each other, defined in the same \
+file. You'll be given the full list of services in the stack and which one(s) just had an \
+update detected, along with that update's own summary.
+
+Write 2-4 sentences of plain prose focused specifically on cross-service impact: could this \
+change affect how the OTHER services in this stack behave or communicate with the one that \
+updated? Only raise something if there's a real, concrete reason to think so based on the \
+services involved (e.g. a database version bump that a dependent app might not support yet, an \
+API or port change other services rely on). If there's no real cross-service concern, say so \
+plainly in one sentence — don't invent a concern to fill space.
+
+No markdown headers, no bullet list, no restating the individual update summary verbatim."""
+
+
+def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], changed_summary_text: str) -> str:
+    """Cross-service analysis for a compose stack — only meaningful for stacks with 2+
+    services. Deliberately separate from the per-service summary: this is about whether a
+    change in one service could ripple into its stack-mates, not a restatement of the change
+    itself."""
+    if not settings.anthropic_api_key or len(all_service_names) < 2:
+        return ""
+
+    user_message = (
+        f"Stack: {stack_display_name}\n"
+        f"All services in this stack: {', '.join(all_service_names)}\n\n"
+        f"Recent update activity in this stack:\n{changed_summary_text}"
+    )
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    response = client.messages.create(
+        model=settings.claude_model,
+        max_tokens=400,
+        system=STACK_ANALYSIS_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    return "".join(block.text for block in response.content if block.type == "text").strip()

@@ -7,6 +7,7 @@
     <tr>
       <th>{{ sh.sort_link('Container', 'container', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Image', 'image', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Stack', 'stack', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, '/updates', 'desc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
     </tr>
   </thead>
@@ -15,6 +16,13 @@
     <tr>
       <td class="mono">{{ c.container_name }}</td>
       <td class="mono truncate-cell" title="{{ c.image_repo }}:{{ c.tag }}">{{ c.image_repo }}:{{ c.tag }}</td>
+      <td>
+        {% if c.stack_name %}
+        <a href="/updates/stack?id={{ c.stack_id|urlencode }}">{{ c.stack_name }}</a>
+        {% else %}
+        <span class="meta">—</span>
+        {% endif %}
+      </td>
       <td class="nowrap">{{ c.last_checked_at[:16].replace('T', ' ') if c.last_checked_at else '—' }}</td>
     </tr>
     {% endfor %}

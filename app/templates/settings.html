@@ -100,6 +100,21 @@ This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
     </div>
   </div>
   {% endfor %}
+
+  <div class="settings-subsection">
+    <h4>Updates: Cross-Service Analysis</h4>
+    <div class="toggle-with-label">
+      <span class="toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="deep_analysis_updates" {{ 'checked' if deep_analysis['updates'] else '' }}
+                 onchange="handleDeepAnalysisToggle(this, 'updates')">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="saved-indicator-slot" id="saved-deep_analysis_updates"></span>
+      </span>
+      <span class="toggle-label">Analyze whether an update in one service could affect others in the same compose stack (uses more tokens)</span>
+    </div>
+  </div>
 </section>
 
 <script>

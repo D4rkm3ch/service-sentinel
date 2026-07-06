@@ -7,6 +7,7 @@
     <tr>
       <th>{{ sh.sort_link('Container', 'container', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Image', 'image', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Stack', 'stack', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Status', 'status', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
@@ -18,6 +19,13 @@
     <tr class="row-{{ u.status }} row-clickable" onclick="window.location='/updates/{{ u.id }}'">
       <td class="mono">{{ u.container_name }}</td>
       <td class="mono truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}">{{ u.image_repo }}:{{ u.tag }}</td>
+      <td>
+        {% if u.stack_name %}
+        <a href="/updates/stack?id={{ u.stack_id|urlencode }}" onclick="event.stopPropagation()">{{ u.stack_name }}</a>
+        {% else %}
+        <span class="meta">—</span>
+        {% endif %}
+      </td>
       <td class="nowrap">{{ u.created_at[:16].replace('T', ' ') }}</td>
       <td><span class="badge badge-sev-{{ u.severity }}">{{ severity_label('updates', u.severity) }}</span></td>
       <td>

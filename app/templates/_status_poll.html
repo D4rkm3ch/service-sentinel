@@ -1,0 +1,9 @@
+{% if state.running %}
+<span class="status-poller" hx-get="/{{ feature }}/status-poll" hx-trigger="load delay:2s" hx-target="this" hx-swap="outerHTML"></span>
+{% else %}
+<div id="check-status-inner" hx-swap-oob="true">
+  <div class="status-badge status-idle">
+    {{ status_summary_text }}
+  </div>
+</div>
+{% endif %}

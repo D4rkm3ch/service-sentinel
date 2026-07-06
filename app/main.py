@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import compose_lookup, db
+from app import compose_lookup, db, stacks
 from app.check_state import format_summary, get_state, set_running
 from app.config import settings
 from app.notifications import send_test_notification
@@ -155,6 +155,17 @@ def _render_status(request: Request, feature: str):
     return resp
 
 
+def _render_status_poll(request: Request, feature: str):
+    state = get_state(feature)
+    resp = templates.TemplateResponse(
+        "_status_poll.html",
+        {"request": request, "feature": feature, "state": state, "status_summary_text": format_summary(feature, state)},
+    )
+    if not state["running"]:
+        resp.headers["HX-Trigger"] = "checkComplete"
+    return resp
+
+
 @app.post("/updates/check-now")
 def updates_check_now(request: Request):
     set_running("updates")
@@ -162,15 +173,16 @@ def updates_check_now(request: Request):
     return _render_status(request, "updates")
 
 
-@app.get("/updates/status")
-def updates_status(request: Request):
-    return _render_status(request, "updates")
+@app.get("/updates/status-poll")
+def updates_status_poll(request: Request):
+    return _render_status_poll(request, "updates")
 
 
 @app.get("/updates/partial")
 def updates_partial(request: Request, sort: str = "importance", dir: str = "desc",
                      csort: str = "container", cdir: str = "asc"):
     updates = db.list_recent_updates(limit=100, sort=sort, direction=dir)
+    updates = _annotate_with_stack(updates, "container_name", sort, dir)
     return templates.TemplateResponse(
         "_updates_table.html",
         {"request": request, "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir},
@@ -181,6 +193,7 @@ def updates_partial(request: Request, sort: str = "importance", dir: str = "desc
 def updates_partial_containers(request: Request, sort: str = "importance", dir: str = "desc",
                                 csort: str = "container", cdir: str = "asc"):
     containers = db.all_container_states(sort=csort, direction=cdir)
+    containers = _annotate_with_stack(containers, "container_name", csort, cdir)
     return templates.TemplateResponse(
         "_containers_table.html",
         {"request": request, "containers": containers, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir},
@@ -194,9 +207,9 @@ def logs_check_now(request: Request):
     return _render_status(request, "logs")
 
 
-@app.get("/logs/status")
-def logs_status(request: Request):
-    return _render_status(request, "logs")
+@app.get("/logs/status-poll")
+def logs_status_poll(request: Request):
+    return _render_status_poll(request, "logs")
 
 
 @app.get("/logs/partial/issues")
@@ -221,9 +234,9 @@ def compose_check_now(request: Request):
     return _render_status(request, "compose")
 
 
-@app.get("/compose/status")
-def compose_status(request: Request):
-    return _render_status(request, "compose")
+@app.get("/compose/status-poll")
+def compose_status_poll(request: Request):
+    return _render_status_poll(request, "compose")
 
 
 @app.get("/compose/partial/issues")
@@ -243,6 +256,38 @@ def compose_partial_files(request: Request):
     for item in items:
         item["display_name"] = compose_lookup.subject_display_name("compose", item["name"])
     return templates.TemplateResponse("_status_list_table.html", {"request": request, "items": items, "detail_base": "/compose/file", "use_query_param": True})
+
+
+def _annotate_with_stack(rows, name_key: str, sort: str, direction: str):
+    """Attaches stack_id/stack_name to each row (container/update record) so the table can
+    show and optionally sort by which compose stack it belongs to. Ungrouped containers
+    (no resolvable compose file) get stack_name=None and always sort to the end regardless
+    of direction — they're a lower-priority bucket, not something to alphabetize normally."""
+    annotated = []
+    for row in rows:
+        d = dict(row)
+        info = compose_lookup.get_stack_info(d[name_key])
+        if info:
+            d["stack_id"] = info["stack_id"]
+            d["stack_name"] = stacks.get_or_generate_stack_name(info["stack_id"], info["service_names"])
+        else:
+            d["stack_id"] = None
+            d["stack_name"] = None
+        annotated.append(d)
+
+    if sort == "stack":
+        annotated.sort(
+            key=lambda d: (d["stack_name"] is None, (d["stack_name"] or "").lower(), d[name_key].lower()),
+            reverse=(direction == "desc"),
+        )
+        if direction == "desc":
+            # Reversing for desc also flips "ungrouped last" to "ungrouped first" — undo
+            # that specifically, ungrouped always sorts last regardless of direction.
+            grouped = [d for d in annotated if d["stack_name"] is not None]
+            ungrouped = [d for d in annotated if d["stack_name"] is None]
+            annotated = grouped + ungrouped
+
+    return annotated
 
 
 def _get_or_build_overview(source: str, subject: str, display_name: str, findings) -> str | None:
@@ -336,7 +381,7 @@ def settings_page(request: Request):
         for feature in ("updates", "logs", "compose")
     }
     deep_analysis = {
-        feature: db.get_deep_analysis_enabled(feature) for feature in ("logs", "compose")
+        feature: db.get_deep_analysis_enabled(feature) for feature in ("logs", "compose", "updates")
     }
     return templates.TemplateResponse(
         "settings.html",
@@ -355,7 +400,7 @@ def _saved(request: Request):
 
 @app.post("/settings/deep-analysis/{feature}")
 async def save_deep_analysis(feature: str, request: Request):
-    if feature not in ("logs", "compose"):
+    if feature not in ("logs", "compose", "updates"):
         raise HTTPException(status_code=404)
     form = await request.form()
     db.set_deep_analysis_enabled(feature, form.get("enabled") == "on")
@@ -453,6 +498,58 @@ def reset_and_recheck_updates():
     return RedirectResponse(url="/updates", status_code=303)
 
 
+@app.get("/updates/stack")
+def stack_detail(request: Request, id: str):
+    stack_row = db.get_stack(id)
+    info_by_container = {}
+    for c in db.all_container_states():
+        info = compose_lookup.get_stack_info(c["container_name"])
+        if info and info["stack_id"] == id:
+            info_by_container[c["container_name"]] = c
+
+    member_names = sorted(info_by_container.keys())
+    display_name = stack_row["display_name"] if stack_row else (member_names[0] if member_names else "Unknown stack")
+    analysis_row = db.get_stack_analysis(id)
+    analysis_html = markdown.markdown(analysis_row["analysis_markdown"]) if analysis_row else None
+
+    return templates.TemplateResponse(
+        "stack_detail.html",
+        {
+            "request": request, "stack_id": id, "display_name": display_name,
+            "members": [dict(info_by_container[n]) for n in member_names],
+            "analysis_html": analysis_html, "active_tab": "updates",
+        },
+    )
+
+
+@app.post("/updates/stack/rename")
+async def rename_stack_route(request: Request):
+    form = await request.form()
+    stack_id = form.get("stack_id", "")
+    name = (form.get("name") or "").strip()
+    if stack_id and name:
+        stacks.rename_stack(stack_id, name)
+    return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
+
+
+@app.post("/updates/stack/reset-name")
+async def reset_stack_name_route(request: Request):
+    form = await request.form()
+    stack_id = form.get("stack_id", "")
+    if stack_id:
+        stacks.reset_stack_name(stack_id)
+        # Regenerate immediately rather than leaving it nameless until the next check.
+        info = None
+        for c in db.all_container_states():
+            candidate = compose_lookup.get_stack_info(c["container_name"])
+            if candidate and candidate["stack_id"] == stack_id:
+                info = candidate
+                break
+        if info:
+            stacks.get_or_generate_stack_name(stack_id, info["service_names"])
+    return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
+
+
 # ---------------------------------------------------------------------------
 # Tab pages
 # ---------------------------------------------------------------------------
@@ -461,7 +558,9 @@ def reset_and_recheck_updates():
 def updates_page(request: Request, sort: str = "importance", dir: str = "desc",
                   csort: str = "container", cdir: str = "asc"):
     updates = db.list_recent_updates(limit=100, sort=sort, direction=dir)
+    updates = _annotate_with_stack(updates, "container_name", sort, dir)
     containers = db.all_container_states(sort=csort, direction=cdir)
+    containers = _annotate_with_stack(containers, "container_name", csort, cdir)
     state = get_state("updates")
     return templates.TemplateResponse(
         "updates.html",
