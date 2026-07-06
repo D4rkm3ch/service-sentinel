@@ -28,12 +28,20 @@
 
   {% if members %}
   <table class="updates-table">
+    <colgroup>
+      <col style="width: 16%">
+      <col style="width: 34%">
+      <col style="width: 16%">
+      <col style="width: 17%">
+      <col style="width: 17%">
+      <col style="width: 4%">
+    </colgroup>
     <thead>
       <tr>
         <th>Container</th>
         <th>Image</th>
         <th>Detected</th>
-        <th>Importance</th>
+        <th class="importance-cell">Importance</th>
         <th>Status</th>
         <th></th>
       </tr>
@@ -42,10 +50,10 @@
       {% for m in members %}
       {% if m.latest_update %}
       <tr class="row-{{ m.latest_update.status }} row-clickable" onclick="window.location='/updates/{{ m.latest_update.id }}'">
-        <td class="mono">{{ m.container_name }}</td>
+        <td class="mono truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</td>
         <td class="mono truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</td>
         <td class="nowrap">{{ m.latest_update.created_at[:16].replace('T', ' ') }}</td>
-        <td><span class="badge badge-sev-{{ m.latest_update.severity }}">{{ severity_label('updates', m.latest_update.severity) }}</span></td>
+        <td class="importance-cell"><span class="badge badge-sev-{{ m.latest_update.severity }}">{{ severity_label('updates', m.latest_update.severity) }}</span></td>
         <td>
           {% if m.latest_update.error %}
             <span class="badge badge-error">Needs manual check</span>
@@ -59,10 +67,10 @@
       </tr>
       {% else %}
       <tr>
-        <td class="mono">{{ m.container_name }}</td>
+        <td class="mono truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</td>
         <td class="mono truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</td>
         <td class="nowrap">—</td>
-        <td><span class="badge badge-healthy">Up to date</span></td>
+        <td class="importance-cell"><span class="badge badge-healthy">Up to date</span></td>
         <td><span class="meta">—</span></td>
         <td></td>
       </tr>

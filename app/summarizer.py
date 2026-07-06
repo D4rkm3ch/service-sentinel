@@ -290,16 +290,15 @@ def generate_stack_name(service_names: list[str]) -> str:
 STACK_ANALYSIS_SYSTEM_PROMPT = """You are looking at one docker-compose stack for a homelab \
 operator — several services that run together and can affect each other, defined in the same \
 file. You'll be given the full list of services in the stack and which one(s) just had an \
-update detected, along with that update's own summary.
+update detected.
 
-Write 2-4 sentences of plain prose focused specifically on cross-service impact: could this \
-change affect how the OTHER services in this stack behave or communicate with the one that \
-updated? Only raise something if there's a real, concrete reason to think so based on the \
-services involved (e.g. a database version bump that a dependent app might not support yet, an \
-API or port change other services rely on). If there's no real cross-service concern, say so \
-plainly in one sentence — don't invent a concern to fill space.
+In AT MOST 2 short sentences: is there a real, concrete cross-service risk here, or not? If \
+yes, name the specific risk and which services it affects — nothing else, no background \
+explanation, no "here's why this matters" framing. If no, say so in one short sentence and \
+stop. Do not restate the update itself, do not list out how each service works, do not \
+speculate broadly — only state a conclusion.
 
-No markdown headers, no bullet list, no restating the individual update summary verbatim."""
+No markdown, no headers, no bullet list."""
 
 
 def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], changed_summary_text: str) -> str:
@@ -319,7 +318,7 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
         model=settings.claude_model,
-        max_tokens=400,
+        max_tokens=150,
         system=STACK_ANALYSIS_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     )

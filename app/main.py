@@ -681,9 +681,17 @@ def update_detail(request: Request, update_id: int):
     if update is None:
         raise HTTPException(status_code=404, detail="Update not found")
     summary_html = markdown.markdown(update["summary_markdown"]) if update["summary_markdown"] else None
+    stack_info = compose_lookup.get_stack_info(update["container_name"])
+    stack_id = stack_info["stack_id"] if stack_info else None
+    stack_name = None
+    if stack_info:
+        stack_name = stacks.get_or_generate_stack_name(stack_info["stack_id"], stack_info["service_names"])
     return templates.TemplateResponse(
         "detail.html",
-        {"request": request, "update": update, "summary_html": summary_html, "active_tab": "updates"},
+        {
+            "request": request, "update": update, "summary_html": summary_html,
+            "stack_id": stack_id, "stack_name": stack_name, "active_tab": "updates",
+        },
     )
 
 

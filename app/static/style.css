@@ -44,7 +44,7 @@ body {
 }
 
 main {
-  max-width: 1060px;
+  max-width: 1260px;
   margin: 0 auto;
   padding: 32px 24px 64px;
 }
@@ -67,6 +67,19 @@ h2 {
 table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* Combined with table-layout: fixed, max-width: 0 on cells is a standard trick that makes
+   ellipsis truncation actually reliable in table cells across browsers — without it, cells
+   containing inline-block content (badges, links) can refuse to shrink below their content's
+   natural width even with overflow:hidden set. */
+.updates-table td, .containers-table td,
+.updates-table th, .containers-table th {
+  overflow: hidden;
+}
+.importance-cell {
+  text-align: center;
 }
 
 th {
@@ -125,23 +138,32 @@ tr.row-clickable {
 }
 
 .truncate-cell {
-  max-width: 190px;
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .stack-cell {
-  max-width: 140px;
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: inline-block;
-  vertical-align: bottom;
 }
 
 a {
   color: var(--accent);
+}
+
+.back-link-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.back-link-row .back-link {
+  margin-bottom: 0;
 }
 
 .back-link {
@@ -261,7 +283,7 @@ a {
 }
 
 .app-footer {
-  max-width: 1060px;
+  max-width: 1260px;
   margin: 40px auto 24px;
   padding: 16px 24px 0;
   border-top: 1px solid var(--border);

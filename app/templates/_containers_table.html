@@ -3,6 +3,12 @@
 {% set preserve_other = '&sort=' ~ sort ~ '&dir=' ~ dir %}
 {% if containers %}
 <table class="containers-table">
+  <colgroup>
+    <col style="width: 22%">
+    <col style="width: 22%">
+    <col style="width: 38%">
+    <col style="width: 18%">
+  </colgroup>
   <thead>
     <tr>
       <th>{{ sh.sort_link('Container', 'container', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
@@ -14,7 +20,7 @@
   <tbody>
     {% for c in containers %}
     <tr>
-      <td class="mono nowrap">{{ c.container_name }}</td>
+      <td class="mono truncate-cell" title="{{ c.container_name }}">{{ c.container_name }}</td>
       <td>
         {% if c.stack_name %}
         <a href="/updates/stack?id={{ c.stack_id|urlencode }}" class="stack-cell" title="{{ c.stack_name }}">{{ c.stack_name }}</a>
