@@ -1,6 +1,8 @@
 import threading
 from datetime import datetime, timezone
 
+from app import db
+
 FEATURES = ("updates", "logs", "compose")
 
 _lock = threading.Lock()
@@ -13,20 +15,30 @@ def set_running(feature: str) -> None:
 
 
 def set_finished(feature: str, result: dict) -> None:
+    now_iso = datetime.now(timezone.utc).isoformat()
     with _lock:
         _state[feature]["running"] = False
         _state[feature]["last_result"] = result
-        _state[feature]["last_run_at"] = datetime.now(timezone.utc).isoformat()
+        _state[feature]["last_run_at"] = now_iso
+    # Persisted separately from the in-memory dict above so "last checked" survives a
+    # container restart — the in-memory value is just a faster path while the process
+    # is still alive.
+    db.set_last_check_result(feature, result, now_iso)
 
 
 def get_state(feature: str) -> dict:
     with _lock:
-        return dict(_state[feature])
+        state = dict(_state[feature])
+    if state["last_result"] is None:
+        persisted = db.get_last_check_result(feature)
+        if persisted:
+            state["last_result"] = persisted.get("result")
+            state["last_run_at"] = persisted.get("at")
+    return state
 
 
 def get_all_states() -> dict:
-    with _lock:
-        return {name: dict(s) for name, s in _state.items()}
+    return {name: get_state(name) for name in FEATURES}
 
 
 def format_summary(feature: str, state: dict) -> str:

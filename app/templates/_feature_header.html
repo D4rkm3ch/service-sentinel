@@ -4,6 +4,7 @@
     {%- elif feature == "logs" -%}Log health
     {%- elif feature == "compose" -%}Compose health
     {%- endif -%}
+    {%- if updates_count is defined %} <span class="heading-count">({{ updates_count }})</span>{% endif -%}
   </h1>
   <div class="topbar-right">
     <div id="check-status">{% include "_status.html" %}</div>

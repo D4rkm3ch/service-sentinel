@@ -49,6 +49,18 @@ templates.env.globals["app_version"] = RELEASE_RADAR_VERSION
 templates.env.globals["github_url"] = "https://github.com/D4rkm3ch/release-radar"
 templates.env.globals["app_timezone"] = settings.tz
 templates.env.globals["get_uptime_str"] = get_uptime_str
+
+# "Suggestion" reads oddly for an update ("this release is a suggestion"?) — "Safe" matches
+# the actual meaning (nothing risky here, safe to update) without changing the underlying
+# severity value used for storage, sorting, and notification thresholds everywhere else.
+SEVERITY_LABELS = {"updates": {"suggestion": "Safe"}}
+
+
+def severity_label(context: str, value: str) -> str:
+    return SEVERITY_LABELS.get(context, {}).get(value, value.capitalize())
+
+
+templates.env.globals["severity_label"] = severity_label
 app.include_router(webhook_router)
 
 TRIGGER_FUNCS = {
@@ -147,15 +159,23 @@ def updates_status(request: Request):
 
 
 @app.get("/updates/partial")
-def updates_partial(request: Request):
-    updates = db.list_recent_updates(limit=100)
-    return templates.TemplateResponse("_updates_table.html", {"request": request, "updates": updates})
+def updates_partial(request: Request, sort: str = "importance", dir: str = "asc",
+                     csort: str = "container", cdir: str = "asc"):
+    updates = db.list_recent_updates(limit=100, sort=sort, direction=dir)
+    return templates.TemplateResponse(
+        "_updates_table.html",
+        {"request": request, "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir},
+    )
 
 
 @app.get("/updates/partial/containers")
-def updates_partial_containers(request: Request):
-    containers = db.all_container_states()
-    return templates.TemplateResponse("_containers_table.html", {"request": request, "containers": containers})
+def updates_partial_containers(request: Request, sort: str = "importance", dir: str = "asc",
+                                csort: str = "container", cdir: str = "asc"):
+    containers = db.all_container_states(sort=csort, direction=cdir)
+    return templates.TemplateResponse(
+        "_containers_table.html",
+        {"request": request, "containers": containers, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir},
+    )
 
 
 @app.post("/logs/check-now")
@@ -415,16 +435,19 @@ async def test_apprise(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/updates")
-def updates_page(request: Request):
-    updates = db.list_recent_updates(limit=100)
-    containers = db.all_container_states()
+def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
+                  csort: str = "container", cdir: str = "asc"):
+    updates = db.list_recent_updates(limit=100, sort=sort, direction=dir)
+    containers = db.all_container_states(sort=csort, direction=cdir)
     state = get_state("updates")
     return templates.TemplateResponse(
         "updates.html",
         {
             "request": request, "updates": updates, "containers": containers,
+            "updates_count": len(updates), "containers_count": len(containers),
             "feature": "updates", "state": state,
             "status_summary_text": format_summary("updates", state),
+            "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
             "active_tab": "updates",
         },
     )

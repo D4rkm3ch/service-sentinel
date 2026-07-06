@@ -1,20 +1,20 @@
+{% import "_sort_header.html" as sh %}
+{% set preserve_other = '&sort=' ~ sort ~ '&dir=' ~ dir %}
 {% if containers %}
 <table class="containers-table">
   <thead>
     <tr>
-      <th>Container</th>
-      <th>Image</th>
-      <th>Tag</th>
-      <th>Last checked</th>
+      <th>{{ sh.sort_link('Container', 'container', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Image', 'image', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, '/updates', 'desc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
     </tr>
   </thead>
   <tbody>
     {% for c in containers %}
     <tr>
       <td class="mono">{{ c.container_name }}</td>
-      <td class="mono">{{ c.image_repo }}</td>
-      <td class="mono">{{ c.tag }}</td>
-      <td>{{ c.last_checked_at[:16].replace('T', ' ') if c.last_checked_at else '—' }}</td>
+      <td class="mono truncate-cell" title="{{ c.image_repo }}:{{ c.tag }}" onclick="this.classList.toggle('expanded')">{{ c.image_repo }}:{{ c.tag }}</td>
+      <td class="nowrap">{{ c.last_checked_at[:16].replace('T', ' ') if c.last_checked_at else '—' }}</td>
     </tr>
     {% endfor %}
   </tbody>

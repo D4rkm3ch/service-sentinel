@@ -1,22 +1,24 @@
+{% import "_sort_header.html" as sh %}
+{% set preserve_other = '&csort=' ~ csort ~ '&cdir=' ~ cdir %}
 {% if updates %}
 <table class="updates-table">
   <thead>
     <tr>
-      <th>Container</th>
-      <th>Image</th>
-      <th>Detected</th>
-      <th>Importance</th>
-      <th>Status</th>
+      <th>{{ sh.sort_link('Container', 'container', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Image', 'image', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Status', 'status', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
       <th></th>
     </tr>
   </thead>
   <tbody>
     {% for u in updates %}
-    <tr class="row-{{ u.status }}">
+    <tr class="row-{{ u.status }} row-clickable" onclick="window.location='/updates/{{ u.id }}'">
       <td class="mono">{{ u.container_name }}</td>
-      <td class="mono">{{ u.image_repo }}:{{ u.tag }}</td>
-      <td>{{ u.created_at[:16].replace('T', ' ') }}</td>
-      <td><span class="badge badge-sev-{{ u.severity }}">{{ u.severity }}</span></td>
+      <td class="mono truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}" onclick="event.stopPropagation(); this.classList.toggle('expanded')">{{ u.image_repo }}:{{ u.tag }}</td>
+      <td class="nowrap">{{ u.created_at[:16].replace('T', ' ') }}</td>
+      <td><span class="badge badge-sev-{{ u.severity }}">{{ severity_label('updates', u.severity) }}</span></td>
       <td>
         {% if u.error %}
           <span class="badge badge-error">needs manual check</span>

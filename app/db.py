@@ -359,9 +359,21 @@ def upsert_container_state(container_name: str, image_repo: str, tag: str, diges
         )
 
 
-def all_container_states() -> list[sqlite3.Row]:
+CONTAINER_SORT_COLUMNS = {
+    "container": "container_name COLLATE NOCASE",
+    "image": "image_repo COLLATE NOCASE",
+    "lastchecked": "last_checked_at",
+}
+
+
+def all_container_states(sort: str = "container", direction: str = "asc") -> list[sqlite3.Row]:
+    sort_expr = CONTAINER_SORT_COLUMNS.get(sort, CONTAINER_SORT_COLUMNS["container"])
+    dir_sql = "DESC" if direction == "desc" else "ASC"
+    order_clause = f"{sort_expr} {dir_sql}"
+    if sort != "container":
+        order_clause += ", container_name COLLATE NOCASE ASC"
     with get_conn() as conn:
-        cur = conn.execute("SELECT * FROM container_state ORDER BY container_name")
+        cur = conn.execute(f"SELECT * FROM container_state ORDER BY {order_clause}")
         return cur.fetchall()
 
 
@@ -392,10 +404,39 @@ def record_update(
         return cur.lastrowid
 
 
-def list_recent_updates(limit: int = 100) -> list[sqlite3.Row]:
+UPDATE_SORT_COLUMNS = {
+    "container": "container_name COLLATE NOCASE",
+    "image": "image_repo COLLATE NOCASE",
+    "detected": "created_at",
+    "importance": "CASE severity WHEN 'suggestion' THEN 0 WHEN 'warning' THEN 1 WHEN 'critical' THEN 2 ELSE 3 END",
+    "status": "CASE WHEN error IS NOT NULL THEN 'needs manual check' WHEN status = 'unread' THEN 'new' ELSE 'read' END",
+}
+
+
+def list_recent_updates(limit: int = 100, sort: str = "importance", direction: str = "asc") -> list[sqlite3.Row]:
+    sort_expr = UPDATE_SORT_COLUMNS.get(sort, UPDATE_SORT_COLUMNS["importance"])
+    dir_sql = "DESC" if direction == "desc" else "ASC"
+
+    if sort in ("container", "image"):
+        # Sorting by the column itself is already a full ordering — no separate alpha
+        # tiebreak needed, just a stable secondary sort by recency.
+        order_clause = f"{sort_expr} {dir_sql}, created_at DESC"
+    elif sort == "detected":
+        order_clause = f"{sort_expr} {dir_sql}"
+    else:
+        # importance / status: the clicked direction flips the tier/label order, but the
+        # within-tier tiebreak always stays alphabetical ascending, per how this was asked for.
+        order_clause = f"{sort_expr} {dir_sql}, container_name COLLATE NOCASE ASC"
+
     with get_conn() as conn:
         cur = conn.execute(
-            "SELECT * FROM updates ORDER BY created_at DESC LIMIT ?", (limit,)
+            f"""
+            SELECT * FROM (
+                SELECT * FROM updates ORDER BY created_at DESC LIMIT ?
+            )
+            ORDER BY {order_clause}
+            """,
+            (limit,),
         )
         return cur.fetchall()
 
@@ -700,3 +741,28 @@ def get_deep_analysis_enabled(feature: str) -> bool:
 
 def set_deep_analysis_enabled(feature: str, enabled: bool) -> None:
     _set_setting(f"deep_analysis_{feature}_enabled", "true" if enabled else "false")
+
+
+# ---------------------------------------------------------------------------
+# Last check result — persisted so "last checked" survives a container restart,
+# not just kept in memory (which was resetting to "no check has run yet" on
+# every restart even though checks had genuinely run before).
+# ---------------------------------------------------------------------------
+
+def get_last_check_result(feature: str) -> dict | None:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?", (f"last_check_result_{feature}",)
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    try:
+        return json.loads(row["value"])
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def set_last_check_result(feature: str, result: dict, at_iso: str) -> None:
+    payload = {"result": result, "at": at_iso}
+    _set_setting(f"last_check_result_{feature}", json.dumps(payload))

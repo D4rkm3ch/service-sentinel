@@ -1,0 +1,12 @@
+{% macro sort_link(label, column, current_sort, current_dir, base_url, default_dir='asc', sort_param='sort', dir_param='dir', extra_qs='') %}
+{% if current_sort == column %}
+  {% set next_dir = 'desc' if current_dir == 'asc' else 'asc' %}
+  {% set arrow = '▲' if current_dir == 'asc' else '▼' %}
+{% else %}
+  {% set next_dir = default_dir %}
+  {% set arrow = '' %}
+{% endif %}
+<a href="{{ base_url }}?{{ sort_param }}={{ column }}&{{ dir_param }}={{ next_dir }}{{ extra_qs }}" class="sort-link {{ 'sort-link-active' if current_sort == column else '' }}">
+  {{ label }}{% if arrow %} <span class="sort-arrow">{{ arrow }}</span>{% endif %}
+</a>
+{% endmacro %}
