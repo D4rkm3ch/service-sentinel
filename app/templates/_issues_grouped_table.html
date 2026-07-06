@@ -19,17 +19,17 @@
       </td>
       <td>
         {% if issue.active_count %}
-        <span class="badge badge-sev-{{ issue.top_severity }}">{{ issue.top_severity }}</span>
+        <span class="badge badge-sev-{{ issue.top_severity }}">{{ severity_label(source, issue.top_severity) }}</span>
         {% else %}
-        <span class="badge badge-silenced">silenced only</span>
+        <span class="badge badge-silenced">Silenced only</span>
         {% endif %}
       </td>
       <td>{{ issue.last_seen_at[:16].replace('T', ' ') }}</td>
       <td>
         {% if source == 'logs' %}
-        <a href="/logs/container/{{ issue.subject }}{{ '?show_silenced=1' if show_silenced else '' }}">view →</a>
+        <a href="/logs/container/{{ issue.subject }}{{ '?show_silenced=1' if show_silenced else '' }}">View</a>
         {% else %}
-        <a href="/compose/file?path={{ issue.subject|urlencode }}{{ '&show_silenced=1' if show_silenced else '' }}">view →</a>
+        <a href="/compose/file?path={{ issue.subject|urlencode }}{{ '&show_silenced=1' if show_silenced else '' }}">View</a>
         {% endif %}
       </td>
     </tr>

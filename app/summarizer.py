@@ -11,21 +11,26 @@ deciding whether to update a self-hosted Docker container.
 
 Structure your response in markdown with exactly these sections:
 
-## New features
-Bullet points, plain language, most significant first. Skip internal refactors or anything \
-with no user-facing effect. If nothing qualifies, write "Nothing notable."
+## New Features
+Plain language, most significant first. Skip internal refactors or anything with no \
+user-facing effect. If nothing qualifies, write "Nothing notable."
 
-## Breaking changes
-Bullet points. Only include things that could actually break on update: removed env vars, \
-changed default ports, config file format changes, deprecated volumes, required migration \
-steps. If nothing qualifies, write "None found."
+## Breaking Changes
+Only include things that could actually break on update: removed env vars, changed default \
+ports, config file format changes, deprecated volumes, required migration steps. If nothing \
+qualifies, write "None found."
 
-## Relevant to your setup
+## Relevant to your Setup
 This is the most important section. Cross-reference the features and breaking changes above \
 against the operator's actual compose configuration (provided below). Call out specifically \
 which env vars, volumes, ports, or labels they have set are affected, and how. If nothing in \
 the release touches their actual configuration, say so plainly and keep this section short — \
 don't pad it.
+
+For all three sections: use a bullet list only when there are two or more distinct points to \
+make. If there's exactly one point, or none, write a plain sentence instead — a bullet list \
+with a single item, or a single item padded out to look like a list, reads worse than just \
+saying it.
 
 Be concise. This is read on a dashboard, not a blog post. No preamble, no closing summary, no \
 restating the version numbers.

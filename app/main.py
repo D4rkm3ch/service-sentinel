@@ -159,7 +159,7 @@ def updates_status(request: Request):
 
 
 @app.get("/updates/partial")
-def updates_partial(request: Request, sort: str = "importance", dir: str = "asc",
+def updates_partial(request: Request, sort: str = "importance", dir: str = "desc",
                      csort: str = "container", cdir: str = "asc"):
     updates = db.list_recent_updates(limit=100, sort=sort, direction=dir)
     return templates.TemplateResponse(
@@ -169,7 +169,7 @@ def updates_partial(request: Request, sort: str = "importance", dir: str = "asc"
 
 
 @app.get("/updates/partial/containers")
-def updates_partial_containers(request: Request, sort: str = "importance", dir: str = "asc",
+def updates_partial_containers(request: Request, sort: str = "importance", dir: str = "desc",
                                 csort: str = "container", cdir: str = "asc"):
     containers = db.all_container_states(sort=csort, direction=cdir)
     return templates.TemplateResponse(
@@ -435,7 +435,7 @@ async def test_apprise(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/updates")
-def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
+def updates_page(request: Request, sort: str = "importance", dir: str = "desc",
                   csort: str = "container", cdir: str = "asc"):
     updates = db.list_recent_updates(limit=100, sort=sort, direction=dir)
     containers = db.all_container_states(sort=csort, direction=cdir)

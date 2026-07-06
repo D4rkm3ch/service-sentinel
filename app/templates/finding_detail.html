@@ -2,17 +2,17 @@
 {% block title %}{{ finding.title }} — release-radar{% endblock %}
 {% block content %}
 
-<a href="{{ '/logs' if finding.source == 'logs' else '/compose' }}" class="back-link">← back</a>
+<a href="{{ '/logs' if finding.source == 'logs' else '/compose' }}" class="back-link">← Back to {{ 'Logs' if finding.source == 'logs' else 'Compose' }}</a>
 
 <section>
   <div class="subject-title-row">
     <h1 class="mono subject-heading">{{ display_name }}</h1>
-    <span class="badge badge-lg badge-sev-{{ finding.severity }}">{{ finding.severity }}</span>
-    {% if finding.status == 'silenced' %}<span class="badge badge-lg badge-silenced">silenced</span>{% endif %}
+    <span class="badge badge-lg badge-sev-{{ finding.severity }}">{{ severity_label(finding.source, finding.severity) }}</span>
+    {% if finding.status == 'silenced' %}<span class="badge badge-lg badge-silenced">Silenced</span>{% endif %}
   </div>
   <p class="meta">
     {{ finding.title }}
-    · {{ finding.category }}
+    · {{ finding.category|capitalize }}
     · seen {{ finding.occurrence_count }}× · first {{ finding.first_seen_at[:16].replace('T', ' ') }}
     · last {{ finding.last_seen_at[:16].replace('T', ' ') }}
   </p>

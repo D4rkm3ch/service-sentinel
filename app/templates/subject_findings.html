@@ -2,7 +2,7 @@
 {% block title %}{{ display_name }} — release-radar{% endblock %}
 {% block content %}
 
-<a href="{{ back_url }}" class="back-link">← back</a>
+<a href="{{ back_url }}" class="back-link">← Back to {{ 'Logs' if back_url == '/logs' else 'Compose' }}</a>
 
 <section>
   <div class="feature-header">
@@ -30,11 +30,11 @@
     <tbody>
       {% for f in findings %}
       <tr>
-        <td>{{ f.title }}{% if f.status == 'silenced' %} <span class="badge badge-silenced">silenced</span>{% endif %}</td>
-        <td>{{ f.category }}</td>
-        <td><span class="badge badge-sev-{{ f.severity }}">{{ f.severity }}</span></td>
+        <td>{{ f.title }}{% if f.status == 'silenced' %} <span class="badge badge-silenced">Silenced</span>{% endif %}</td>
+        <td>{{ f.category|capitalize }}</td>
+        <td><span class="badge badge-sev-{{ f.severity }}">{{ severity_label(active_tab, f.severity) }}</span></td>
         <td>{{ f.occurrence_count }}× · last {{ f.last_seen_at[:16].replace('T', ' ') }}</td>
-        <td><a href="/findings/{{ f.id }}">view →</a></td>
+        <td><a href="/findings/{{ f.id }}">View</a></td>
       </tr>
       {% endfor %}
     </tbody>

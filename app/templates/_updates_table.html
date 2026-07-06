@@ -7,7 +7,7 @@
       <th>{{ sh.sort_link('Container', 'container', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Image', 'image', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
-      <th>{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Status', 'status', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
       <th></th>
     </tr>
@@ -16,19 +16,19 @@
     {% for u in updates %}
     <tr class="row-{{ u.status }} row-clickable" onclick="window.location='/updates/{{ u.id }}'">
       <td class="mono">{{ u.container_name }}</td>
-      <td class="mono truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}" onclick="event.stopPropagation(); this.classList.toggle('expanded')">{{ u.image_repo }}:{{ u.tag }}</td>
+      <td class="mono truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}">{{ u.image_repo }}:{{ u.tag }}</td>
       <td class="nowrap">{{ u.created_at[:16].replace('T', ' ') }}</td>
       <td><span class="badge badge-sev-{{ u.severity }}">{{ severity_label('updates', u.severity) }}</span></td>
       <td>
         {% if u.error %}
-          <span class="badge badge-error">needs manual check</span>
+          <span class="badge badge-error">Needs manual check</span>
         {% elif u.status == 'unread' %}
-          <span class="badge badge-unread">new</span>
+          <span class="badge badge-unread">New</span>
         {% else %}
-          <span class="badge badge-read">read</span>
+          <span class="badge badge-read">Read</span>
         {% endif %}
       </td>
-      <td><a href="/updates/{{ u.id }}">view →</a></td>
+      <td><a href="/updates/{{ u.id }}">View</a></td>
     </tr>
     {% endfor %}
   </tbody>
