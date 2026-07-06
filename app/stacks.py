@@ -5,8 +5,10 @@ page view or every check cycle for an unchanged stack.
 
 import hashlib
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app import compose_lookup, db
+from app.config import settings
 from app.summarizer import analyze_stack_impact, generate_stack_name
 
 logger = logging.getLogger("release_radar.stacks")
@@ -39,15 +41,28 @@ def reset_stack_name(stack_id: str) -> None:
 
 
 def run_stack_analysis_pass(members_by_stack: dict[str, list], digest_by_container: dict[str, str | None]) -> None:
-    """Called once at the end of a full Updates check, after every container's own digest
-    has already been resolved. Only runs at all if the Deep Analysis toggle is on — this is
-    the automatic, scheduled path. Manual retries (see regenerate_stack_analysis) bypass
-    this toggle entirely, since clicking Retry is an explicit request regardless of the
-    automatic setting."""
-    if not db.get_deep_analysis_enabled("updates"):
+    """Called once at the start of a full Updates check (it runs concurrently with, not
+    strictly after, per-container summarization — see reconcile.run_check). Only runs at all
+    if the Deep Analysis toggle is on — this is the automatic, scheduled path. Manual retries
+    (see regenerate_stack_analysis) bypass this toggle entirely, since clicking Retry is an
+    explicit request regardless of the automatic setting.
+
+    Stacks are processed concurrently with each other too — with many multi-service stacks,
+    processing them one at a time would just recreate the same sequential bottleneck that
+    per-container summarization had."""
+    if not db.get_deep_analysis_enabled("updates") or not members_by_stack:
         return
-    for stack_id, members in members_by_stack.items():
-        regenerate_stack_analysis(stack_id, members, digest_by_container)
+
+    with ThreadPoolExecutor(max_workers=settings.ai_summarize_concurrency) as pool:
+        futures = [
+            pool.submit(regenerate_stack_analysis, stack_id, members, digest_by_container)
+            for stack_id, members in members_by_stack.items()
+        ]
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception:
+                logger.exception("Stack analysis pass failed for one stack")
 
 
 def regenerate_stack_analysis(stack_id: str, members: list, digest_by_container: dict[str, str | None],
