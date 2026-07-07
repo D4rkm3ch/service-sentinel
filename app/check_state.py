@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app import db
-from app.config import settings
 
 FEATURES = ("updates", "logs", "compose")
 
@@ -61,14 +60,15 @@ def get_all_states() -> dict:
 
 def _local_timestamp(iso_utc: str) -> str:
     """Converts a stored UTC ISO timestamp (every timestamp in the database is UTC — see
-    db.now_iso()) into the configured TZ (settings.tz) for display, as "HH:MM, DD Mon YYYY".
-    Falls back to UTC if the configured TZ name isn't a real IANA zone (a typo'd env var)
-    rather than crashing the status line over it."""
+    db.now_iso()) into the configured TZ (db.get_timezone() — Stage 5c: the Settings page,
+    seeded from the TZ env var on first boot) for display, as "HH:MM, DD Mon YYYY". Falls
+    back to UTC if the configured TZ name isn't a real IANA zone rather than crashing the
+    status line over it."""
     dt = datetime.fromisoformat(iso_utc)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     try:
-        local = dt.astimezone(ZoneInfo(settings.tz))
+        local = dt.astimezone(ZoneInfo(db.get_timezone()))
     except ZoneInfoNotFoundError:
         local = dt.astimezone(timezone.utc)
     return local.strftime("%H:%M, %d %b %Y")

@@ -9,6 +9,19 @@
   <h2 class="settings-heading-lg">Scheduling</h2>
 
   <div class="settings-subsection settings-subsection-first">
+    <h4>Timezone</h4>
+    <p class="meta">What "6:00 AM" and every other time on this page actually means — also used to display "Last checked" times.</p>
+    <form hx-post="/settings/timezone" hx-trigger="change" hx-target="#saved-timezone" hx-swap="innerHTML">
+      <select name="timezone" class="mono">
+        {% for tz in available_timezones %}
+        <option value="{{ tz }}" {{ 'selected' if tz == timezone else '' }}>{{ tz }}</option>
+        {% endfor %}
+      </select>
+      <span class="saved-indicator-slot" id="saved-timezone"></span>
+    </form>
+  </div>
+
+  <div class="settings-subsection">
     <h4>General</h4>
     <p class="meta">Used by any feature below that isn't set to its own custom schedule.</p>
     {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}

@@ -46,26 +46,33 @@ def _ordinal(day: int) -> str:
     return f"{day}{suffix}"
 
 
-def build_trigger(spec: dict) -> CronTrigger:
+def build_trigger(spec: dict, tz: str | None = None) -> CronTrigger:
+    """tz is an IANA zone name (e.g. "Australia/Sydney") the times in `spec` are meant in —
+    left as None here (this module stays a pure, database-free translation function, like
+    reconcile.py) rather than reading the configured timezone itself; the caller
+    (scheduler.py's apply_schedules(), which does own a database connection) passes
+    db.get_timezone() through explicitly. None means "let APScheduler use its own default,"
+    which is only ever the case before any real timezone has been configured."""
     mode = spec.get("mode", "daily")
+    kwargs = {"timezone": tz} if tz else {}
 
     if mode == "hourly":
         interval, start_hour = _hourly_params(spec)
         hours = _hours_for(start_hour, interval)
-        return CronTrigger(hour=",".join(str(h) for h in hours), minute=0)
+        return CronTrigger(hour=",".join(str(h) for h in hours), minute=0, **kwargs)
 
     if mode == "weekly":
         days = _valid_days(spec.get("days_of_week"))
-        return CronTrigger(day_of_week=",".join(days), hour=int(spec.get("hour", 6)), minute=int(spec.get("minute", 0)))
+        return CronTrigger(day_of_week=",".join(days), hour=int(spec.get("hour", 6)), minute=int(spec.get("minute", 0)), **kwargs)
 
     if mode == "monthly":
         day = max(1, min(31, int(spec.get("day_of_month", 1))))
-        return CronTrigger(day=day, hour=int(spec.get("hour", 6)), minute=int(spec.get("minute", 0)))
+        return CronTrigger(day=day, hour=int(spec.get("hour", 6)), minute=int(spec.get("minute", 0)), **kwargs)
 
     # "daily" and any unrecognized/legacy mode (e.g. a stale "custom" cron spec saved before
     # this redesign removed that option) fall back to a plain daily time — never crash on an
     # old stored spec.
-    return CronTrigger(hour=int(spec.get("hour", 6)), minute=int(spec.get("minute", 0)))
+    return CronTrigger(hour=int(spec.get("hour", 6)), minute=int(spec.get("minute", 0)), **kwargs)
 
 
 def describe(spec: dict) -> str:

@@ -250,6 +250,21 @@ def get_all_feature_states() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Timezone — one global setting (there's only one scheduler/system clock, so unlike
+# schedules there's no per-feature override concept here). Seeded from the TZ env var on
+# first boot so existing deployments keep behaving the same until someone changes it from
+# the Settings page; from then on the database is authoritative.
+# ---------------------------------------------------------------------------
+
+def get_timezone() -> str:
+    return _get_setting("timezone", settings.tz)
+
+
+def set_timezone(tz: str) -> None:
+    _set_setting("timezone", tz)
+
+
+# ---------------------------------------------------------------------------
 # Schedules — a "master" schedule everything uses by default, with an optional
 # per-feature override. Stored as small JSON specs (see schedule_spec.py) rather
 # than raw cron strings, so the UI can offer a plain Hourly/Daily/Weekly/Monthly

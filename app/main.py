@@ -3,6 +3,7 @@ import logging
 import re
 import threading
 from urllib.parse import quote, urlencode
+from zoneinfo import available_timezones
 
 import markdown
 from fastapi import FastAPI, Request, HTTPException
@@ -47,7 +48,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["app_version"] = RELEASE_RADAR_VERSION
 templates.env.globals["github_url"] = "https://github.com/D4rkm3ch/release-radar"
-templates.env.globals["app_timezone"] = settings.tz
+templates.env.globals["app_timezone"] = db.get_timezone  # a callable, not a value -- Stage 5c
 templates.env.globals["get_uptime_str"] = get_uptime_str
 
 # "Suggestion" reads oddly for an update ("this release is a suggestion"?) — "Safe" matches
@@ -376,6 +377,10 @@ def _get_or_build_overview(source: str, subject: str, display_name: str, finding
 VALID_SCOPES = ("master", "updates", "logs", "compose")
 VALID_FEATURES = ("updates", "logs", "compose")
 
+# Computed once at import time rather than per-request — available_timezones() scans the
+# system's IANA zone database, which doesn't change while the process is running.
+AVAILABLE_TIMEZONES = sorted(available_timezones())
+
 
 def _int_field(form, name: str, default: int) -> int:
     try:
@@ -450,6 +455,7 @@ def settings_page(request: Request):
             "request": request, "master": master, "features": features,
             "describe": describe_schedule, "notify": _build_notify_context(),
             "deep_analysis": deep_analysis, "update_severities": list(UPDATE_SEVERITIES),
+            "timezone": db.get_timezone(), "available_timezones": AVAILABLE_TIMEZONES,
             "active_tab": "settings",
         },
     )
@@ -457,6 +463,19 @@ def settings_page(request: Request):
 
 def _saved(request: Request):
     return templates.TemplateResponse("_saved_indicator.html", {"request": request})
+
+
+@app.post("/settings/timezone")
+async def save_timezone(request: Request):
+    form = await request.form()
+    tz = (form.get("timezone") or "").strip()
+    if tz not in AVAILABLE_TIMEZONES:
+        raise HTTPException(status_code=400, detail="Unknown timezone")
+    db.set_timezone(tz)
+    # Re-applies immediately so already-scheduled jobs reinterpret their times in the new
+    # zone right away, rather than only taking effect after the next restart.
+    apply_schedules()
+    return _saved(request)
 
 
 @app.post("/settings/deep-analysis/{feature}")

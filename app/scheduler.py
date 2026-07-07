@@ -10,6 +10,13 @@ from app.schedule_spec import build_trigger
 
 logger = logging.getLogger("release_radar.scheduler")
 
+# settings.tz (the TZ env var) only ever seeds the scheduler's own bootstrap default here,
+# used for the brief window before apply_schedules() first runs (which happens immediately
+# after this, inside start_scheduler(), once the database is available). Every individual
+# job's trigger is built with its own explicit timezone from db.get_timezone() from then on,
+# so this module-level default becomes irrelevant in practice — real jobs never fall back to
+# it. Reading db.get_timezone() here directly isn't safe: this runs at import time, before
+# db.init_db() has created the app_settings table.
 _scheduler = BackgroundScheduler(timezone=settings.tz)
 
 
@@ -39,14 +46,17 @@ _JOBS = {
 
 def apply_schedules() -> None:
     """(Re)schedules the periodic jobs using whatever the database currently says each
-    feature's effective schedule is (its own override, or the master schedule). Safe to call
-    at any time — e.g. right after the settings page saves a change — since replace_existing
-    means it just updates the existing job's trigger rather than duplicating it."""
+    feature's effective schedule is (its own override, or the master schedule), and whatever
+    timezone is currently configured (Stage 5c — also called right after the Settings page
+    saves a timezone change, so a running job's times reinterpret immediately rather than
+    waiting for the next restart). Safe to call at any time since replace_existing means it
+    just updates the existing job's trigger rather than duplicating it."""
+    tz = db.get_timezone()
     for feature, (func, job_id) in _JOBS.items():
         spec = db.get_effective_schedule(feature)
-        trigger = build_trigger(spec)
+        trigger = build_trigger(spec, tz=tz)
         _scheduler.add_job(func, trigger=trigger, id=job_id, replace_existing=True)
-        logger.info("Schedule applied for %s: %s", feature, spec)
+        logger.info("Schedule applied for %s: %s (tz=%s)", feature, spec, tz)
 
 
 def start_scheduler() -> None:

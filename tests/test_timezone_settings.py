@@ -1,0 +1,69 @@
+"""Stage 5c: moves TZ from an env-var-only setting into the Settings UI (db.get_timezone() /
+db.set_timezone()), seeded from the TZ env var on first boot so existing deployments keep
+behaving the same until someone changes it from the page. Covers the DB round-trip, the
+settings route (including rejecting an unrecognized zone name), that a save re-applies the
+schedule immediately so a running job's times reinterpret in the new zone without a restart,
+and that the footer's displayed timezone updates too (it's a Jinja global registered as a
+callable specifically so it doesn't go stale after a change -- see main.py)."""
+
+from unittest.mock import patch
+
+import pytest
+
+from app import db
+
+db.init_db()
+
+
+def _clear_stored_timezone():
+    with db.get_conn() as conn:
+        conn.execute("DELETE FROM app_settings WHERE key = 'timezone'")
+
+
+@pytest.fixture(autouse=True)
+def clean_timezone():
+    """All test files in this suite share one physical SQLite database (see conftest.py), so
+    a "no timezone stored yet" test must not depend on execution order -- this guarantees a
+    clean slate before and after every test in this file regardless of what ran before it."""
+    _clear_stored_timezone()
+    yield
+    _clear_stored_timezone()
+
+
+def test_get_timezone_defaults_to_the_env_var_seed():
+    with patch("app.db.settings.tz", "Australia/Sydney"):
+        assert db.get_timezone() == "Australia/Sydney"
+
+
+def test_set_and_get_timezone_round_trip():
+    db.set_timezone("America/New_York")
+    assert db.get_timezone() == "America/New_York"
+
+
+def test_save_timezone_route_persists_and_reapplies_schedule(client):
+    from app import scheduler
+
+    resp = client.post("/settings/timezone", data={"timezone": "Australia/Sydney"})
+    assert resp.status_code == 200
+    assert db.get_timezone() == "Australia/Sydney"
+
+    job = scheduler._scheduler.get_job("periodic_updates_check")
+    assert str(job.trigger.timezone) == "Australia/Sydney"
+
+
+def test_save_timezone_rejects_unrecognized_zone_name(client):
+    resp = client.post("/settings/timezone", data={"timezone": "Not/A_Real_Zone"})
+    assert resp.status_code == 400
+    assert db.get_timezone() != "Not/A_Real_Zone"
+
+
+def test_settings_page_renders_the_configured_timezone_as_selected(client):
+    db.set_timezone("Europe/London")
+    resp = client.get("/settings")
+    assert 'value="Europe/London" selected' in resp.text
+
+
+def test_footer_reflects_the_current_timezone_without_restart(client):
+    db.set_timezone("Asia/Tokyo")
+    resp = client.get("/")
+    assert "Asia/Tokyo" in resp.text
