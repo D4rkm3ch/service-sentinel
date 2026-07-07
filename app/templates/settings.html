@@ -11,7 +11,7 @@
   <div class="settings-subsection settings-subsection-first">
     <h4>Timezone</h4>
     <p class="meta">What "6:00 AM" and every other time on this page actually means — also used to display "Last checked" times.</p>
-    <form hx-post="/settings/timezone" hx-trigger="change" hx-target="#saved-timezone" hx-swap="innerHTML">
+    <form class="schedule-fields" hx-post="/settings/timezone" hx-trigger="change" hx-target="#saved-timezone" hx-swap="innerHTML">
       <select name="timezone" class="mono">
         {% for tz in available_timezones %}
         <option value="{{ tz }}" {{ 'selected' if tz == timezone else '' }}>{{ tz }}</option>
