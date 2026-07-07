@@ -2,7 +2,7 @@ import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app import db
+from app import db, persist
 from app.compose_reviewer import run_compose_check
 from app.config import settings
 from app.log_watcher import run_log_check
@@ -12,12 +12,26 @@ logger = logging.getLogger("release_radar.scheduler")
 
 _scheduler = BackgroundScheduler(timezone=settings.tz)
 
-# "updates" is intentionally not in here yet. Stage 1 of the ground-up rebuild has no
-# automatic scheduled checking at all — only the manual "Check now" button, which calls the
-# check directly rather than going through the scheduler. Automatic scheduling comes back in
-# Stage 5, tested in isolation once everything before it is proven solid. Logs and Compose
-# are untouched and keep working exactly as before.
+
+def run_updates_check() -> None:
+    """The scheduled job body for Updates. Goes through
+    persist.run_updates_check_if_not_running() (Stage 5) rather than calling
+    persist.run_and_persist_check() directly, so a scheduled firing that happens to land
+    while a manual Check now (or another scheduled firing that ran long) is still in
+    progress gets skipped instead of running two overlapping checks. Runs directly on
+    APScheduler's own worker thread — no extra threading.Thread needed, unlike the UI's
+    Check now button, which backgrounds itself specifically so the HTTP response can return
+    immediately; a scheduled job has no request waiting on it."""
+    persist.run_updates_check_if_not_running()
+
+
+# Stage 1 of the ground-up rebuild removed "updates" from here entirely -- only the manual
+# Check now button, which called the check directly rather than going through the scheduler.
+# Stage 5 brings it back, now that persistence (Stage 3) and the background-job hardening
+# (Stage 4) are both proven solid. Logs and Compose are untouched and keep working exactly
+# as they did before.
 _JOBS = {
+    "updates": (run_updates_check, "periodic_updates_check"),
     "logs": (run_log_check, "periodic_logs_check"),
     "compose": (run_compose_check, "periodic_compose_check"),
 }

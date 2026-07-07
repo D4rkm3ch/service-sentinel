@@ -1,4 +1,5 @@
-"""Stage 3 of the ground-up rebuild: persistence.
+"""Stage 3 of the ground-up rebuild: persistence. Stage 5 adds the guarded entry point that
+lets automatic scheduled checks and manual UI checks share one "only one at a time" invariant.
 
 Wraps reconcile.run_check() and writes its outcome into SQLite, so the Tracked Containers
 table and per-update/per-stack detail pages survive restarts and get real database ids to
@@ -15,19 +16,75 @@ log) — just made durable across restarts, with at most one update row per cont
 time.
 """
 
+import logging
 from typing import Callable
 
-from app import db, reconcile
+from app import check_state, db, reconcile
+
+logger = logging.getLogger("release_radar.persist")
 
 _REGISTRY_ERROR_TEXT = "Could not reach the registry to check for an update."
 
 
 def run_and_persist_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
-    """The one shared entry point for actually running a check — used by the UI's Check now /
-    Reset & re-check, so every real check updates persisted state the same way."""
+    """Runs one check and persists its outcome, unconditionally — no running-flag guard, no
+    exception handling. This is the low-level building block; almost every real caller should
+    use run_updates_check_if_not_running() below instead, which adds both."""
     outcome = reconcile.run_check(on_progress=on_progress)
     persist_check_outcome(outcome)
     return outcome
+
+
+def try_start_updates_check() -> bool:
+    """Atomically claims the "a check is running" slot if it's free. Returns True if this
+    caller now owns it and must go on to call run_claimed_updates_check(); False if a check
+    was already in progress, meaning the caller should do nothing further.
+
+    Split out from run_updates_check_if_not_running() specifically so the UI's Check now
+    button can claim the slot synchronously in the request-handling thread — before the HTTP
+    response is even built — so that response deterministically shows "running" instead of
+    racing a background thread that might not have claimed it yet by the time the response
+    renders (see main.py's _launch_check_if_not_running). The actual check work still happens
+    on a background thread; only the claim itself needs to be synchronous."""
+    if check_state.get_state("updates").get("running"):
+        return False
+    check_state.set_running("updates")
+    return True
+
+
+def run_claimed_updates_check() -> None:
+    """Does the actual check + persist work, assuming try_start_updates_check() already
+    claimed the running slot. Includes the Stage 4 safety net: even if the check fails
+    partway through, check_state ends up "not running" regardless, so a single bad run (a DB
+    error, a bug in a later stage's code, anything) can never wedge the app the way the
+    pre-rebuild version did ("ran all night and was still checking"). A failed check just
+    reports itself as failed and lets the next trigger — scheduled or manual — try again."""
+    try:
+        outcome = run_and_persist_check(
+            on_progress=lambda done, total: check_state.set_progress("updates", done, total)
+        )
+        result = {
+            "checked": len(outcome["containers"]),
+            "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
+            "errors": outcome["errors"],
+        }
+    except Exception:
+        logger.exception("Update check failed unexpectedly")
+        result = {"checked": 0, "updates_found": 0, "errors": 1}
+
+    check_state.set_finished("updates", result)
+
+
+def run_updates_check_if_not_running() -> bool:
+    """Combines try_start_updates_check() + run_claimed_updates_check() into one synchronous
+    call — the right shape for the automatic schedule (Stage 5), which already runs on
+    APScheduler's own worker thread and has no HTTP response that needs to return immediately,
+    unlike the UI's Check now button. Returns True if a check actually ran, False if one was
+    already in progress and this call was skipped."""
+    if not try_start_updates_check():
+        return False
+    run_claimed_updates_check()
+    return True
 
 
 def persist_check_outcome(outcome: dict) -> None:

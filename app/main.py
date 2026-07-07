@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import compose_lookup, db, persist, stacks
-from app.check_state import format_summary, get_progress, get_state, set_finished, set_progress, set_running
+from app.check_state import format_summary, get_progress, get_state, set_running
 from app.config import settings
 from app.notifications import send_test_notification
 from app.summarizer import summarize_findings_overview
@@ -271,48 +271,20 @@ def compose_partial_files(request: Request):
 
 
 def _launch_check_if_not_running() -> None:
-    """Starts a check in a background thread purely so the click's own HTTP response can
-    return right away showing "running" — right now the response only ever came back once
-    the whole check had already finished (set_finished had already been called before any
-    render happened), so the spinner never had a chance to appear from the click itself;
-    the only way to see it was to load a fresh page while an earlier click's check happened
-    to still be going. The registry checks inside the thread run concurrently as of Stage 2,
-    and the outcome is written to the database as of Stage 3 (see app/persist.py) — page
-    loads and the auto-refresh below read straight from the database, never from an
-    in-memory cache, so results survive a restart and don't depend on this thread still
-    being alive.
+    """Claims the "running" slot synchronously (in this request-handling thread) so the
+    click's own HTTP response deterministically reflects "running" — right now the response
+    only ever came back once the whole check had already finished (set_finished had already
+    been called before any render happened), so the spinner never had a chance to appear from
+    the click itself; the only way to see it was to load a fresh page while an earlier click's
+    check happened to still be going. Only the actual check work (registry lookups, DB writes)
+    runs on a background thread, so the response doesn't wait for that part.
 
     Guarded against double-starts: if a check is already running (e.g. a double-click, or
-    Reset & re-check fired right after Check now), this is a no-op — the existing one is
-    left to finish rather than starting a second one on top of it.
-
-    Stage 4: the worker's body is wrapped in try/except specifically so set_finished() always
-    runs, even if persist.run_and_persist_check() raises something unexpected (a DB error, a
-    bug in a later stage's code, anything). Without this, an exception would kill the thread
-    silently and leave "running" stuck true forever — no spinner ever clearing, no way to
-    trigger a new check, exactly the class of bug ("ran all night and was still checking")
-    that the whole ground-up rebuild started over. A single failed check should just report
-    itself as failed and let the next click try again, not wedge the app."""
-    if get_state("updates").get("running"):
+    Reset & re-check fired right after Check now, or the automatic schedule firing at the same
+    moment — Stage 5), try_start_updates_check() is a no-op and nothing new gets launched."""
+    if not persist.try_start_updates_check():
         return
-    set_running("updates")
-
-    def _worker():
-        try:
-            outcome = persist.run_and_persist_check(
-                on_progress=lambda done, total: set_progress("updates", done, total)
-            )
-            result = {
-                "checked": len(outcome["containers"]),
-                "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
-                "errors": outcome["errors"],
-            }
-        except Exception:
-            logger.exception("Update check failed unexpectedly")
-            result = {"checked": 0, "updates_found": 0, "errors": 1}
-        set_finished("updates", result)
-
-    threading.Thread(target=_worker, daemon=True).start()
+    threading.Thread(target=persist.run_claimed_updates_check, daemon=True).start()
 
 
 def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_only: bool) -> list[dict]:
