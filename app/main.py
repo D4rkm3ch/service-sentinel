@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import re
+import time
 from urllib.parse import quote, urlencode
 
 import markdown
@@ -11,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import compose_lookup, db, reconcile, stacks
-from app.check_state import format_summary, get_state, set_running
+from app.check_state import format_summary, get_state, set_finished, set_running
 from app.config import settings
 from app.notifications import send_test_notification
 from app.summarizer import summarize_findings_overview
@@ -19,7 +20,6 @@ from app.schedule_spec import describe as describe_schedule
 from app.scheduler import (
     apply_schedules,
     start_scheduler,
-    trigger_check_now,
     trigger_compose_check_now,
     trigger_log_check_now,
 )
@@ -74,7 +74,6 @@ templates.env.globals["severity_label"] = severity_label
 app.include_router(webhook_router)
 
 TRIGGER_FUNCS = {
-    "updates": trigger_check_now,
     "logs": trigger_log_check_now,
     "compose": trigger_compose_check_now,
 }
@@ -170,7 +169,13 @@ def _render_status_poll(request: Request, feature: str):
 @app.post("/updates/check-now")
 def updates_check_now(request: Request):
     set_running("updates")
-    TRIGGER_FUNCS["updates"]()
+    outcome = _get_stage1_outcome(force=True)
+    result = {
+        "checked": len(outcome["containers"]),
+        "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
+        "errors": outcome["errors"],
+    }
+    set_finished("updates", result)
     return _render_status(request, "updates")
 
 
@@ -180,10 +185,10 @@ def updates_status_poll(request: Request):
 
 
 @app.get("/updates/partial")
-def updates_partial(request: Request, sort: str = "importance", dir: str = "desc",
+def updates_partial(request: Request, sort: str = "container", dir: str = "asc",
                      csort: str = "container", cdir: str = "asc"):
-    updates = db.list_recent_updates(limit=100, sort=sort, direction=dir)
-    updates = _annotate_with_stack(updates, "container_name", sort, dir)
+    outcome = _get_stage1_outcome()
+    updates = _stage1_rows(outcome, sort, dir, updates_only=True)
     return templates.TemplateResponse(
         "_updates_table.html",
         {"request": request, "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "is_partial": True},
@@ -191,10 +196,10 @@ def updates_partial(request: Request, sort: str = "importance", dir: str = "desc
 
 
 @app.get("/updates/partial/containers")
-def updates_partial_containers(request: Request, sort: str = "importance", dir: str = "desc",
+def updates_partial_containers(request: Request, sort: str = "container", dir: str = "asc",
                                 csort: str = "container", cdir: str = "asc"):
-    containers = db.all_container_states(sort=csort, direction=cdir)
-    containers = _annotate_with_stack(containers, "container_name", csort, cdir)
+    outcome = _get_stage1_outcome()
+    containers = _stage1_rows(outcome, csort, cdir, updates_only=False)
     return templates.TemplateResponse(
         "_containers_table.html",
         {"request": request, "containers": containers, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "is_partial": True},
@@ -257,6 +262,46 @@ def compose_partial_files(request: Request):
     for item in items:
         item["display_name"] = compose_lookup.subject_display_name("compose", item["name"])
     return templates.TemplateResponse("_status_list_table.html", {"request": request, "items": items, "detail_base": "/compose/file", "use_query_param": True})
+
+
+_stage1_cache = {"outcome": None, "at": 0.0}
+_STAGE1_CACHE_TTL_SECONDS = 5.0
+
+
+def _get_stage1_outcome(force: bool = False) -> dict:
+    """Stage 1 has no database, so every page view would otherwise mean a brand new full
+    registry check — including the Updates and Tracked Containers sections firing their own
+    separate checks within the same page load. This is a short-lived, in-memory cache purely
+    to stop that duplication (not real persistence — it holds nothing longer than a few
+    seconds and resets on every restart). force=True (used by "Check now") always bypasses it."""
+    now = time.monotonic()
+    if not force and _stage1_cache["outcome"] is not None and (now - _stage1_cache["at"]) < _STAGE1_CACHE_TTL_SECONDS:
+        return _stage1_cache["outcome"]
+    outcome = reconcile.run_check()
+    _stage1_cache["outcome"] = outcome
+    _stage1_cache["at"] = now
+    return outcome
+
+
+def _stage1_rows(outcome: dict, sort: str, direction: str, updates_only: bool) -> list[dict]:
+    """Shapes Stage 1's plain check results into what the (unchanged) templates expect, and
+    applies simple in-memory sorting. Only container/image sorting is meaningful yet — there's
+    no real severity or history to sort Importance/Detected/Status by until later stages, so
+    those currently just fall back to alphabetical-by-container."""
+    rows = []
+    for r in outcome["containers"]:
+        if updates_only and r["status"] not in ("update_available", "error"):
+            continue
+        row = dict(r)
+        row["last_checked_at"] = outcome["checked_at"]
+        row["created_at"] = outcome["checked_at"]
+        rows.append(row)
+
+    if sort == "image":
+        rows.sort(key=lambda r: r["image_repo"].lower(), reverse=(direction == "desc"))
+    else:
+        rows.sort(key=lambda r: r["container_name"].lower(), reverse=(direction == "desc"))
+    return rows
 
 
 def _annotate_with_stack(rows, name_key: str, sort: str, direction: str):
@@ -503,9 +548,17 @@ async def test_apprise(request: Request):
 
 @app.post("/updates/reset-and-recheck")
 def reset_and_recheck_updates():
-    db.reset_updates_data()
+    # Stage 1 has no persisted history to reset yet — every check is already fresh from
+    # scratch. This button is kept visible and working (not removed), just temporarily
+    # equivalent to Check now until persistence comes back in a later stage.
     set_running("updates")
-    trigger_check_now()
+    outcome = _get_stage1_outcome(force=True)
+    result = {
+        "checked": len(outcome["containers"]),
+        "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
+        "errors": outcome["errors"],
+    }
+    set_finished("updates", result)
     return RedirectResponse(url="/updates", status_code=303)
 
 
@@ -585,19 +638,18 @@ async def reset_stack_name_route(request: Request):
 
 @app.post("/updates/stack/retry")
 async def retry_stack_route(request: Request):
+    # Not reachable from the UI yet — stack detection returns in Stage 12. Kept as a safe
+    # no-op (not removed) rather than calling functions that no longer exist in Stage 1.
     form = await request.form()
     stack_id = form.get("stack_id", "")
-    if stack_id:
-        reconcile.retry_stack(stack_id)
     return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
 
 
 @app.post("/updates/stack/reset-and-recheck")
 async def reset_and_recheck_stack_route(request: Request):
+    # Not reachable from the UI yet — stack detection returns in Stage 12.
     form = await request.form()
     stack_id = form.get("stack_id", "")
-    if stack_id:
-        reconcile.reset_and_recheck_stack(stack_id)
     return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
 
 
@@ -606,12 +658,11 @@ async def reset_and_recheck_stack_route(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/updates")
-def updates_page(request: Request, sort: str = "importance", dir: str = "desc",
+def updates_page(request: Request, sort: str = "container", dir: str = "asc",
                   csort: str = "container", cdir: str = "asc"):
-    updates = db.list_recent_updates(limit=100, sort=sort, direction=dir)
-    updates = _annotate_with_stack(updates, "container_name", sort, dir)
-    containers = db.all_container_states(sort=csort, direction=cdir)
-    containers = _annotate_with_stack(containers, "container_name", csort, cdir)
+    outcome = _get_stage1_outcome()
+    updates = _stage1_rows(outcome, sort, dir, updates_only=True)
+    containers = _stage1_rows(outcome, csort, cdir, updates_only=False)
     state = get_state("updates")
     return templates.TemplateResponse(
         "updates.html",
@@ -736,20 +787,14 @@ def mark_read(update_id: int):
 
 @app.post("/updates/{update_id}/retry")
 def retry_update_route(update_id: int):
-    reconcile.retry_update(update_id)
-    return RedirectResponse(url=f"/updates/{update_id}", status_code=303)
+    # Not reachable from the UI yet — there's no per-update detail page with real content
+    # until persistence (Stage 3) and AI summarization (Stage 7) are both back.
+    return RedirectResponse(url="/updates", status_code=303)
 
 
 @app.post("/updates/{update_id}/reset-and-recheck")
 def reset_and_recheck_update_route(update_id: int):
-    update = db.get_update(update_id)
-    if update is None:
-        raise HTTPException(status_code=404)
-    container_name = update["container_name"]
-    reconcile.reset_and_recheck_container(container_name)
-    fresh = db.get_latest_update_for_container(container_name)
-    if fresh:
-        return RedirectResponse(url=f"/updates/{fresh['id']}", status_code=303)
+    # Not reachable from the UI yet, same reason as retry above.
     return RedirectResponse(url="/updates", status_code=303)
 
 

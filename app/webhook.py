@@ -2,8 +2,8 @@ import logging
 
 from fastapi import APIRouter, Request, HTTPException
 
+from app import reconcile
 from app.config import settings
-from app.scheduler import trigger_check_now
 
 logger = logging.getLogger("release_radar.webhook")
 
@@ -18,6 +18,11 @@ async def dockhand_webhook(request: Request, token: str | None = None):
     The payload content isn't parsed or trusted — Dockhand's generic webhook format is too
     thin to reliably extract structured data from, so this just treats any POST as a signal
     to go check for ourselves.
+
+    Stage 1 note: this runs the check synchronously within the webhook request itself (no
+    background job yet — that's Stage 4), so Dockhand's own request will wait for the full
+    check to finish before getting a response. If Dockhand has a short request timeout, this
+    may need revisiting once Stage 4 brings back proper backgrounding.
     """
     if not settings.webhook_token:
         raise HTTPException(status_code=404, detail="Webhook endpoint is disabled (WEBHOOK_TOKEN not set)")
@@ -25,6 +30,6 @@ async def dockhand_webhook(request: Request, token: str | None = None):
         raise HTTPException(status_code=403, detail="Invalid token")
 
     body = await request.body()
-    logger.info("Webhook received (%d bytes), triggering immediate check", len(body))
-    trigger_check_now()
-    return {"status": "check triggered"}
+    logger.info("Webhook received (%d bytes), running an immediate check", len(body))
+    outcome = reconcile.run_check()
+    return {"status": "check complete", "checked": len(outcome["containers"]), "errors": outcome["errors"]}

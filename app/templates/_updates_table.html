@@ -25,7 +25,7 @@
   </thead>
   <tbody>
     {% for u in updates %}
-    <tr class="row-{{ u.status }} row-clickable" onclick="window.location='/updates/{{ u.id }}'">
+    <tr class="{{ 'row-unread' if u.status != 'error' else '' }} {{ 'row-clickable' if u.id else '' }}" {% if u.id %}onclick="window.location='/updates/{{ u.id }}'"{% endif %}>
       <td class="mono truncate-cell" title="{{ u.container_name }}">{{ u.container_name }}</td>
       <td>
         {% if u.stack_name %}
@@ -35,18 +35,28 @@
         {% endif %}
       </td>
       <td class="mono truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}">{{ u.image_repo }}:{{ u.tag }}</td>
-      <td class="nowrap">{{ u.created_at[:16].replace('T', ' ') }}</td>
-      <td class="importance-cell"><span class="badge badge-sev-{{ u.severity }}">{{ severity_label('updates', u.severity) }}</span></td>
-      <td>
-        {% if u.error %}
-          <span class="badge badge-error">Needs manual check</span>
-        {% elif u.status == 'unread' %}
-          <span class="badge badge-unread">New</span>
+      <td class="nowrap">{{ u.created_at[:16].replace('T', ' ') if u.created_at else '—' }}</td>
+      <td class="importance-cell">
+        {% if u.severity %}
+        <span class="badge badge-sev-{{ u.severity }}">{{ severity_label('updates', u.severity) }}</span>
         {% else %}
-          <span class="badge badge-read">Read</span>
+        <span class="meta">—</span>
         {% endif %}
       </td>
-      <td><a href="/updates/{{ u.id }}" class="row-chevron">›</a></td>
+      <td>
+        {% if u.status == 'error' %}
+          <span class="badge badge-error">Needs manual check</span>
+        {% else %}
+          <span class="badge badge-unread">Update available</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if u.id %}
+        <a href="/updates/{{ u.id }}" class="row-chevron">›</a>
+        {% else %}
+        <span class="row-chevron" style="opacity: 0.3;" title="Coming back in a later stage">›</span>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>

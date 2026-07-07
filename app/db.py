@@ -188,7 +188,13 @@ def init_db() -> None:
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(settings.db_path)
+    # WAL mode lets readers and a writer proceed concurrently without blocking each other,
+    # which matters now that release-notes fetching and summarization can write from several
+    # threads at once. The explicit timeout is a generous but still-bounded wait for the rare
+    # case two writers do collide, so a moment of real contention fails gracefully (an
+    # exception the caller can catch) rather than either racing incorrectly or hanging.
+    conn = sqlite3.connect(settings.db_path, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
