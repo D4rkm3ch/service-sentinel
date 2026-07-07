@@ -10,8 +10,8 @@
     <div id="check-status">{% include "_status.html" %}</div>
     {% if feature == "updates" %}
     <form method="post" action="/updates/reset-and-recheck"
-          onsubmit="return confirm('TEMPORARY testing tool: this wipes all Update history and tracking state, then re-checks everything fresh with the current AI logic. Continue?')">
-      <button type="submit" class="button-danger" title="Temporary — for migrating existing updates to the new severity system">
+          onsubmit="return confirm('This wipes all Update history and tracking state, then re-checks everything fresh. Continue?')">
+      <button type="submit" class="button-danger" title="Wipe all tracked-container and update history, then run a fresh check">
         Reset &amp; re-check
       </button>
     </form>

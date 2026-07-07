@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS updates (
     source_url TEXT,
     status TEXT NOT NULL DEFAULT 'unread',
     error TEXT,
-    severity TEXT NOT NULL DEFAULT 'warning',
+    severity TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 
@@ -422,6 +422,67 @@ def all_container_states(sort: str = "container", direction: str = "asc") -> lis
         return cur.fetchall()
 
 
+def prune_removed_containers(seen_container_names: list[str]) -> None:
+    """Deletes container_state/updates rows for containers that no longer exist (removed or
+    renamed since the last check) — keeps persisted state in sync with what's actually
+    running rather than accumulating stale entries forever. Only ever called with a non-empty
+    list (see app/persist.py) — a check that found zero containers almost always means the
+    Docker socket itself was unreachable, not that everything was genuinely decommissioned,
+    so callers deliberately never prune off an empty result."""
+    if not seen_container_names:
+        return
+    with get_conn() as conn:
+        placeholders = ",".join("?" * len(seen_container_names))
+        conn.execute(f"DELETE FROM container_state WHERE container_name NOT IN ({placeholders})", seen_container_names)
+        conn.execute(f"DELETE FROM updates WHERE container_name NOT IN ({placeholders})", seen_container_names)
+
+
+def list_tracked_containers_with_status() -> list[dict]:
+    """The persisted equivalent of a fresh reconcile.run_check() outcome's "containers" list —
+    every tracked container, each annotated with its current status ("update_available",
+    "error", or "up_to_date") and, when relevant, the real database id of its pending update
+    record. Backed by a single LEFT JOIN rather than N+1 queries, and safe to call on every
+    page load/poll since it's a plain indexed read, not a live Docker/registry call."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            SELECT
+                cs.container_name AS container_name,
+                cs.image_repo AS image_repo,
+                cs.tag AS tag,
+                cs.last_checked_at AS last_checked_at,
+                u.id AS id,
+                u.error AS error,
+                u.severity AS severity,
+                u.summary_markdown AS summary_markdown,
+                u.source_url AS source_url,
+                u.created_at AS update_created_at
+            FROM container_state cs
+            LEFT JOIN updates u ON u.container_name = cs.container_name
+            ORDER BY cs.container_name COLLATE NOCASE ASC
+            """
+        )
+        rows = cur.fetchall()
+
+    result = []
+    for r in rows:
+        status = "error" if r["error"] else ("update_available" if r["id"] is not None else "up_to_date")
+        result.append({
+            "container_name": r["container_name"],
+            "image_repo": r["image_repo"],
+            "tag": r["tag"],
+            "status": status,
+            "id": r["id"],
+            "severity": r["severity"] or None,
+            "error": r["error"],
+            "summary_markdown": r["summary_markdown"],
+            "source_url": r["source_url"],
+            "last_checked_at": r["last_checked_at"],
+            "created_at": r["update_created_at"] or r["last_checked_at"],
+        })
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Updates
 # ---------------------------------------------------------------------------
@@ -435,7 +496,7 @@ def record_update(
     summary_markdown: str | None,
     source_url: str | None,
     error: str | None = None,
-    severity: str = "feature",
+    severity: str = "",
 ) -> int:
     with get_conn() as conn:
         cur = conn.execute(
@@ -491,10 +552,14 @@ def list_recent_updates(limit: int = 100, sort: str = "importance", direction: s
 
 
 def reset_updates_data() -> None:
-    """TEMPORARY — testing tool for migrating to the new 4-tier Updates severity system.
-    Wipes all Updates history and the digest-tracking baseline, so the next check treats
-    every currently-installed container as fresh and regenerates its summary (and severity
-    tag) using the current AI prompt. Remove this once the new system has settled in."""
+    """Backs the global "Reset & re-check" button on the Updates page: wipes all persisted
+    Updates history and the tracked-container digest baseline, so the next check treats every
+    currently-installed container as fresh. This is also what cleans up any stale rows left
+    over from before Stage 3 introduced real persistence (e.g. old severity values from a
+    since-replaced classification scheme) — a container with a mismatched or unrecognized
+    prior state gets its old row replaced on the very next check regardless (see
+    app/persist.py), so this button isn't strictly required for that, but it's the fastest
+    way to force a fully clean slate on demand."""
     with get_conn() as conn:
         conn.execute("DELETE FROM updates")
         conn.execute("DELETE FROM container_state")
@@ -546,6 +611,16 @@ def list_updates_for_stack_containers(container_names: list[str]) -> list[sqlite
 def mark_update_status(update_id: int, status: str) -> None:
     with get_conn() as conn:
         conn.execute("UPDATE updates SET status = ? WHERE id = ?", (status, update_id))
+
+
+def delete_update(update_id: int) -> None:
+    """Removes one update record outright — there's no separate "resolved" flag. An update
+    row existing at all means that container currently needs attention (a pending update or a
+    check error); once it's resolved (digest catches up) or gets superseded by a newer
+    transition, app/persist.py deletes it rather than marking it done, so at most one row per
+    container ever exists and every read path can treat "a row exists" as "still pending"."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM updates WHERE id = ?", (update_id,))
 
 
 def latest_update_summary() -> dict:

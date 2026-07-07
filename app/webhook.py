@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Request, HTTPException
 
-from app import reconcile
+from app import persist
 from app.config import settings
 
 logger = logging.getLogger("release_radar.webhook")
@@ -25,6 +25,10 @@ async def dockhand_webhook(request: Request, token: str | None = None):
     is shorter than Stage 1's one-at-a-time version, but it's still a blocking wait. If
     Dockhand has a short request timeout, this may need revisiting once Stage 4 brings back
     proper backgrounding.
+
+    Goes through persist.run_and_persist_check() (Stage 3) rather than calling reconcile
+    directly, so a webhook-triggered check updates the same persisted state a UI-triggered
+    check would — the Updates page reflects it on next load either way.
     """
     if not settings.webhook_token:
         raise HTTPException(status_code=404, detail="Webhook endpoint is disabled (WEBHOOK_TOKEN not set)")
@@ -33,5 +37,5 @@ async def dockhand_webhook(request: Request, token: str | None = None):
 
     body = await request.body()
     logger.info("Webhook received (%d bytes), running an immediate check", len(body))
-    outcome = reconcile.run_check()
+    outcome = persist.run_and_persist_check()
     return {"status": "check complete", "checked": len(outcome["containers"]), "errors": outcome["errors"]}

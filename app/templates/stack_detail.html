@@ -65,7 +65,13 @@
         <td class="mono truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</td>
         <td class="mono truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</td>
         <td class="nowrap">{{ m.latest_update.created_at[:16].replace('T', ' ') }}</td>
-        <td class="importance-cell"><span class="badge badge-sev-{{ m.latest_update.severity }}">{{ severity_label('updates', m.latest_update.severity) }}</span></td>
+        <td class="importance-cell">
+          {% if m.latest_update.severity %}
+          <span class="badge badge-sev-{{ m.latest_update.severity }}">{{ severity_label('updates', m.latest_update.severity) }}</span>
+          {% else %}
+          <span class="meta">—</span>
+          {% endif %}
+        </td>
         <td>
           {% if m.latest_update.error %}
             <span class="badge badge-error">Needs manual check</span>

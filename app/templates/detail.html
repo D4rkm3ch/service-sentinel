@@ -12,7 +12,11 @@
 <section>
   <div class="subject-title-row">
     <h1 class="mono subject-heading">{{ update.container_name }}</h1>
+    {% if update.severity %}
     <span class="badge badge-lg badge-sev-{{ update.severity }}">{{ severity_label('updates', update.severity) }}</span>
+    {% else %}
+    <span class="badge badge-lg">—</span>
+    {% endif %}
   </div>
   <p class="meta">
     <span class="mono">{{ update.image_repo }}:{{ update.tag }}</span>

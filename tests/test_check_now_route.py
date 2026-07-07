@@ -1,34 +1,17 @@
 """Regression tests driving the real HTTP routes with TestClient (unlike test_reconcile.py,
 which calls reconcile.run_check() directly). Covers two things: (1) the fix shipped right
 after Stage 1, where /updates/check-now must return immediately instead of blocking on the
-whole check, still holds now that Stage 2 changed what happens inside run_check(); and (2)
-the new Stage 2 live-progress text and faster poll cadence for the updates status badge.
+whole check, still holds now that Stage 2 changed what happens inside run_check() and Stage 3
+wrapped it in persist.run_and_persist_check(); and (2) the Stage 2 live-progress text and
+faster poll cadence for the updates status badge.
 
-All tests share one TestClient/app instance (module-scoped fixture) because entering the
-TestClient context manager re-fires FastAPI's startup event, and starting APScheduler twice
-in the same process raises SchedulerAlreadyRunningError."""
+Uses the shared `client` fixture from conftest.py rather than opening its own TestClient —
+see that file's docstring for why."""
 
-import os
 import time
 from unittest.mock import patch
 
-import pytest
-
-os.environ.setdefault("DATA_DIR", "/tmp/rr-test-data")
-os.environ.setdefault("COMPOSE_ROOT", "/tmp/rr-test-compose")
-os.makedirs(os.environ["DATA_DIR"], exist_ok=True)
-os.makedirs(os.environ["COMPOSE_ROOT"], exist_ok=True)
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from app.main import app  # noqa: E402
-from app import check_state  # noqa: E402
-
-
-@pytest.fixture(scope="module")
-def client():
-    with TestClient(app) as c:
-        yield c
+from app import check_state
 
 
 def _slow_run_check(on_progress=None):
@@ -55,7 +38,7 @@ def _wait_until_not_running(feature: str):
 def test_check_now_returns_immediately_while_check_runs_in_background(client):
     check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
 
-    with patch("app.main.reconcile.run_check", side_effect=_slow_run_check):
+    with patch("app.main.persist.run_and_persist_check", side_effect=_slow_run_check):
         start = time.monotonic()
         resp = client.post("/updates/check-now")
         elapsed = time.monotonic() - start
@@ -76,7 +59,7 @@ def test_status_poll_shows_live_progress_and_polls_faster_for_updates(client):
     delay — logs/compose keep the original 2s cadence, proven separately below."""
     check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
 
-    with patch("app.main.reconcile.run_check", side_effect=_slow_run_check_with_progress):
+    with patch("app.main.persist.run_and_persist_check", side_effect=_slow_run_check_with_progress):
         resp = client.post("/updates/check-now")
         assert "Checking" in resp.text
 

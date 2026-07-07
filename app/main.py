@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import compose_lookup, db, reconcile, stacks
+from app import compose_lookup, db, persist, stacks
 from app.check_state import format_summary, get_progress, get_state, set_finished, set_progress, set_running
 from app.config import settings
 from app.notifications import send_test_notification
@@ -183,7 +183,7 @@ def _render_status_poll(request: Request, feature: str):
 
 @app.post("/updates/check-now")
 def updates_check_now(request: Request):
-    _launch_stage1_check_if_not_running()
+    _launch_check_if_not_running()
     return _render_status(request, "updates")
 
 
@@ -195,8 +195,8 @@ def updates_status_poll(request: Request):
 @app.get("/updates/partial")
 def updates_partial(request: Request, sort: str = "container", dir: str = "asc",
                      csort: str = "container", cdir: str = "asc"):
-    outcome = _read_stage1_outcome()
-    updates = _stage1_rows(outcome, sort, dir, updates_only=True)
+    rows = db.list_tracked_containers_with_status()
+    updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True)
     return templates.TemplateResponse(
         "_updates_table.html",
         {"request": request, "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "is_partial": True},
@@ -206,8 +206,8 @@ def updates_partial(request: Request, sort: str = "container", dir: str = "asc",
 @app.get("/updates/partial/containers")
 def updates_partial_containers(request: Request, sort: str = "container", dir: str = "asc",
                                 csort: str = "container", cdir: str = "asc"):
-    outcome = _read_stage1_outcome()
-    containers = _stage1_rows(outcome, csort, cdir, updates_only=False)
+    rows = db.list_tracked_containers_with_status()
+    containers = _sort_and_filter_rows(rows, csort, cdir, updates_only=False)
     return templates.TemplateResponse(
         "_containers_table.html",
         {"request": request, "containers": containers, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "is_partial": True},
@@ -272,28 +272,17 @@ def compose_partial_files(request: Request):
     return templates.TemplateResponse("_status_list_table.html", {"request": request, "items": items, "detail_base": "/compose/file", "use_query_param": True})
 
 
-_stage1_cache = {"outcome": None}
-
-
-def _read_stage1_outcome() -> dict:
-    """Read-only — used by page loads and the existing 20s auto-refresh. Never triggers a
-    real check; just returns whatever the last explicit Check now produced, or an empty
-    result if nothing has run yet since the app started.
-
-    This is the fix for the page hanging on every visit and checks running with no click
-    from the user: the existing auto-refresh polling was hitting the same endpoints that
-    used to trigger a brand new 59-container check every single time, including every 20
-    seconds for as long as the tab stayed open. Now only an explicit click ever runs one."""
-    return _stage1_cache["outcome"] or {"containers": [], "errors": 0, "checked_at": None}
-
-
-def _launch_stage1_check_if_not_running() -> None:
+def _launch_check_if_not_running() -> None:
     """Starts a check in a background thread purely so the click's own HTTP response can
     return right away showing "running" — right now the response only ever came back once
     the whole check had already finished (set_finished had already been called before any
     render happened), so the spinner never had a chance to appear from the click itself;
     the only way to see it was to load a fresh page while an earlier click's check happened
-    to still be going. The registry checks inside the thread run concurrently as of Stage 2.
+    to still be going. The registry checks inside the thread run concurrently as of Stage 2,
+    and the outcome is written to the database as of Stage 3 (see app/persist.py) — page
+    loads and the auto-refresh below read straight from the database, never from an
+    in-memory cache, so results survive a restart and don't depend on this thread still
+    being alive.
 
     Guarded against double-starts: if a check is already running (e.g. a double-click, or
     Reset & re-check fired right after Check now), this is a no-op — the existing one is
@@ -303,7 +292,9 @@ def _launch_stage1_check_if_not_running() -> None:
     set_running("updates")
 
     def _worker():
-        outcome = _run_stage1_check(on_progress=lambda done, total: set_progress("updates", done, total))
+        outcome = persist.run_and_persist_check(
+            on_progress=lambda done, total: set_progress("updates", done, total)
+        )
         result = {
             "checked": len(outcome["containers"]),
             "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
@@ -314,36 +305,19 @@ def _launch_stage1_check_if_not_running() -> None:
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def _run_stage1_check(on_progress=None) -> dict:
-    """Actually runs a fresh check — only called by Check now / Reset & re-check. This is
-    genuinely synchronous and will make the button/request wait for the whole thing to
-    finish. Registry lookups now run concurrently (Stage 2), so this is meaningfully
-    faster than Stage 1's one-at-a-time version, but it still blocks the calling thread
-    until every container has been checked — proper backgrounding comes in Stage 4."""
-    outcome = reconcile.run_check(on_progress=on_progress)
-    _stage1_cache["outcome"] = outcome
-    return outcome
-
-
-def _stage1_rows(outcome: dict, sort: str, direction: str, updates_only: bool) -> list[dict]:
-    """Shapes Stage 1's plain check results into what the (unchanged) templates expect, and
-    applies simple in-memory sorting. Only container/image sorting is meaningful yet — there's
-    no real severity or history to sort Importance/Detected/Status by until later stages, so
-    those currently just fall back to alphabetical-by-container."""
-    rows = []
-    for r in outcome["containers"]:
-        if updates_only and r["status"] not in ("update_available", "error"):
-            continue
-        row = dict(r)
-        row["last_checked_at"] = outcome["checked_at"]
-        row["created_at"] = outcome["checked_at"]
-        rows.append(row)
+def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_only: bool) -> list[dict]:
+    """Filters the persisted per-container rows (db.list_tracked_containers_with_status()) down
+    to just the ones needing attention when updates_only is set, and applies simple sorting.
+    Only container/image sorting is meaningful yet — there's no real severity or history to
+    sort Importance/Detected/Status by until later stages, so those currently just fall back
+    to alphabetical-by-container."""
+    filtered = [r for r in rows if not updates_only or r["status"] in ("update_available", "error")]
 
     if sort == "image":
-        rows.sort(key=lambda r: r["image_repo"].lower(), reverse=(direction == "desc"))
+        filtered.sort(key=lambda r: r["image_repo"].lower(), reverse=(direction == "desc"))
     else:
-        rows.sort(key=lambda r: r["container_name"].lower(), reverse=(direction == "desc"))
-    return rows
+        filtered.sort(key=lambda r: r["container_name"].lower(), reverse=(direction == "desc"))
+    return filtered
 
 
 def _annotate_with_stack(rows, name_key: str, sort: str, direction: str):
@@ -585,15 +559,15 @@ async def test_apprise(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# TEMPORARY — testing tool for the 4-tier severity migration. Remove once settled.
+# Global Reset & re-check — wipes all persisted Updates history/tracking state, then runs a
+# fresh check. Real persistence exists as of Stage 3 (see app/persist.py, db.reset_updates_data),
+# so this is now a genuine, permanent action rather than the Stage 1 placeholder it used to be.
 # ---------------------------------------------------------------------------
 
 @app.post("/updates/reset-and-recheck")
 def reset_and_recheck_updates():
-    # Stage 1 has no persisted history to reset yet — every check is already fresh from
-    # scratch. This button is kept visible and working (not removed), just temporarily
-    # equivalent to Check now until persistence comes back in a later stage.
-    _launch_stage1_check_if_not_running()
+    db.reset_updates_data()
+    _launch_check_if_not_running()
     return RedirectResponse(url="/updates", status_code=303)
 
 
@@ -695,17 +669,15 @@ async def reset_and_recheck_stack_route(request: Request):
 @app.get("/updates")
 def updates_page(request: Request, sort: str = "container", dir: str = "asc",
                   csort: str = "container", cdir: str = "asc"):
-    outcome = _read_stage1_outcome()
-    updates = _stage1_rows(outcome, sort, dir, updates_only=True)
-    containers = _stage1_rows(outcome, csort, cdir, updates_only=False)
-    state = get_state("updates")
+    rows = db.list_tracked_containers_with_status()
+    updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True)
+    containers = _sort_and_filter_rows(rows, csort, cdir, updates_only=False)
     return templates.TemplateResponse(
         "updates.html",
         {
-            "request": request, "updates": updates, "containers": containers,
+            **_status_context(request, "updates"),
+            "updates": updates, "containers": containers,
             "updates_count": len(updates), "containers_count": len(containers),
-            "feature": "updates", "state": state,
-            "status_summary_text": format_summary("updates", state),
             "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
             "active_tab": "updates",
         },
@@ -716,13 +688,11 @@ def updates_page(request: Request, sort: str = "container", dir: str = "asc",
 def logs_page(request: Request, show_silenced: bool = False):
     issues = db.list_subjects_with_findings("logs", include_silenced=show_silenced)
     containers = db.all_log_watch_states_with_status()
-    state = get_state("logs")
     return templates.TemplateResponse(
         "logs.html",
         {
-            "request": request, "issues": issues, "containers": containers, "show_silenced": show_silenced,
-            "feature": "logs", "state": state,
-            "status_summary_text": format_summary("logs", state),
+            **_status_context(request, "logs"),
+            "issues": issues, "containers": containers, "show_silenced": show_silenced,
             "active_tab": "logs",
         },
     )
@@ -756,13 +726,11 @@ def compose_page(request: Request, show_silenced: bool = False):
     files = db.all_compose_file_states_with_status()
     for f in files:
         f["display_name"] = compose_lookup.subject_display_name("compose", f["name"])
-    state = get_state("compose")
     return templates.TemplateResponse(
         "compose.html",
         {
-            "request": request, "issues": issues, "files": files, "show_silenced": show_silenced,
-            "feature": "compose", "state": state,
-            "status_summary_text": format_summary("compose", state),
+            **_status_context(request, "compose"),
+            "issues": issues, "files": files, "show_silenced": show_silenced,
             "active_tab": "compose",
         },
     )
@@ -822,15 +790,18 @@ def mark_read(update_id: int):
 
 @app.post("/updates/{update_id}/retry")
 def retry_update_route(update_id: int):
-    # Not reachable from the UI yet — there's no per-update detail page with real content
-    # until persistence (Stage 3) and AI summarization (Stage 7) are both back.
-    return RedirectResponse(url="/updates", status_code=303)
+    # The detail page is real as of Stage 3, so this button is genuinely reachable now — but
+    # Retry means "regenerate the AI summary in place," and there's no AI summary to
+    # regenerate until Stage 7. Safe no-op: redirect back to the same update rather than away
+    # to the list, so at least it doesn't yank the user off the page they were looking at.
+    return RedirectResponse(url=f"/updates/{update_id}", status_code=303)
 
 
 @app.post("/updates/{update_id}/reset-and-recheck")
 def reset_and_recheck_update_route(update_id: int):
-    # Not reachable from the UI yet, same reason as retry above.
-    return RedirectResponse(url="/updates", status_code=303)
+    # Same reasoning as retry above — scoped per-item reset is intentionally deferred to a
+    # later stage (see the "scoped Check now" discussion) rather than folded into Stage 3.
+    return RedirectResponse(url=f"/updates/{update_id}", status_code=303)
 
 
 # ---------------------------------------------------------------------------
