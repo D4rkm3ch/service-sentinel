@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import re
+import threading
 from urllib.parse import quote, urlencode
 
 import markdown
@@ -167,14 +168,7 @@ def _render_status_poll(request: Request, feature: str):
 
 @app.post("/updates/check-now")
 def updates_check_now(request: Request):
-    set_running("updates")
-    outcome = _run_stage1_check()
-    result = {
-        "checked": len(outcome["containers"]),
-        "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
-        "errors": outcome["errors"],
-    }
-    set_finished("updates", result)
+    _launch_stage1_check_if_not_running()
     return _render_status(request, "updates")
 
 
@@ -276,6 +270,34 @@ def _read_stage1_outcome() -> dict:
     used to trigger a brand new 59-container check every single time, including every 20
     seconds for as long as the tab stayed open. Now only an explicit click ever runs one."""
     return _stage1_cache["outcome"] or {"containers": [], "errors": 0, "checked_at": None}
+
+
+def _launch_stage1_check_if_not_running() -> None:
+    """Starts a check in a background thread purely so the click's own HTTP response can
+    return right away showing "running" — right now the response only ever came back once
+    the whole check had already finished (set_finished had already been called before any
+    render happened), so the spinner never had a chance to appear from the click itself;
+    the only way to see it was to load a fresh page while an earlier click's check happened
+    to still be going. The check inside the thread is still fully sequential — parallelizing
+    the check itself is Stage 2's job, not this.
+
+    Guarded against double-starts: if a check is already running (e.g. a double-click, or
+    Reset & re-check fired right after Check now), this is a no-op — the existing one is
+    left to finish rather than starting a second one on top of it."""
+    if get_state("updates").get("running"):
+        return
+    set_running("updates")
+
+    def _worker():
+        outcome = _run_stage1_check()
+        result = {
+            "checked": len(outcome["containers"]),
+            "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
+            "errors": outcome["errors"],
+        }
+        set_finished("updates", result)
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 def _run_stage1_check() -> dict:
@@ -557,14 +579,7 @@ def reset_and_recheck_updates():
     # Stage 1 has no persisted history to reset yet — every check is already fresh from
     # scratch. This button is kept visible and working (not removed), just temporarily
     # equivalent to Check now until persistence comes back in a later stage.
-    set_running("updates")
-    outcome = _run_stage1_check()
-    result = {
-        "checked": len(outcome["containers"]),
-        "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
-        "errors": outcome["errors"],
-    }
-    set_finished("updates", result)
+    _launch_stage1_check_if_not_running()
     return RedirectResponse(url="/updates", status_code=303)
 
 
