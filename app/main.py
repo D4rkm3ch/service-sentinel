@@ -1,7 +1,6 @@
 import hashlib
 import logging
 import re
-import time
 from urllib.parse import quote, urlencode
 
 import markdown
@@ -169,7 +168,7 @@ def _render_status_poll(request: Request, feature: str):
 @app.post("/updates/check-now")
 def updates_check_now(request: Request):
     set_running("updates")
-    outcome = _get_stage1_outcome(force=True)
+    outcome = _run_stage1_check()
     result = {
         "checked": len(outcome["containers"]),
         "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
@@ -187,7 +186,7 @@ def updates_status_poll(request: Request):
 @app.get("/updates/partial")
 def updates_partial(request: Request, sort: str = "container", dir: str = "asc",
                      csort: str = "container", cdir: str = "asc"):
-    outcome = _get_stage1_outcome()
+    outcome = _read_stage1_outcome()
     updates = _stage1_rows(outcome, sort, dir, updates_only=True)
     return templates.TemplateResponse(
         "_updates_table.html",
@@ -198,7 +197,7 @@ def updates_partial(request: Request, sort: str = "container", dir: str = "asc",
 @app.get("/updates/partial/containers")
 def updates_partial_containers(request: Request, sort: str = "container", dir: str = "asc",
                                 csort: str = "container", cdir: str = "asc"):
-    outcome = _get_stage1_outcome()
+    outcome = _read_stage1_outcome()
     containers = _stage1_rows(outcome, csort, cdir, updates_only=False)
     return templates.TemplateResponse(
         "_containers_table.html",
@@ -264,22 +263,29 @@ def compose_partial_files(request: Request):
     return templates.TemplateResponse("_status_list_table.html", {"request": request, "items": items, "detail_base": "/compose/file", "use_query_param": True})
 
 
-_stage1_cache = {"outcome": None, "at": 0.0}
-_STAGE1_CACHE_TTL_SECONDS = 5.0
+_stage1_cache = {"outcome": None}
 
 
-def _get_stage1_outcome(force: bool = False) -> dict:
-    """Stage 1 has no database, so every page view would otherwise mean a brand new full
-    registry check — including the Updates and Tracked Containers sections firing their own
-    separate checks within the same page load. This is a short-lived, in-memory cache purely
-    to stop that duplication (not real persistence — it holds nothing longer than a few
-    seconds and resets on every restart). force=True (used by "Check now") always bypasses it."""
-    now = time.monotonic()
-    if not force and _stage1_cache["outcome"] is not None and (now - _stage1_cache["at"]) < _STAGE1_CACHE_TTL_SECONDS:
-        return _stage1_cache["outcome"]
+def _read_stage1_outcome() -> dict:
+    """Read-only — used by page loads and the existing 20s auto-refresh. Never triggers a
+    real check; just returns whatever the last explicit Check now produced, or an empty
+    result if nothing has run yet since the app started.
+
+    This is the fix for the page hanging on every visit and checks running with no click
+    from the user: the existing auto-refresh polling was hitting the same endpoints that
+    used to trigger a brand new 59-container check every single time, including every 20
+    seconds for as long as the tab stayed open. Now only an explicit click ever runs one."""
+    return _stage1_cache["outcome"] or {"containers": [], "errors": 0, "checked_at": None}
+
+
+def _run_stage1_check() -> dict:
+    """Actually runs a fresh check — only called by Check now / Reset & re-check. This is
+    genuinely synchronous and will make the button/request wait for the whole thing to
+    finish (up to roughly a minute for ~59 containers checked one at a time) — that's
+    expected for Stage 1. Proper backgrounding so this doesn't block anything comes in
+    Stage 4."""
     outcome = reconcile.run_check()
     _stage1_cache["outcome"] = outcome
-    _stage1_cache["at"] = now
     return outcome
 
 
@@ -552,7 +558,7 @@ def reset_and_recheck_updates():
     # scratch. This button is kept visible and working (not removed), just temporarily
     # equivalent to Check now until persistence comes back in a later stage.
     set_running("updates")
-    outcome = _get_stage1_outcome(force=True)
+    outcome = _run_stage1_check()
     result = {
         "checked": len(outcome["containers"]),
         "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
@@ -660,7 +666,7 @@ async def reset_and_recheck_stack_route(request: Request):
 @app.get("/updates")
 def updates_page(request: Request, sort: str = "container", dir: str = "asc",
                   csort: str = "container", cdir: str = "asc"):
-    outcome = _get_stage1_outcome()
+    outcome = _read_stage1_outcome()
     updates = _stage1_rows(outcome, sort, dir, updates_only=True)
     containers = _stage1_rows(outcome, csort, cdir, updates_only=False)
     state = get_state("updates")
