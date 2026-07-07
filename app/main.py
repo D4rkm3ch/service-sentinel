@@ -303,9 +303,9 @@ def _launch_stage1_check_if_not_running() -> None:
 def _run_stage1_check() -> dict:
     """Actually runs a fresh check — only called by Check now / Reset & re-check. This is
     genuinely synchronous and will make the button/request wait for the whole thing to
-    finish (up to roughly a minute for ~59 containers checked one at a time) — that's
-    expected for Stage 1. Proper backgrounding so this doesn't block anything comes in
-    Stage 4."""
+    finish. Registry lookups now run concurrently (Stage 2), so this is meaningfully
+    faster than Stage 1's one-at-a-time version, but it still blocks the calling thread
+    until every container has been checked — proper backgrounding comes in Stage 4."""
     outcome = reconcile.run_check()
     _stage1_cache["outcome"] = outcome
     return outcome
