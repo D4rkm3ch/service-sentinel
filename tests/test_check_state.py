@@ -1,26 +1,66 @@
-"""format_summary()'s "Last check" status text now includes when the check ran, not just what
-it found -- requested after Stage 5 shipped automatic scheduling, since knowing whether a
-check happened "just now" or "yesterday at 6am" matters once checks aren't only ever triggered
-by a fresh click."""
+"""format_summary()'s "Last check" status text includes when the check ran, not just what it
+found -- requested after Stage 5 shipped automatic scheduling, since knowing whether a check
+happened "just now" or "yesterday at 6am" matters once checks aren't only ever triggered by a
+fresh click. Reworded to a compact "Last checked: HH:MM, DD Mon YYYY • N checked • ..." format
+per direct feedback, and fixed to actually convert the stored UTC timestamp into the
+configured TZ (settings.tz) rather than displaying raw UTC -- the original version showed
+"22:26" when the configured timezone's real local time was 08:26."""
+
+from unittest.mock import patch
 
 from app import check_state
 
 
-def test_summary_includes_last_run_timestamp_for_updates():
+def test_summary_format_for_updates():
     state = {
         "last_result": {"checked": 59, "updates_found": 17, "errors": 0},
-        "last_run_at": "2026-07-08T06:00:12.345678+00:00",
+        "last_run_at": "2026-07-07T22:26:00+00:00",
     }
-    summary = check_state.format_summary("updates", state)
-    assert summary == "Last check at 2026-07-08 06:00: 59 containers checked, 17 new updates"
+    with patch("app.check_state.settings.tz", "UTC"):
+        summary = check_state.format_summary("updates", state)
+    assert summary == "Last checked: 22:26, 07 Jul 2026 • 59 checked • 17 updates found"
 
 
-def test_summary_includes_timestamp_for_logs_and_compose_too():
-    state = {"last_result": {"checked": 5, "findings_found": 2}, "last_run_at": "2026-01-01T00:00:00+00:00"}
-    assert check_state.format_summary("logs", state).startswith("Last check at 2026-01-01 00:00:")
+def test_summary_converts_utc_to_the_configured_timezone():
+    """The actual bug reported: the stored timestamp is always UTC, but the display must
+    show the configured local time, not the raw UTC value."""
+    state = {
+        "last_result": {"checked": 59, "updates_found": 17, "errors": 0},
+        "last_run_at": "2026-07-07T22:26:00+00:00",
+    }
+    with patch("app.check_state.settings.tz", "Australia/Sydney"):
+        summary = check_state.format_summary("updates", state)
+    # 22:26 UTC on Jul 7 is 08:26 AEST on Jul 8 -- both the time and the date roll over.
+    assert summary.startswith("Last checked: 08:26, 08 Jul 2026")
 
-    state = {"last_result": {"checked": 3, "reviewed": 3, "findings_found": 1}, "last_run_at": "2026-01-01T00:00:00+00:00"}
-    assert check_state.format_summary("compose", state).startswith("Last check at 2026-01-01 00:00:")
+
+def test_summary_falls_back_to_utc_for_an_unrecognized_timezone_name():
+    state = {
+        "last_result": {"checked": 1, "updates_found": 0, "errors": 0},
+        "last_run_at": "2026-07-07T22:26:00+00:00",
+    }
+    with patch("app.check_state.settings.tz", "Not/A_Real_Zone"):
+        summary = check_state.format_summary("updates", state)  # must not raise
+    assert summary.startswith("Last checked: 22:26, 07 Jul 2026")
+
+
+def test_summary_shows_errors_when_present():
+    state = {
+        "last_result": {"checked": 10, "updates_found": 0, "errors": 3},
+        "last_run_at": "2026-07-07T22:26:00+00:00",
+    }
+    with patch("app.check_state.settings.tz", "UTC"):
+        summary = check_state.format_summary("updates", state)
+    assert summary.endswith("• 3 errors")
+
+
+def test_summary_format_for_logs_and_compose():
+    with patch("app.check_state.settings.tz", "UTC"):
+        state = {"last_result": {"checked": 5, "findings_found": 2, "errors": 0}, "last_run_at": "2026-01-01T00:00:00+00:00"}
+        assert check_state.format_summary("logs", state) == "Last checked: 00:00, 01 Jan 2026 • 5 checked • 2 findings found"
+
+        state = {"last_result": {"checked": 3, "reviewed": 3, "findings_found": 1, "errors": 0}, "last_run_at": "2026-01-01T00:00:00+00:00"}
+        assert check_state.format_summary("compose", state) == "Last checked: 00:00, 01 Jan 2026 • 3 checked • 3 reviewed • 1 finding found"
 
 
 def test_summary_falls_back_gracefully_with_no_timestamp():
@@ -45,4 +85,4 @@ def test_set_finished_and_get_state_round_trip_produces_a_real_timestamp(monkeyp
     summary = check_state.format_summary("updates", state)
 
     assert state["last_run_at"] is not None
-    assert state["last_run_at"][:16].replace("T", " ") in summary
+    assert check_state._local_timestamp(state["last_run_at"]) in summary

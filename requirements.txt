@@ -10,3 +10,4 @@ python-multipart==0.0.9
 python-dotenv==1.0.1
 markdown==3.7
 apprise==1.9.0
+tzdata==2025.2
