@@ -60,7 +60,12 @@ def get_all_states() -> dict:
 def format_summary(feature: str, state: dict) -> str:
     """Turns a feature's last_result dict into a short human-readable line for the status
     badge — each feature's result dict has slightly different keys, so this is the one
-    place that knows how to read all three."""
+    place that knows how to read all three.
+
+    Timestamp uses the same "YYYY-MM-DD HH:MM" convention as every other displayed timestamp
+    in the app (e.g. the Overview cards' "Last checked" line) — raw stored UTC, not converted
+    to the configured TZ. Proper TZ-aware display is worth doing together whenever TZ moves
+    into the Settings UI, not as a one-off fix here."""
     result = state.get("last_result")
     if result is None:
         return "No check has run yet."
@@ -71,23 +76,27 @@ def format_summary(feature: str, state: dict) -> str:
     errors = result.get("errors", 0)
     error_part = f", {errors} error{'s' if errors != 1 else ''}" if errors else ""
 
+    last_run_at = state.get("last_run_at")
+    when = last_run_at[:16].replace("T", " ") if last_run_at else "unknown time"
+    prefix = f"Last check at {when}"
+
     if feature == "updates":
         found = result.get("updates_found", 0)
         return (
-            f"Last check: {checked} container{'s' if checked != 1 else ''} checked, "
+            f"{prefix}: {checked} container{'s' if checked != 1 else ''} checked, "
             f"{found} new update{'s' if found != 1 else ''}{error_part}"
         )
     if feature == "logs":
         found = result.get("findings_found", 0)
         return (
-            f"Last check: {checked} container{'s' if checked != 1 else ''} checked, "
+            f"{prefix}: {checked} container{'s' if checked != 1 else ''} checked, "
             f"{found} finding{'s' if found != 1 else ''}{error_part}"
         )
     if feature == "compose":
         reviewed = result.get("reviewed", 0)
         found = result.get("findings_found", 0)
         return (
-            f"Last check: {checked} file{'s' if checked != 1 else ''} checked, "
+            f"{prefix}: {checked} file{'s' if checked != 1 else ''} checked, "
             f"{reviewed} reviewed, {found} finding{'s' if found != 1 else ''}{error_part}"
         )
-    return "Last check complete."
+    return f"{prefix}: complete."
