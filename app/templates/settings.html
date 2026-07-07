@@ -139,117 +139,36 @@ function handleDeepAnalysisToggle(el, feature) {
     if (slot) slot.innerHTML = '<span class="saved-indicator">Saved</span>';
   });
 }
-</script>
-// ---- Cron validation (numeric 5-field cron only — no day/month name aliases) ----
-function isValidCronItem(item, min, max) {
-  const stepMatch = item.match(/^(.+)\/(\d+)$/);
-  let base = item;
-  if (stepMatch) {
-    base = stepMatch[1];
-    const step = parseInt(stepMatch[2], 10);
-    if (isNaN(step) || step <= 0) return false;
-  }
-  if (base === '*') return true;
-  const rangeMatch = base.match(/^(\d+)-(\d+)$/);
-  if (rangeMatch) {
-    const a = parseInt(rangeMatch[1], 10);
-    const b = parseInt(rangeMatch[2], 10);
-    return a >= min && a <= max && b >= min && b <= max && a <= b;
-  }
-  if (/^\d+$/.test(base)) {
-    const n = parseInt(base, 10);
-    return n >= min && n <= max;
-  }
-  return false;
-}
-function isValidCronField(field, min, max) {
-  if (field.length === 0) return false;
-  const items = field.split(',');
-  for (const item of items) {
-    if (!isValidCronItem(item, min, max)) return false;
-  }
-  return true;
-}
-function isValidCron(expr) {
-  if (typeof expr !== 'string') return false;
-  const trimmed = expr.trim();
-  if (trimmed.length === 0) return false;
-  const parts = trimmed.split(/\s+/);
-  if (parts.length !== 5) return false;
-  const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
-  for (let i = 0; i < 5; i++) {
-    if (!isValidCronField(parts[i], ranges[i][0], ranges[i][1])) return false;
-  }
-  return true;
-}
 
-// ---- Schedule picker: automatic Date/Time vs Cron ----
-function applyScheduleInputState(scope, useCron) {
-  const dtBlock = document.getElementById(`${scope}_dt_block`);
-  const cronBlock = document.getElementById(`${scope}_cron_block`);
-  const hiddenType = document.getElementById(`${scope}_input_type_value`);
-  if (!dtBlock || !cronBlock || !hiddenType) return;
-  hiddenType.value = useCron ? 'cron' : 'datetime';
-
-  dtBlock.classList.toggle('faded', useCron);
-  dtBlock.querySelectorAll('select, input').forEach(el => { el.disabled = useCron; });
-
-  // The cron field dims when it isn't in control, but stays editable — you have to be
-  // able to type into it to make it take over in the first place.
-  cronBlock.classList.toggle('dimmed', !useCron);
-}
-
-function handleCronInput(scope) {
-  const input = document.getElementById(`${scope}_cron_input`);
-  const hint = document.getElementById(`${scope}_cron_hint`);
-  const valid = isValidCron(input.value);
-  applyScheduleInputState(scope, valid);
-  if (hint) hint.textContent = (input.value.trim().length > 0 && !valid) ? 'Not a valid cron expression yet' : '';
-  if (valid) {
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-}
-
-function clearCron(scope) {
-  const input = document.getElementById(`${scope}_cron_input`);
-  input.value = '';
-  applyScheduleInputState(scope, false);
-  const hint = document.getElementById(`${scope}_cron_hint`);
-  if (hint) hint.textContent = '';
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-}
-
+// ---- Schedule picker: Hourly/Daily/Weekly/Monthly frequency fields ----
+// Only the fields for the currently-selected frequency are ever enabled — the rest are both
+// hidden and disabled, so a browser form submission only ever includes the active mode's
+// fields even though every mode's markup is always present in the DOM (this is also what lets
+// every mode share plain field names like "{scope}_time" instead of needing per-mode suffixes).
 function updateScheduleVisibility(scope) {
   const container = document.querySelector(`.schedule-fields[data-scope="${scope}"]`);
-  const mode = container.querySelector('.schedule-mode-select').value;
+  if (!container) return;
+  const modeSelect = container.querySelector('.schedule-mode-select');
+  const mode = modeSelect.value;
+  const overallDisabled = modeSelect.disabled;
   container.querySelectorAll('.schedule-mode-field').forEach(el => {
-    el.style.display = el.dataset.mode === mode ? '' : 'none';
+    const active = el.dataset.mode === mode;
+    el.style.display = active ? '' : 'none';
+    el.querySelectorAll('select, input').forEach(field => { field.disabled = overallDisabled || !active; });
   });
 }
 
 document.querySelectorAll('.schedule-fields').forEach(form => {
-  const scope = form.dataset.scope;
-  updateScheduleVisibility(scope);
-  const modeSelect = form.querySelector('.schedule-mode-select');
-  if (modeSelect && modeSelect.disabled) {
-    return; // this feature is currently following the general schedule — leave as rendered
-  }
-  const cronInput = document.getElementById(`${scope}_cron_input`);
-  const valid = cronInput && isValidCron(cronInput.value);
-  applyScheduleInputState(scope, valid);
+  updateScheduleVisibility(form.dataset.scope);
 });
 
 // ---- Feature-level "use general schedule" gating ----
 function toggleScheduleOverride(feature, useGeneral) {
   const wrapper = document.getElementById(`${feature}_schedule_wrapper`);
   wrapper.classList.toggle('faded', useGeneral);
-  const form = wrapper.querySelector('.schedule-fields');
-  form.querySelectorAll('select, input, button').forEach(el => { el.disabled = useGeneral; });
-  if (!useGeneral) {
-    const cronInput = document.getElementById(`${feature}_cron_input`);
-    const valid = cronInput && isValidCron(cronInput.value);
-    applyScheduleInputState(feature, valid);
-  }
+  const modeSelect = wrapper.querySelector('.schedule-mode-select');
+  modeSelect.disabled = useGeneral;
+  updateScheduleVisibility(feature);
 }
 
 // ---- Feature-level "use general severity" gating ----

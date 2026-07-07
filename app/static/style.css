@@ -630,9 +630,16 @@ tr:hover .row-chevron {
   padding: 5px 8px;
   font-size: 13px;
 }
-.cron-hint {
-  font-size: 11px;
-  color: var(--text-dim);
+.schedule-weekday-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.schedule-weekday-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
 }
 .schedule-wrapper {
   margin-top: 10px;

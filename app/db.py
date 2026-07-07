@@ -251,9 +251,9 @@ def get_all_feature_states() -> dict:
 
 # ---------------------------------------------------------------------------
 # Schedules — a "master" schedule everything uses by default, with an optional
-# per-feature override. Stored as small JSON specs rather than raw cron strings
-# so the UI can offer friendly presets (daily / every N hours / weekly) as well
-# as a custom-cron escape hatch.
+# per-feature override. Stored as small JSON specs (see schedule_spec.py) rather
+# than raw cron strings, so the UI can offer a plain Hourly/Daily/Weekly/Monthly
+# frequency picker with no cron entry anywhere.
 # ---------------------------------------------------------------------------
 
 DEFAULT_MASTER_SCHEDULE = {"mode": "daily", "hour": 6, "minute": 0}

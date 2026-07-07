@@ -1,42 +1,55 @@
 {% macro schedule_fields(scope, spec, save_url, disabled) %}
-{% set input_type = 'cron' if spec.mode == 'custom' else 'datetime' %}
 <form class="schedule-fields" data-scope="{{ scope }}" hx-post="{{ save_url }}" hx-trigger="change"
       hx-target="#saved-{{ scope }}-sched" hx-swap="innerHTML">
-  <input type="hidden" name="{{ scope }}_input_type" id="{{ scope }}_input_type_value" value="{{ input_type }}">
+  <select name="{{ scope }}_mode" class="schedule-mode-select" onchange="updateScheduleVisibility('{{ scope }}')" {{ 'disabled' if disabled else '' }}>
+    <option value="hourly" {{ 'selected' if spec.mode == 'hourly' else '' }}>Hourly</option>
+    <option value="daily" {{ 'selected' if spec.mode == 'daily' or not spec.mode else '' }}>Daily</option>
+    <option value="weekly" {{ 'selected' if spec.mode == 'weekly' else '' }}>Weekly</option>
+    <option value="monthly" {{ 'selected' if spec.mode == 'monthly' else '' }}>Monthly</option>
+  </select>
 
-  <div class="schedule-datetime-block {{ 'faded' if input_type == 'cron' else '' }}" id="{{ scope }}_dt_block">
-    <select name="{{ scope }}_mode" class="schedule-mode-select" onchange="updateScheduleVisibility('{{ scope }}')" {{ 'disabled' if disabled else '' }}>
-      <option value="daily" {{ 'selected' if spec.mode == 'daily' or not spec.mode else '' }}>Daily</option>
-      <option value="hourly" {{ 'selected' if spec.mode == 'hourly' else '' }}>Every N hours</option>
-      <option value="weekly" {{ 'selected' if spec.mode == 'weekly' else '' }}>Weekly</option>
-    </select>
-
-    <div class="schedule-mode-field" data-mode="daily">
-      <label>Time <input type="time" name="{{ scope }}_time" value="{{ '%02d:%02d'|format(spec.get('hour', 6), spec.get('minute', 0)) }}" {{ 'disabled' if disabled else '' }}></label>
-    </div>
-
-    <div class="schedule-mode-field" data-mode="hourly">
-      <label>Every <input type="number" name="{{ scope }}_interval_hours" min="1" max="24" value="{{ spec.get('interval_hours', 4) }}" style="width:60px" {{ 'disabled' if disabled else '' }}> hours</label>
-    </div>
-
-    <div class="schedule-mode-field" data-mode="weekly">
-      <label>Day
-        <select name="{{ scope }}_day_of_week" {{ 'disabled' if disabled else '' }}>
-          {% for d, label in [('mon','Monday'),('tue','Tuesday'),('wed','Wednesday'),('thu','Thursday'),('fri','Friday'),('sat','Saturday'),('sun','Sunday')] %}
-          <option value="{{ d }}" {{ 'selected' if spec.get('day_of_week','mon') == d else '' }}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Time <input type="time" name="{{ scope }}_time_weekly" value="{{ '%02d:%02d'|format(spec.get('hour', 6), spec.get('minute', 0)) }}" {{ 'disabled' if disabled else '' }}></label>
-    </div>
+  <div class="schedule-mode-field" data-mode="hourly">
+    <label>Every
+      <input type="number" name="{{ scope }}_interval_hours" min="1" max="23"
+             value="{{ spec.get('interval_hours', 4) }}" style="width:60px" {{ 'disabled' if disabled else '' }}>
+      hour(s), starting at
+      <select name="{{ scope }}_start_hour" {{ 'disabled' if disabled else '' }}>
+        {% for h in range(24) %}
+        <option value="{{ h }}" {{ 'selected' if spec.get('start_hour', 0) == h else '' }}>{{ '%02d:00'|format(h) }}</option>
+        {% endfor %}
+      </select>
+    </label>
   </div>
 
-  <div class="schedule-cron-block {{ 'dimmed' if input_type == 'datetime' else '' }}" id="{{ scope }}_cron_block">
-    <label>Cron <input type="text" name="{{ scope }}_cron" id="{{ scope }}_cron_input" value="{{ spec.get('cron', '') }}"
-                        placeholder="0 6 * * * (numeric fields only)" class="mono"
-                        oninput="handleCronInput('{{ scope }}')" {{ 'disabled' if disabled else '' }}></label>
-    <button type="button" onclick="clearCron('{{ scope }}')" {{ 'disabled' if disabled else '' }}>Clear</button>
-    <span class="cron-hint" id="{{ scope }}_cron_hint"></span>
+  <div class="schedule-mode-field" data-mode="daily">
+    <label>Time <input type="time" name="{{ scope }}_time"
+                        value="{{ '%02d:%02d'|format(spec.get('hour', 6), spec.get('minute', 0)) }}" {{ 'disabled' if disabled else '' }}></label>
+  </div>
+
+  <div class="schedule-mode-field" data-mode="weekly">
+    <span class="schedule-weekday-group">
+      {% for d, label in [('mon','Mon'),('tue','Tue'),('wed','Wed'),('thu','Thu'),('fri','Fri'),('sat','Sat'),('sun','Sun')] %}
+      <label class="schedule-weekday-option">
+        <input type="checkbox" name="{{ scope }}_days_of_week" value="{{ d }}"
+               {{ 'checked' if d in spec.get('days_of_week', ['mon']) else '' }} {{ 'disabled' if disabled else '' }}>
+        {{ label }}
+      </label>
+      {% endfor %}
+    </span>
+    <label>Time <input type="time" name="{{ scope }}_time"
+                        value="{{ '%02d:%02d'|format(spec.get('hour', 6), spec.get('minute', 0)) }}" {{ 'disabled' if disabled else '' }}></label>
+  </div>
+
+  <div class="schedule-mode-field" data-mode="monthly">
+    <label>Day
+      <select name="{{ scope }}_day_of_month" {{ 'disabled' if disabled else '' }}>
+        {% for d in range(1, 32) %}
+        <option value="{{ d }}" {{ 'selected' if spec.get('day_of_month', 1) == d else '' }}>{{ d }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Time <input type="time" name="{{ scope }}_time"
+                        value="{{ '%02d:%02d'|format(spec.get('hour', 6), spec.get('minute', 0)) }}" {{ 'disabled' if disabled else '' }}></label>
   </div>
 
   <span class="saved-indicator-slot" id="saved-{{ scope }}-sched"></span>

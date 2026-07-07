@@ -16,7 +16,7 @@ from app.check_state import format_summary, get_progress, get_state, set_running
 from app.config import settings
 from app.notifications import send_test_notification
 from app.summarizer import summarize_findings_overview
-from app.schedule_spec import describe as describe_schedule
+from app.schedule_spec import DAY_NAMES, describe as describe_schedule
 from app.scheduler import (
     apply_schedules,
     start_scheduler,
@@ -377,34 +377,41 @@ VALID_SCOPES = ("master", "updates", "logs", "compose")
 VALID_FEATURES = ("updates", "logs", "compose")
 
 
-def _spec_from_form(form, scope: str) -> dict:
-    input_type = form.get(f"{scope}_input_type", "datetime")
-    if input_type == "cron":
-        cron_str = (form.get(f"{scope}_cron", "") or "").strip()
-        if cron_str:
-            try:
-                from apscheduler.triggers.cron import CronTrigger
-                CronTrigger.from_crontab(cron_str)  # raises if malformed
-                return {"mode": "custom", "cron": cron_str}
-            except Exception:
-                pass  # malformed despite passing client-side validation — fall back safely below
+def _int_field(form, name: str, default: int) -> int:
+    try:
+        return int(form.get(name, default) or default)
+    except (TypeError, ValueError):
+        return default
 
+
+def _spec_from_form(form, scope: str) -> dict:
+    """Builds a schedule_spec.py dict from the Hourly/Daily/Weekly/Monthly picker's POSTed
+    fields. Only the currently-selected mode's fields are ever enabled client-side (see
+    updateScheduleVisibility() in settings.html), so disabled fields never make it into the
+    form data — every mode can safely share one {scope}_time field name rather than needing
+    per-mode suffixes, since at most one is ever actually submitted."""
     mode = form.get(f"{scope}_mode", "daily")
-    time_field = f"{scope}_time_weekly" if mode == "weekly" else f"{scope}_time"
-    time_str = form.get(time_field, "06:00") or "06:00"
+
+    if mode == "hourly":
+        interval = max(1, min(23, _int_field(form, f"{scope}_interval_hours", 4)))
+        start_hour = max(0, min(23, _int_field(form, f"{scope}_start_hour", 0)))
+        return {"mode": "hourly", "interval_hours": interval, "start_hour": start_hour}
+
+    time_str = form.get(f"{scope}_time", "06:00") or "06:00"
     try:
         hour, minute = (int(x) for x in time_str.split(":"))
     except (ValueError, TypeError):
         hour, minute = 6, 0
 
-    if mode == "hourly":
-        try:
-            interval = int(form.get(f"{scope}_interval_hours", 4) or 4)
-        except ValueError:
-            interval = 4
-        return {"mode": "hourly", "interval_hours": max(1, interval)}
     if mode == "weekly":
-        return {"mode": "weekly", "day_of_week": form.get(f"{scope}_day_of_week", "mon"), "hour": hour, "minute": minute}
+        posted_days = form.getlist(f"{scope}_days_of_week")
+        days = [d for d in DAY_NAMES if d in posted_days] or ["mon"]
+        return {"mode": "weekly", "days_of_week": days, "hour": hour, "minute": minute}
+
+    if mode == "monthly":
+        day = max(1, min(31, _int_field(form, f"{scope}_day_of_month", 1)))
+        return {"mode": "monthly", "day_of_month": day, "hour": hour, "minute": minute}
+
     return {"mode": "daily", "hour": hour, "minute": minute}
 
 
