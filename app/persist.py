@@ -23,9 +23,8 @@ _REGISTRY_ERROR_TEXT = "Could not reach the registry to check for an update."
 
 
 def run_and_persist_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
-    """The one shared entry point for actually running a check — used by both the UI's Check
-    now / Reset & re-check and the Dockhand webhook, so every real check (whichever triggered
-    it) updates persisted state the same way."""
+    """The one shared entry point for actually running a check — used by the UI's Check now /
+    Reset & re-check, so every real check updates persisted state the same way."""
     outcome = reconcile.run_check(on_progress=on_progress)
     persist_check_outcome(outcome)
     return outcome
@@ -35,17 +34,34 @@ def persist_check_outcome(outcome: dict) -> None:
     """Writes one check's results into container_state/updates. An empty container list is
     always treated as "the check itself didn't complete" (Docker socket unreachable, etc.)
     rather than "there are genuinely zero containers" — existing persisted state is left
-    completely untouched rather than risking a wipe from a transient failure."""
+    completely untouched rather than risking a wipe from a transient failure.
+
+    Holds a single connection/transaction for the whole batch rather than letting each db.py
+    call open and commit its own — with 59 containers and up to four db.py calls each, that
+    was ~200 separate connect+commit+close cycles (each a real fsync in WAL mode) happening
+    silently after the progress bar already showed the check as finished, which is what a
+    "hangs for several seconds after reaching N/N" report traced back to. One transaction also
+    means a check that fails partway through leaves the database exactly as it was — readers
+    never see a half-applied check, and there's nothing to reconcile after the retry the Stage
+    4 safety net triggers."""
     containers = outcome["containers"]
     if not containers:
         return
 
-    db.prune_removed_containers([c["container_name"] for c in containers])
-    for container in containers:
-        _persist_one(container)
+    conn = db.open_conn()
+    try:
+        db.prune_removed_containers([c["container_name"] for c in containers], conn=conn)
+        for container in containers:
+            _persist_one(container, conn)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
-def _persist_one(container: dict) -> None:
+def _persist_one(container: dict, conn) -> None:
     name = container["container_name"]
     image_repo = container["image_repo"]
     tag = container["tag"]
@@ -53,13 +69,13 @@ def _persist_one(container: dict) -> None:
     current_digest = container.get("current_digest")
     latest_digest = container.get("latest_digest")
 
-    db.upsert_container_state(name, image_repo, tag, current_digest)
+    db.upsert_container_state(name, image_repo, tag, current_digest, conn=conn)
 
-    existing = db.get_latest_update_for_container(name)
+    existing = db.get_latest_update_for_container(name, conn=conn)
 
     if status == "up_to_date":
         if existing is not None:
-            db.delete_update(existing["id"])
+            db.delete_update(existing["id"], conn=conn)
         return
 
     error_text = _REGISTRY_ERROR_TEXT if status == "error" else None
@@ -73,10 +89,11 @@ def _persist_one(container: dict) -> None:
         return
 
     if existing is not None:
-        db.delete_update(existing["id"])
+        db.delete_update(existing["id"], conn=conn)
     db.record_update(
         container_name=name, image_repo=image_repo, tag=tag,
         old_digest=current_digest, new_digest=latest_digest,
         summary_markdown=None, source_url=None,
         error=error_text, severity="",
+        conn=conn,
     )

@@ -187,12 +187,21 @@ def init_db() -> None:
 
 
 @contextmanager
-def get_conn():
+def get_conn(existing: sqlite3.Connection | None = None):
     # WAL mode lets readers and a writer proceed concurrently without blocking each other,
     # which matters now that release-notes fetching and summarization can write from several
     # threads at once. The explicit timeout is a generous but still-bounded wait for the rare
     # case two writers do collide, so a moment of real contention fails gracefully (an
     # exception the caller can catch) rather than either racing incorrectly or hanging.
+    #
+    # Accepts an already-open connection to reuse instead of opening/committing/closing a new
+    # one — every one of those steps is a real syscall (and a WAL commit means an fsync), so a
+    # loop calling several db.py functions per iteration (see app/persist.py) was paying for
+    # hundreds of connect+commit+close cycles on what's conceptually one batch of writes. When
+    # reusing an existing connection, the caller who opened it owns committing/closing it.
+    if existing is not None:
+        yield existing
+        return
     conn = sqlite3.connect(settings.db_path, timeout=30.0)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
@@ -201,6 +210,17 @@ def get_conn():
         conn.commit()
     finally:
         conn.close()
+
+
+def open_conn() -> sqlite3.Connection:
+    """Opens a connection with the same setup get_conn() uses, for a caller that wants to
+    hold it across several db.py calls as one transaction (pass it as `conn=` to each) instead
+    of every call opening/committing/closing its own — see app/persist.py. The caller owns
+    calling commit() and close() when done."""
+    conn = sqlite3.connect(settings.db_path, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 # ---------------------------------------------------------------------------
@@ -388,9 +408,10 @@ def get_container_state(container_name: str) -> sqlite3.Row | None:
         return cur.fetchone()
 
 
-def upsert_container_state(container_name: str, image_repo: str, tag: str, digest: str | None) -> None:
-    with get_conn() as conn:
-        conn.execute(
+def upsert_container_state(container_name: str, image_repo: str, tag: str, digest: str | None,
+                            conn: sqlite3.Connection | None = None) -> None:
+    with get_conn(conn) as c:
+        c.execute(
             """
             INSERT INTO container_state (container_name, image_repo, tag, last_seen_digest, last_checked_at)
             VALUES (?, ?, ?, ?, ?)
@@ -422,7 +443,7 @@ def all_container_states(sort: str = "container", direction: str = "asc") -> lis
         return cur.fetchall()
 
 
-def prune_removed_containers(seen_container_names: list[str]) -> None:
+def prune_removed_containers(seen_container_names: list[str], conn: sqlite3.Connection | None = None) -> None:
     """Deletes container_state/updates rows for containers that no longer exist (removed or
     renamed since the last check) — keeps persisted state in sync with what's actually
     running rather than accumulating stale entries forever. Only ever called with a non-empty
@@ -431,10 +452,10 @@ def prune_removed_containers(seen_container_names: list[str]) -> None:
     so callers deliberately never prune off an empty result."""
     if not seen_container_names:
         return
-    with get_conn() as conn:
+    with get_conn(conn) as c:
         placeholders = ",".join("?" * len(seen_container_names))
-        conn.execute(f"DELETE FROM container_state WHERE container_name NOT IN ({placeholders})", seen_container_names)
-        conn.execute(f"DELETE FROM updates WHERE container_name NOT IN ({placeholders})", seen_container_names)
+        c.execute(f"DELETE FROM container_state WHERE container_name NOT IN ({placeholders})", seen_container_names)
+        c.execute(f"DELETE FROM updates WHERE container_name NOT IN ({placeholders})", seen_container_names)
 
 
 def list_tracked_containers_with_status() -> list[dict]:
@@ -497,9 +518,10 @@ def record_update(
     source_url: str | None,
     error: str | None = None,
     severity: str = "",
+    conn: sqlite3.Connection | None = None,
 ) -> int:
-    with get_conn() as conn:
-        cur = conn.execute(
+    with get_conn(conn) as c:
+        cur = c.execute(
             """
             INSERT INTO updates
                 (container_name, image_repo, tag, old_digest, new_digest, summary_markdown, source_url, error, severity, created_at)
@@ -571,9 +593,9 @@ def get_update(update_id: int) -> sqlite3.Row | None:
         return cur.fetchone()
 
 
-def get_latest_update_for_container(container_name: str) -> sqlite3.Row | None:
-    with get_conn() as conn:
-        cur = conn.execute(
+def get_latest_update_for_container(container_name: str, conn: sqlite3.Connection | None = None) -> sqlite3.Row | None:
+    with get_conn(conn) as c:
+        cur = c.execute(
             "SELECT * FROM updates WHERE container_name = ? ORDER BY created_at DESC LIMIT 1",
             (container_name,),
         )
@@ -613,14 +635,14 @@ def mark_update_status(update_id: int, status: str) -> None:
         conn.execute("UPDATE updates SET status = ? WHERE id = ?", (status, update_id))
 
 
-def delete_update(update_id: int) -> None:
+def delete_update(update_id: int, conn: sqlite3.Connection | None = None) -> None:
     """Removes one update record outright — there's no separate "resolved" flag. An update
     row existing at all means that container currently needs attention (a pending update or a
     check error); once it's resolved (digest catches up) or gets superseded by a newer
     transition, app/persist.py deletes it rather than marking it done, so at most one row per
     container ever exists and every read path can treat "a row exists" as "still pending"."""
-    with get_conn() as conn:
-        conn.execute("DELETE FROM updates WHERE id = ?", (update_id,))
+    with get_conn(conn) as c:
+        c.execute("DELETE FROM updates WHERE id = ?", (update_id,))
 
 
 def latest_update_summary() -> dict:

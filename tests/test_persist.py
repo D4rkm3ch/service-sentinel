@@ -4,6 +4,9 @@ transitions replaced rather than duplicated, and removed containers pruned. Uses
 sqlite db.py functions against a temp database (DATA_DIR set in conftest.py) rather than
 mocking them, since the whole point of this module is the SQL write logic itself."""
 
+import sqlite3
+from unittest.mock import patch
+
 import pytest
 
 from app import db, persist
@@ -154,3 +157,54 @@ def test_run_and_persist_check_wraps_reconcile_and_persists(monkeypatch):
     rows = db.list_tracked_containers_with_status()
     assert len(rows) == 1
     assert rows[0]["container_name"] == "qbittorrent"
+
+
+def test_persist_check_outcome_uses_one_connection_not_one_per_container():
+    """Regression test for the real "hangs at N/N for several seconds" report: each db.py
+    call used to open/commit/close its own SQLite connection, so 59 containers meant ~200
+    separate connect+commit+close cycles (each a real fsync in WAL mode) happening silently
+    after the progress bar already showed the check as done. Proves the whole batch now opens
+    exactly one connection by counting calls to sqlite3.connect() itself, rather than timing
+    it (timing is storage-dependent and wasn't reliable to assert on across environments)."""
+    original_connect = sqlite3.connect
+    connect_calls = []
+
+    def counting_connect(*args, **kwargs):
+        connect_calls.append(1)
+        return original_connect(*args, **kwargs)
+
+    containers = tuple(_c(f"c{i}", "update_available", repo=f"owner/repo{i}") for i in range(20))
+
+    with patch("app.db.sqlite3.connect", side_effect=counting_connect):
+        persist.persist_check_outcome(_outcome(*containers))
+
+    assert connect_calls == [1], f"expected exactly one connection for the whole batch, got {len(connect_calls)}"
+    assert len(db.list_tracked_containers_with_status()) == 20
+
+
+def test_persist_check_outcome_rolls_back_completely_on_failure():
+    """New atomicity property from the single-transaction fix: if the batch fails partway
+    through, nothing from that check should land -- not a half-applied state that a naive
+    per-container-commit approach would have left behind."""
+    persist.persist_check_outcome(_outcome(_c("sonarr", "up_to_date", latest_digest="sha256:old")))
+    assert len(db.list_tracked_containers_with_status()) == 1
+
+    containers = [_c(f"c{i}", "update_available", repo=f"owner/repo{i}") for i in range(5)]
+
+    real_record_update = db.record_update
+
+    def failing_record_update(*args, **kwargs):
+        if kwargs.get("container_name") == "c3":
+            raise RuntimeError("simulated failure partway through the batch")
+        return real_record_update(*args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("app.persist.db.record_update", failing_record_update)
+        with pytest.raises(RuntimeError, match="simulated failure"):
+            persist.persist_check_outcome(_outcome(*containers))
+
+    # None of c0-c4 should have been persisted -- and the pre-existing "sonarr" row, which
+    # prune_removed_containers would have deleted as part of the same failed transaction,
+    # must still be there too.
+    rows = db.list_tracked_containers_with_status()
+    assert [r["container_name"] for r in rows] == ["sonarr"]
