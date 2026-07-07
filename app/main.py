@@ -24,7 +24,6 @@ from app.scheduler import (
     trigger_log_check_now,
 )
 from app.uptime import get_uptime_str
-from app.webhook import router as webhook_router
 
 RELEASE_RADAR_VERSION = "0.6.0"
 
@@ -71,7 +70,6 @@ def severity_label(context: str, value: str) -> str:
 
 
 templates.env.globals["severity_label"] = severity_label
-app.include_router(webhook_router)
 
 TRIGGER_FUNCS = {
     "logs": trigger_log_check_now,

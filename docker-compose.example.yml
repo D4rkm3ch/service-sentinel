@@ -12,7 +12,6 @@ services:
       - COMPOSE_ROOT=/compose
       - DATA_DIR=/data
       - TZ=${TZ:-Australia/Sydney}
-      - WEBHOOK_TOKEN=${WEBHOOK_TOKEN}
       - PUBLIC_URL=${PUBLIC_URL}
       - REGISTRY_CHECK_CONCURRENCY=${REGISTRY_CHECK_CONCURRENCY:-10}
       - LOG_LOOKBACK_HOURS=${LOG_LOOKBACK_HOURS:-24}

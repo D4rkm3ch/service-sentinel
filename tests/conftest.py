@@ -13,7 +13,6 @@ import os
 
 os.environ.setdefault("DATA_DIR", "/tmp/rr-test-data")
 os.environ.setdefault("COMPOSE_ROOT", "/tmp/rr-test-compose")
-os.environ.setdefault("WEBHOOK_TOKEN", "test-token")
 os.makedirs(os.environ["DATA_DIR"], exist_ok=True)
 os.makedirs(os.environ["COMPOSE_ROOT"], exist_ok=True)
 

@@ -18,8 +18,6 @@ class Settings:
         self.data_dir: Path = Path(os.environ.get("DATA_DIR", "/data"))
         self.db_path: Path = self.data_dir / "release_radar.db"
 
-        self.webhook_token: str = os.environ.get("WEBHOOK_TOKEN", "")
-
         self.docker_socket: str = os.environ.get("DOCKER_SOCKET", "unix://var/run/docker.sock")
 
         self.tz: str = os.environ.get("TZ", "UTC")

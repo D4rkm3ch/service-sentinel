@@ -66,8 +66,8 @@ def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
     container list is known, then again after each container finishes — safe to call from
     multiple worker threads at once, since the done-count itself is updated under a lock
     before firing the callback. Purely a UI hook (the "Checking (N/59)" progress text) — the
-    check's own result doesn't depend on it, and callers that don't need live progress (the
-    webhook) can just leave it as None."""
+    check's own result doesn't depend on it, and callers that don't need live progress can
+    just leave it as None."""
     checked_at = datetime.now(timezone.utc).isoformat()
 
     try:

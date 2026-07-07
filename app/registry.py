@@ -12,8 +12,8 @@ a request we know will get a 401. Unknown/self-hosted registries still go throug
 try-then-challenge flow, since we can't assume they require auth at all.
 
 TODO / known gaps (fine for a homelab MVP, flag before relying on this more broadly):
-- No private registry credential support yet (DOCKHAND_REGISTRY_USER-style env vars would
-  be the natural place to add this, mirroring Dockhand's own approach).
+- No private registry credential support yet (REGISTRY_USER-style env vars would be the
+  natural place to add this).
 - Manifest list (multi-arch) handling picks the list digest, which is correct for detecting
   "did anything change" but doesn't try to resolve a specific platform.
 - No semver-aware "is there a newer tag" check yet — only "does the digest behind this exact

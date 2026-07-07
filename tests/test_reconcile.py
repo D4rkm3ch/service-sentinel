@@ -155,9 +155,9 @@ def test_on_progress_receives_zero_total_when_no_containers():
     assert calls == [(0, 0)]
 
 
-def test_webhook_style_call_without_on_progress_still_works():
-    """The webhook route calls run_check() with no on_progress at all — make sure the
-    default (None) doesn't blow up anywhere progress reporting was added."""
+def test_call_without_on_progress_still_works():
+    """on_progress is optional -- make sure the default (None) doesn't blow up anywhere
+    progress reporting was added."""
     containers = [_container("c", repo="owner/c")]
     with patch("app.reconcile.list_tracked_containers", return_value=containers), \
          patch("app.reconcile.get_latest_digest", return_value="sha256:old"):
