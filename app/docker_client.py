@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 
 import docker
@@ -31,18 +32,21 @@ class TrackedContainer:
         return self.labels.get(LOGS_IGNORE_LABEL, "").lower() == "true"
 
 
+_DIGEST_SUFFIX = re.compile(r"@[a-zA-Z0-9]+:[0-9a-fA-F]{32,}$")
+
+
 def _split_image_ref(image_ref: str) -> tuple[str, str]:
     """Split 'repo:tag' into (repo, tag), defaulting to 'latest' when no tag is present.
 
-    Handles registry hosts with ports, e.g. 'registry.example.com:5000/owner/repo:tag'.
+    Handles registry hosts with ports, e.g. 'registry.example.com:5000/owner/repo:tag', and
+    images pinned by both tag and digest (e.g. 'valkey/valkey:8-bookworm@sha256:...', which
+    Immich's own compose recommendations use) by dropping the '@sha256:...' suffix first —
+    otherwise the digest's own colon gets mistaken for the tag separator.
     """
-    if "/" in image_ref:
-        host_part, rest = image_ref.split("/", 1)
-    else:
-        host_part, rest = "", image_ref
+    image_ref = _DIGEST_SUFFIX.sub("", image_ref)
 
-    last_segment = rest if not host_part else rest
-    if ":" in last_segment.rsplit("/", 1)[-1]:
+    last_segment = image_ref.rsplit("/", 1)[-1]
+    if ":" in last_segment:
         repo, tag = image_ref.rsplit(":", 1)
     else:
         repo, tag = image_ref, "latest"

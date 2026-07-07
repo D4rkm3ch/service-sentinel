@@ -27,6 +27,11 @@ import httpx
 
 DOCKER_HUB_REGISTRY = "registry-1.docker.io"
 
+# Hosts that mean "Docker Hub" but aren't the actual v2 API host (registry-1.docker.io is the
+# only host that serves the v2 API; 'docker.io' itself just redirects to Docker's marketing
+# site for arbitrary paths, which looks like a working response but isn't the registry).
+_DOCKER_HUB_ALIASES = {"docker.io", "index.docker.io"}
+
 # (realm, service) for registries known to always require a bearer token. lscr.io is a
 # redirect front for GHCR (confirmed via its own challenge response), so it uses GHCR's realm.
 KNOWN_REALMS: dict[str, tuple[str, str]] = {
@@ -54,6 +59,9 @@ def _normalize_repo(repo: str) -> tuple[str, str]:
         return DOCKER_HUB_REGISTRY, f"library/{repo}"
 
     first_segment = repo.split("/", 1)[0]
+    if first_segment in _DOCKER_HUB_ALIASES:
+        _, path = repo.split("/", 1)
+        return DOCKER_HUB_REGISTRY, path
     if "." in first_segment or ":" in first_segment or first_segment == "localhost":
         host, path = repo.split("/", 1)
         return host, path

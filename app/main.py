@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import compose_lookup, db, reconcile, stacks
-from app.check_state import format_summary, get_state, set_finished, set_running
+from app.check_state import format_summary, get_progress, get_state, set_finished, set_progress, set_running
 from app.config import settings
 from app.notifications import send_test_notification
 from app.summarizer import summarize_findings_overview
@@ -144,24 +144,39 @@ def toggle_feature(feature: str, request: Request):
 # Shared check-now / status handlers
 # ---------------------------------------------------------------------------
 
-def _render_status(request: Request, feature: str):
+# Live progress text (e.g. "Checking (23/59)") only makes sense for a feature that reports
+# progress — currently just "updates" (Stage 2). Polling faster while it's running gives
+# meaningfully live-feeling updates now that a full check finishes in seconds rather than
+# up to a minute; logs/compose keep their original 2s cadence untouched.
+_FAST_POLL_FEATURES = {"updates"}
+
+
+def _status_context(request: Request, feature: str) -> dict:
     state = get_state(feature)
-    resp = templates.TemplateResponse(
-        "_status.html",
-        {"request": request, "feature": feature, "state": state, "status_summary_text": format_summary(feature, state)},
-    )
-    if not state["running"]:
+    progress = get_progress(feature)
+    poll_delay_ms = 500 if feature in _FAST_POLL_FEATURES else 2000
+    return {
+        "request": request,
+        "feature": feature,
+        "state": state,
+        "progress": progress,
+        "poll_delay_ms": poll_delay_ms,
+        "status_summary_text": format_summary(feature, state),
+    }
+
+
+def _render_status(request: Request, feature: str):
+    context = _status_context(request, feature)
+    resp = templates.TemplateResponse("_status.html", context)
+    if not context["state"]["running"]:
         resp.headers["HX-Trigger"] = "checkComplete"
     return resp
 
 
 def _render_status_poll(request: Request, feature: str):
-    state = get_state(feature)
-    resp = templates.TemplateResponse(
-        "_status_poll.html",
-        {"request": request, "feature": feature, "state": state, "status_summary_text": format_summary(feature, state)},
-    )
-    if not state["running"]:
+    context = _status_context(request, feature)
+    resp = templates.TemplateResponse("_status_poll.html", context)
+    if not context["state"]["running"]:
         resp.headers["HX-Trigger"] = "checkComplete"
     return resp
 
@@ -278,8 +293,7 @@ def _launch_stage1_check_if_not_running() -> None:
     the whole check had already finished (set_finished had already been called before any
     render happened), so the spinner never had a chance to appear from the click itself;
     the only way to see it was to load a fresh page while an earlier click's check happened
-    to still be going. The check inside the thread is still fully sequential — parallelizing
-    the check itself is Stage 2's job, not this.
+    to still be going. The registry checks inside the thread run concurrently as of Stage 2.
 
     Guarded against double-starts: if a check is already running (e.g. a double-click, or
     Reset & re-check fired right after Check now), this is a no-op — the existing one is
@@ -289,7 +303,7 @@ def _launch_stage1_check_if_not_running() -> None:
     set_running("updates")
 
     def _worker():
-        outcome = _run_stage1_check()
+        outcome = _run_stage1_check(on_progress=lambda done, total: set_progress("updates", done, total))
         result = {
             "checked": len(outcome["containers"]),
             "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
@@ -300,13 +314,13 @@ def _launch_stage1_check_if_not_running() -> None:
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def _run_stage1_check() -> dict:
+def _run_stage1_check(on_progress=None) -> dict:
     """Actually runs a fresh check — only called by Check now / Reset & re-check. This is
     genuinely synchronous and will make the button/request wait for the whole thing to
     finish. Registry lookups now run concurrently (Stage 2), so this is meaningfully
     faster than Stage 1's one-at-a-time version, but it still blocks the calling thread
     until every container has been checked — proper backgrounding comes in Stage 4."""
-    outcome = reconcile.run_check()
+    outcome = reconcile.run_check(on_progress=on_progress)
     _stage1_cache["outcome"] = outcome
     return outcome
 
