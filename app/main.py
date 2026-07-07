@@ -286,20 +286,32 @@ def _launch_check_if_not_running() -> None:
 
     Guarded against double-starts: if a check is already running (e.g. a double-click, or
     Reset & re-check fired right after Check now), this is a no-op — the existing one is
-    left to finish rather than starting a second one on top of it."""
+    left to finish rather than starting a second one on top of it.
+
+    Stage 4: the worker's body is wrapped in try/except specifically so set_finished() always
+    runs, even if persist.run_and_persist_check() raises something unexpected (a DB error, a
+    bug in a later stage's code, anything). Without this, an exception would kill the thread
+    silently and leave "running" stuck true forever — no spinner ever clearing, no way to
+    trigger a new check, exactly the class of bug ("ran all night and was still checking")
+    that the whole ground-up rebuild started over. A single failed check should just report
+    itself as failed and let the next click try again, not wedge the app."""
     if get_state("updates").get("running"):
         return
     set_running("updates")
 
     def _worker():
-        outcome = persist.run_and_persist_check(
-            on_progress=lambda done, total: set_progress("updates", done, total)
-        )
-        result = {
-            "checked": len(outcome["containers"]),
-            "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
-            "errors": outcome["errors"],
-        }
+        try:
+            outcome = persist.run_and_persist_check(
+                on_progress=lambda done, total: set_progress("updates", done, total)
+            )
+            result = {
+                "checked": len(outcome["containers"]),
+                "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
+                "errors": outcome["errors"],
+            }
+        except Exception:
+            logger.exception("Update check failed unexpectedly")
+            result = {"checked": 0, "updates_found": 0, "errors": 1}
         set_finished("updates", result)
 
     threading.Thread(target=_worker, daemon=True).start()
