@@ -1,22 +1,48 @@
-"""Stage 1 of the ground-up rebuild: bare-minimum update checking.
+"""Stage 2 of the ground-up rebuild: concurrent registry checks.
 
-Lists tracked Docker containers and checks each one's registry digest, synchronously and one
-container at a time — no concurrency yet (that's Stage 2). Nothing is written to a database
-and no AI is involved anywhere in this file. Every call re-checks everything from scratch
-against the real Docker socket and real registries; nothing persists between calls.
+Lists tracked Docker containers, then checks each one's registry digest in parallel via a
+thread pool (registry checks are almost pure network wait, so this is the one part of the
+pipeline worth parallelizing). Still no persistence and no AI anywhere in this file — every
+call re-checks everything from scratch against the real Docker socket and real registries;
+nothing persists between calls. Listing containers itself stays a single sequential call to
+the Docker socket; only the per-container registry lookups are fanned out.
 
-This file will grow one capability at a time in later stages (concurrency, persistence,
-release notes, AI summarization, notifications, deduplication, stacks) — each introduced and
-tested in isolation, so if something is ever slow or breaks, we know exactly which piece did it.
+This file will grow one capability at a time in later stages (persistence, release notes, AI
+summarization, notifications, deduplication, stacks) — each introduced and tested in
+isolation, so if something is ever slow or breaks, we know exactly which piece did it.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from app.docker_client import list_tracked_containers
+from app.config import settings
+from app.docker_client import TrackedContainer, list_tracked_containers
 from app.registry import get_latest_digest
 
 logger = logging.getLogger("release_radar.reconcile")
+
+
+def _check_one(container: TrackedContainer) -> dict:
+    try:
+        latest_digest = get_latest_digest(container.image_repo, container.tag)
+    except Exception:
+        logger.exception("Registry check failed for %s", container.name)
+        latest_digest = None
+
+    if latest_digest is None:
+        status = "error"
+    elif container.current_digest is not None and latest_digest != container.current_digest:
+        status = "update_available"
+    else:
+        status = "up_to_date"
+
+    return {
+        "container_name": container.name,
+        "image_repo": container.image_repo,
+        "tag": container.tag,
+        "status": status,
+    }
 
 
 def run_check() -> dict:
@@ -33,29 +59,18 @@ def run_check() -> dict:
         logger.exception("Could not reach the Docker socket")
         return {"containers": [], "errors": 1, "checked_at": checked_at}
 
-    results = []
-    errors = 0
-    for container in containers:
-        try:
-            latest_digest = get_latest_digest(container.image_repo, container.tag)
-        except Exception:
-            logger.exception("Registry check failed for %s", container.name)
-            latest_digest = None
+    if not containers:
+        logger.info("Check complete: 0 containers checked, 0 errors")
+        return {"containers": [], "errors": 0, "checked_at": checked_at}
 
-        if latest_digest is None:
-            errors += 1
-            status = "error"
-        elif container.current_digest is not None and latest_digest != container.current_digest:
-            status = "update_available"
-        else:
-            status = "up_to_date"
+    max_workers = min(settings.registry_check_concurrency, len(containers))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        results = list(pool.map(_check_one, containers))
 
-        results.append({
-            "container_name": container.name,
-            "image_repo": container.image_repo,
-            "tag": container.tag,
-            "status": status,
-        })
+    errors = sum(1 for r in results if r["status"] == "error")
 
-    logger.info("Check complete: %d containers checked, %d errors", len(results), errors)
+    logger.info(
+        "Check complete: %d containers checked, %d errors (concurrency=%d)",
+        len(results), errors, max_workers,
+    )
     return {"containers": results, "errors": errors, "checked_at": checked_at}
