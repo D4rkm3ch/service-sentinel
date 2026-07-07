@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS updates (
     tag TEXT NOT NULL,
     old_digest TEXT,
     new_digest TEXT,
+    release_notes_raw TEXT,
     summary_markdown TEXT,
     source_url TEXT,
     status TEXT NOT NULL DEFAULT 'unread',
@@ -153,6 +154,12 @@ def init_db() -> None:
         # Same pattern for the findings table's suggested_fix column (Deep Analysis feature).
         try:
             conn.execute("ALTER TABLE findings ADD COLUMN suggested_fix TEXT")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+        # Same pattern for the updates table's release_notes_raw column (Stage 6).
+        try:
+            conn.execute("ALTER TABLE updates ADD COLUMN release_notes_raw TEXT")
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
@@ -533,16 +540,17 @@ def record_update(
     source_url: str | None,
     error: str | None = None,
     severity: str = "",
+    release_notes_raw: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     with get_conn(conn) as c:
         cur = c.execute(
             """
             INSERT INTO updates
-                (container_name, image_repo, tag, old_digest, new_digest, summary_markdown, source_url, error, severity, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (container_name, image_repo, tag, old_digest, new_digest, release_notes_raw, summary_markdown, source_url, error, severity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (container_name, image_repo, tag, old_digest, new_digest, summary_markdown, source_url, error, severity, now_iso()),
+            (container_name, image_repo, tag, old_digest, new_digest, release_notes_raw, summary_markdown, source_url, error, severity, now_iso()),
         )
         return cur.lastrowid
 

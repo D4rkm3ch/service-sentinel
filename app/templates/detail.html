@@ -30,10 +30,14 @@
 
   {% if update.summary_markdown %}
     <div class="summary">{{ summary_html | safe }}</div>
+  {% elif release_notes_html %}
+    <div class="summary">{{ release_notes_html | safe }}</div>
+  {% elif not update.error %}
+    <p class="meta">No release notes could be found for this image.</p>
   {% endif %}
 
   <div class="action-row" style="display:flex; gap:10px;">
-    {% if update.status == 'unread' and update.summary_markdown %}
+    {% if update.status == 'unread' and (update.summary_markdown or update.release_notes_raw) %}
     <form method="post" action="/updates/{{ update.id }}/read">
       <button type="submit">Mark as read</button>
     </form>

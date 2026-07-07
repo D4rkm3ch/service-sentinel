@@ -21,6 +21,16 @@ def clean_db():
     db.reset_updates_data()
 
 
+@pytest.fixture(autouse=True)
+def no_real_release_notes_fetch():
+    """Every test in this file exercises the SQL write logic, not release notes fetching --
+    without this, every update_available container above would fire a real network call to
+    GitHub/Docker Hub. See test_stage6_persist_release_notes.py for the release-notes-specific
+    integration tests, which mock this same call point deliberately to assert on it."""
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)):
+        yield
+
+
 def _outcome(*containers, checked_at="2026-01-01T00:00:00+00:00"):
     errors = sum(1 for c in containers if c["status"] == "error")
     return {"containers": list(containers), "errors": errors, "checked_at": checked_at}
@@ -159,13 +169,17 @@ def test_run_and_persist_check_wraps_reconcile_and_persists(monkeypatch):
     assert rows[0]["container_name"] == "qbittorrent"
 
 
-def test_persist_check_outcome_uses_one_connection_not_one_per_container():
+def test_persist_check_outcome_uses_one_connection_per_phase_not_one_per_container():
     """Regression test for the real "hangs at N/N for several seconds" report: each db.py
     call used to open/commit/close its own SQLite connection, so 59 containers meant ~200
     separate connect+commit+close cycles (each a real fsync in WAL mode) happening silently
-    after the progress bar already showed the check as done. Proves the whole batch now opens
-    exactly one connection by counting calls to sqlite3.connect() itself, rather than timing
-    it (timing is storage-dependent and wasn't reliable to assert on across environments)."""
+    after the progress bar already showed the check as done. Proves the batch now opens
+    exactly two connections total -- one for the read-only pass that decides which containers
+    need release notes, one for the write batch -- by counting calls to sqlite3.connect()
+    itself, rather than timing it (timing is storage-dependent and wasn't reliable to assert
+    on across environments). Still nowhere near the old ~200; the two-phase split exists so
+    release notes fetching (real network calls) never happens with a write transaction held
+    open, not to reintroduce per-container connections."""
     original_connect = sqlite3.connect
     connect_calls = []
 
@@ -178,7 +192,7 @@ def test_persist_check_outcome_uses_one_connection_not_one_per_container():
     with patch("app.db.sqlite3.connect", side_effect=counting_connect):
         persist.persist_check_outcome(_outcome(*containers))
 
-    assert connect_calls == [1], f"expected exactly one connection for the whole batch, got {len(connect_calls)}"
+    assert connect_calls == [1, 1], f"expected exactly two connections for the whole batch, got {len(connect_calls)}"
     assert len(db.list_tracked_containers_with_status()) == 20
 
 

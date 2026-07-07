@@ -31,6 +31,12 @@ def clean_state():
     db.reset_updates_data()
 
 
+@pytest.fixture(autouse=True)
+def no_real_release_notes_fetch():
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)):
+        yield
+
+
 def test_updates_job_is_registered_by_apply_schedules():
     scheduler.apply_schedules()
     job = scheduler._scheduler.get_job("periodic_updates_check")

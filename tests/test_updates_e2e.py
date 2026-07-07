@@ -20,6 +20,18 @@ def clean_db():
     db.reset_updates_data()
 
 
+@pytest.fixture(autouse=True)
+def no_real_release_notes_fetch():
+    """These tests drive the real check pipeline end-to-end through the HTTP routes, which as
+    of Stage 6 includes a real release notes fetch for any genuinely-new update_available
+    container -- mocked here for the same reason the Docker/registry calls above are: this
+    file proves the pipeline wiring, not release_notes.py's own network behavior (covered by
+    test_release_notes.py) or persist.py's fetch-decision logic (covered by
+    test_stage6_persist_release_notes.py)."""
+    with patch("app.persist.release_notes.get_release_notes", return_value=("Fake release notes", "https://example.com/notes")):
+        yield
+
+
 def _fake_containers():
     return [
         TrackedContainer(name="sonarr", image_repo="linuxserver/sonarr", tag="latest",
@@ -79,6 +91,10 @@ def test_update_detail_page_renders_real_content(client):
     # No AI yet (Stage 7) -- severity badge falls back to the same "--" convention used
     # elsewhere in the UI, not a broken empty badge.
     assert "badge-sev-" not in detail.text
+    # Stage 6: real release notes fetched during the check above render as the page content
+    # in place of the (nonexistent-until-Stage-7) AI summary.
+    assert "Fake release notes" in detail.text
+    assert "https://example.com/notes" in detail.text
 
 
 def test_global_reset_and_recheck_wipes_then_repopulates(client):

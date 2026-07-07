@@ -49,6 +49,8 @@ def _check_one(container: TrackedContainer) -> dict:
         "status": status,
         "current_digest": container.current_digest,
         "latest_digest": latest_digest,
+        "source_override": container.source_override,
+        "changelog_url_override": container.changelog_url_override,
     }
 
 
@@ -57,10 +59,12 @@ def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
 
     Each entry in "containers" is a plain dict: container_name, image_repo, tag, status (one
     of "update_available", "up_to_date", "error"), current_digest (what's actually running,
-    per Docker inspect), and latest_digest (what the registry currently serves for that tag,
-    or None if the check failed). The two digests exist here purely for app/persist.py to
-    write into the database — no severity, no release notes, no history of what was seen
-    before; this module still only ever answers "what does a fresh check show right now."
+    per Docker inspect), latest_digest (what the registry currently serves for that tag, or
+    None if the check failed), and the two releaseradar.* label overrides (source,
+    changelog_url) as plain strings or None. All of these exist here purely for app/persist.py
+    (Stage 3) and app/release_notes.py (Stage 6) to use — this module itself does nothing with
+    them beyond reading them off the container; no severity, no AI, no history of what was
+    seen before. This module still only ever answers "what does a fresh check show right now."
 
     If given, on_progress(done, total) is called once with (0, total) right after the
     container list is known, then again after each container finishes — safe to call from

@@ -775,6 +775,14 @@ def update_detail(request: Request, update_id: int):
     if update is None:
         raise HTTPException(status_code=404, detail="Update not found")
     summary_html = markdown.markdown(update["summary_markdown"]) if update["summary_markdown"] else None
+    # No AI summary yet without Stage 7 -- release_notes_raw (Stage 6) is the real content on
+    # a fresh install, shown as-is (still markdown-rendered, since GitHub release bodies and
+    # changelog files both are) whenever there's no AI summary to show instead.
+    release_notes_html = (
+        markdown.markdown(update["release_notes_raw"])
+        if not update["summary_markdown"] and update["release_notes_raw"]
+        else None
+    )
     stack_info = compose_lookup.get_stack_info(update["container_name"])
     stack_id = None
     stack_name = None
@@ -785,6 +793,7 @@ def update_detail(request: Request, update_id: int):
         "detail.html",
         {
             "request": request, "update": update, "summary_html": summary_html,
+            "release_notes_html": release_notes_html,
             "stack_id": stack_id, "stack_name": stack_name, "active_tab": "updates",
         },
     )

@@ -19,7 +19,7 @@ time.
 import logging
 from typing import Callable
 
-from app import check_state, db, reconcile
+from app import check_state, db, reconcile, release_notes
 
 logger = logging.getLogger("release_radar.persist")
 
@@ -93,23 +93,47 @@ def persist_check_outcome(outcome: dict) -> None:
     rather than "there are genuinely zero containers" — existing persisted state is left
     completely untouched rather than risking a wipe from a transient failure.
 
-    Holds a single connection/transaction for the whole batch rather than letting each db.py
-    call open and commit its own — with 59 containers and up to four db.py calls each, that
-    was ~200 separate connect+commit+close cycles (each a real fsync in WAL mode) happening
-    silently after the progress bar already showed the check as finished, which is what a
-    "hangs for several seconds after reaching N/N" report traced back to. One transaction also
-    means a check that fails partway through leaves the database exactly as it was — readers
-    never see a half-applied check, and there's nothing to reconcile after the retry the Stage
-    4 safety net triggers."""
+    Stage 6 adds a read-fetch-write shape: first a read-only pass figures out which
+    containers are genuinely new (or changed) update_available transitions, then release
+    notes are fetched sequentially for just those — real network calls, done with no
+    database transaction open — and only then does the actual write batch run. This keeps
+    the "one transaction for the whole write batch" property described below while never
+    holding a SQLite transaction open across however long a handful of GitHub API calls take.
+
+    Holds a single connection/transaction for the whole write batch rather than letting each
+    db.py call open and commit its own — with 59 containers and up to four db.py calls each,
+    that was ~200 separate connect+commit+close cycles (each a real fsync in WAL mode)
+    happening silently after the progress bar already showed the check as finished, which is
+    what a "hangs for several seconds after reaching N/N" report traced back to. One
+    transaction also means a check that fails partway through leaves the database exactly as
+    it was — readers never see a half-applied check, and there's nothing to reconcile after
+    the retry the Stage 4 safety net triggers."""
     containers = outcome["containers"]
     if not containers:
         return
+
+    read_conn = db.open_conn()
+    try:
+        existing_by_name = {
+            c["container_name"]: db.get_latest_update_for_container(c["container_name"], conn=read_conn)
+            for c in containers
+        }
+    finally:
+        read_conn.close()
+
+    release_notes_by_name = {}
+    for container in containers:
+        if _is_new_or_changed_update(container, existing_by_name[container["container_name"]]):
+            release_notes_by_name[container["container_name"]] = _fetch_release_notes(container)
 
     conn = db.open_conn()
     try:
         db.prune_removed_containers([c["container_name"] for c in containers], conn=conn)
         for container in containers:
-            _persist_one(container, conn)
+            name = container["container_name"]
+            _persist_one(
+                container, existing_by_name[name], release_notes_by_name.get(name), conn,
+            )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -118,7 +142,35 @@ def persist_check_outcome(outcome: dict) -> None:
         conn.close()
 
 
-def _persist_one(container: dict, conn) -> None:
+def _is_new_or_changed_update(container: dict, existing) -> bool:
+    """True only for a container that actually needs release notes fetched: it currently has
+    an update available, and either nothing was recorded for it before or what's recorded no
+    longer matches (a newer update superseded it). Unchanged from the last check, or not an
+    update at all, both return False so notes are never re-fetched for the same transition."""
+    if container["status"] != "update_available":
+        return False
+    existing_unchanged = (
+        existing is not None
+        and existing["old_digest"] == container.get("current_digest")
+        and existing["new_digest"] == container.get("latest_digest")
+        and existing["error"] is None
+    )
+    return not existing_unchanged
+
+
+def _fetch_release_notes(container: dict) -> tuple[str | None, str | None]:
+    try:
+        return release_notes.get_release_notes(
+            container["image_repo"], container["tag"],
+            source_override=container.get("source_override"),
+            changelog_url_override=container.get("changelog_url_override"),
+        )
+    except Exception:
+        logger.exception("Release notes fetch failed for %s", container["container_name"])
+        return None, None
+
+
+def _persist_one(container: dict, existing, release_notes_result, conn) -> None:
     name = container["container_name"]
     image_repo = container["image_repo"]
     tag = container["tag"]
@@ -127,8 +179,6 @@ def _persist_one(container: dict, conn) -> None:
     latest_digest = container.get("latest_digest")
 
     db.upsert_container_state(name, image_repo, tag, current_digest, conn=conn)
-
-    existing = db.get_latest_update_for_container(name, conn=conn)
 
     if status == "up_to_date":
         if existing is not None:
@@ -145,12 +195,15 @@ def _persist_one(container: dict, conn) -> None:
     if unchanged:
         return
 
+    release_notes_raw, source_url = release_notes_result if release_notes_result else (None, None)
+
     if existing is not None:
         db.delete_update(existing["id"], conn=conn)
     db.record_update(
         container_name=name, image_repo=image_repo, tag=tag,
         old_digest=current_digest, new_digest=latest_digest,
-        summary_markdown=None, source_url=None,
+        summary_markdown=None, source_url=source_url,
         error=error_text, severity="",
+        release_notes_raw=release_notes_raw,
         conn=conn,
     )

@@ -1,0 +1,129 @@
+"""Stage 6 integration: persist.py must fetch release notes for genuinely-new
+update_available transitions only -- never for unchanged/up_to_date/error containers, and
+never re-fetched on a repeat check that finds the exact same pending update. Mocks
+app.persist.release_notes.get_release_notes directly (real fetching is release_notes.py's
+own responsibility and already covered by test_release_notes.py) so these tests are purely
+about *when* persist.py decides to call it and what it does with the result."""
+
+from unittest.mock import patch
+
+import pytest
+
+from app import db, persist
+
+db.init_db()
+
+
+@pytest.fixture(autouse=True)
+def clean_db():
+    db.reset_updates_data()
+    yield
+    db.reset_updates_data()
+
+
+def _outcome(*containers, checked_at="2026-01-01T00:00:00+00:00"):
+    errors = sum(1 for c in containers if c["status"] == "error")
+    return {"containers": list(containers), "errors": errors, "checked_at": checked_at}
+
+
+def _c(name, status, repo="owner/repo", tag="latest", current_digest="sha256:old", latest_digest="sha256:new",
+       source_override=None, changelog_url_override=None):
+    return {
+        "container_name": name, "image_repo": repo, "tag": tag, "status": status,
+        "current_digest": current_digest, "latest_digest": latest_digest,
+        "source_override": source_override, "changelog_url_override": changelog_url_override,
+    }
+
+
+def test_new_update_available_fetches_release_notes_and_stores_them():
+    with patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")) as mock_fetch:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    mock_fetch.assert_called_once_with(
+        "owner/repo", "latest", source_override=None, changelog_url_override=None,
+    )
+    row = db.list_tracked_containers_with_status()[0]
+    update = db.get_update(row["id"])
+    assert update["release_notes_raw"] == "Fixed a bug"
+    assert update["source_url"] == "https://example.com"
+
+
+def test_label_overrides_are_passed_through_to_release_notes_fetch():
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)) as mock_fetch:
+        persist.persist_check_outcome(_outcome(
+            _c("sonarr", "update_available", source_override="owner/custom", changelog_url_override="https://example.com/CHANGELOG"),
+        ))
+
+    mock_fetch.assert_called_once_with(
+        "owner/repo", "latest", source_override="owner/custom", changelog_url_override="https://example.com/CHANGELOG",
+    )
+
+
+def test_up_to_date_container_never_triggers_a_fetch():
+    with patch("app.persist.release_notes.get_release_notes") as mock_fetch:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "up_to_date", latest_digest="sha256:old")))
+
+    mock_fetch.assert_not_called()
+
+
+def test_error_container_never_triggers_a_fetch():
+    with patch("app.persist.release_notes.get_release_notes") as mock_fetch:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "error", latest_digest=None)))
+
+    mock_fetch.assert_not_called()
+
+
+def test_repeated_check_with_same_pending_update_does_not_refetch():
+    with patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")) as mock_fetch:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+        assert mock_fetch.call_count == 1
+
+        # Same exact transition again -- unchanged() short-circuits in _persist_one before the
+        # release-notes decision even matters, but prove the fetch itself isn't repeated too.
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+        assert mock_fetch.call_count == 1
+
+
+def test_a_newer_digest_on_top_of_a_pending_one_triggers_a_fresh_fetch():
+    with patch("app.persist.release_notes.get_release_notes", return_value=("v2 notes", "https://example.com/v2")) as mock_fetch:
+        persist.persist_check_outcome(
+            _outcome(_c("sonarr", "update_available", current_digest="sha256:old", latest_digest="sha256:v2"))
+        )
+        assert mock_fetch.call_count == 1
+
+        mock_fetch.return_value = ("v3 notes", "https://example.com/v3")
+        persist.persist_check_outcome(
+            _outcome(_c("sonarr", "update_available", current_digest="sha256:old", latest_digest="sha256:v3"))
+        )
+        assert mock_fetch.call_count == 2
+
+    row = db.list_tracked_containers_with_status()[0]
+    update = db.get_update(row["id"])
+    assert update["release_notes_raw"] == "v3 notes"
+
+
+def test_release_notes_fetch_failure_does_not_break_persistence():
+    """A network blip fetching release notes for one container must not abort the whole
+    check -- the update row still gets persisted, just with no notes this time around."""
+    with patch("app.persist.release_notes.get_release_notes", side_effect=RuntimeError("boom")):
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    row = db.list_tracked_containers_with_status()[0]
+    assert row["status"] == "update_available"
+    update = db.get_update(row["id"])
+    assert update["release_notes_raw"] is None
+
+
+def test_fetch_happens_before_the_write_transaction_opens():
+    """Proves the network call genuinely happens outside the write transaction rather than
+    merely being sequenced correctly by accident -- while get_release_notes is "running", the
+    write phase hasn't started yet, so this container has no container_state row at all."""
+    def fetch_and_check(*args, **kwargs):
+        assert db.list_tracked_containers_with_status() == []
+        return ("notes", "https://example.com")
+
+    with patch("app.persist.release_notes.get_release_notes", side_effect=fetch_and_check):
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    row = db.list_tracked_containers_with_status()[0]
+    assert row["id"] is not None

@@ -85,7 +85,8 @@ def test_concurrent_reads_survive_while_persist_writes_in_the_background():
         ],
         "errors": 0, "checked_at": "x",
     }
-    persist.persist_check_outcome(outcome)
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)):
+        persist.persist_check_outcome(outcome)
 
     stop.set()
     for t in readers:
