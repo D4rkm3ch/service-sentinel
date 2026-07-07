@@ -1,6 +1,7 @@
 """Stage 2 tests: proves registry checks run concurrently (not just correctly) and that
 correctness from Stage 1 (status classification, docker-socket-down handling) still holds."""
 
+import threading
 import time
 from unittest.mock import patch
 
@@ -118,3 +119,48 @@ def test_concurrency_capped_at_container_count_when_fewer_containers_than_limit(
 
     assert len(outcome["containers"]) == 1
     mock_digest.assert_called_once()
+
+
+def test_on_progress_called_once_per_container_ending_at_done_equals_total():
+    """Drives the new Check-now progress counter: on_progress must fire once up front with
+    (0, total), then once per finished container, and the final call must be (total, total)
+    regardless of the order concurrent workers finish in."""
+    containers = [_container(f"c{i}", repo=f"owner/repo{i}") for i in range(8)]
+    calls = []
+    calls_lock = threading.Lock()
+
+    def record_progress(done, total):
+        with calls_lock:
+            calls.append((done, total))
+
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", return_value="sha256:old"), \
+         patch("app.reconcile.settings") as mock_settings:
+        mock_settings.registry_check_concurrency = 4
+        reconcile.run_check(on_progress=record_progress)
+
+    # One initial (0, total) call, then one call per container finishing.
+    assert calls[0] == (0, 8)
+    assert len(calls) == 9
+    done_values = [c[0] for c in calls[1:]]
+    assert sorted(done_values) == list(range(1, 9))
+    assert all(total == 8 for _, total in calls)
+
+
+def test_on_progress_receives_zero_total_when_no_containers():
+    calls = []
+    with patch("app.reconcile.list_tracked_containers", return_value=[]):
+        reconcile.run_check(on_progress=lambda done, total: calls.append((done, total)))
+
+    assert calls == [(0, 0)]
+
+
+def test_webhook_style_call_without_on_progress_still_works():
+    """The webhook route calls run_check() with no on_progress at all — make sure the
+    default (None) doesn't blow up anywhere progress reporting was added."""
+    containers = [_container("c", repo="owner/c")]
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", return_value="sha256:old"):
+        outcome = reconcile.run_check()
+
+    assert len(outcome["containers"]) == 1

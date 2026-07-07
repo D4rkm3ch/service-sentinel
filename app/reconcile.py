@@ -13,8 +13,10 @@ isolation, so if something is ever slow or breaks, we know exactly which piece d
 """
 
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from typing import Callable
 
 from app.config import settings
 from app.docker_client import TrackedContainer, list_tracked_containers
@@ -45,12 +47,19 @@ def _check_one(container: TrackedContainer) -> dict:
     }
 
 
-def run_check() -> dict:
+def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
     """Returns {"containers": [...], "errors": int, "checked_at": iso timestamp}.
 
     Each entry in "containers" is a plain dict: container_name, image_repo, tag, and status
     (one of "update_available", "up_to_date", "error"). That's genuinely everything we know
-    at this stage — no severity, no release notes, no history of what was seen before."""
+    at this stage — no severity, no release notes, no history of what was seen before.
+
+    If given, on_progress(done, total) is called once with (0, total) right after the
+    container list is known, then again after each container finishes — safe to call from
+    multiple worker threads at once, since the done-count itself is updated under a lock
+    before firing the callback. Purely a UI hook (the "Checking (N/59)" progress text) — the
+    check's own result doesn't depend on it, and callers that don't need live progress (the
+    webhook) can just leave it as None."""
     checked_at = datetime.now(timezone.utc).isoformat()
 
     try:
@@ -61,11 +70,30 @@ def run_check() -> dict:
 
     if not containers:
         logger.info("Check complete: 0 containers checked, 0 errors")
+        if on_progress:
+            on_progress(0, 0)
         return {"containers": [], "errors": 0, "checked_at": checked_at}
 
-    max_workers = min(settings.registry_check_concurrency, len(containers))
+    total = len(containers)
+    if on_progress:
+        on_progress(0, total)
+
+    progress_lock = threading.Lock()
+    done_count = 0
+
+    def _check_and_report(container: TrackedContainer) -> dict:
+        nonlocal done_count
+        result = _check_one(container)
+        if on_progress:
+            with progress_lock:
+                done_count += 1
+                current = done_count
+            on_progress(current, total)
+        return result
+
+    max_workers = min(settings.registry_check_concurrency, total)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        results = list(pool.map(_check_one, containers))
+        results = list(pool.map(_check_and_report, containers))
 
     errors = sum(1 for r in results if r["status"] == "error")
 
