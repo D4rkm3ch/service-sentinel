@@ -12,10 +12,29 @@ TEMPLATES = Path(__file__).resolve().parent.parent / "app" / "templates"
 
 def test_feature_header_check_now_and_global_reset_carry_the_class():
     text = (TEMPLATES / "_feature_header.html").read_text()
-    assert "updates-action-btn" in text
-    # Only the updates feature's Check now button should get it -- logs/compose have their
-    # own independent running flag and weren't part of this ask.
-    assert "'updates-action-btn' if feature == 'updates' else ''" in text
+    # Two Check now button branches (updates vs logs/compose) plus the global Reset & re-check
+    # form's button -- three occurrences of the class total.
+    assert text.count("updates-action-btn") == 3
+    # The updates-feature Check now button must NOT carry hx-disabled-elt -- it only covers
+    # the fast POST round-trip (the real check runs in a background thread), which was causing
+    # a visible re-enable/re-disable flicker; base.html's instant beforeRequest handler plus
+    # its poll now own the whole disabled lifecycle for every .updates-action-btn instead.
+    updates_branch_start = text.index("{% if feature == 'updates' %}")
+    updates_branch_end = text.index("{% else %}")
+    assert "hx-disabled-elt" not in text[updates_branch_start:updates_branch_end]
+    # logs/compose's Check now button is untouched by this change -- still self-disables for
+    # its own POST round-trip exactly as before.
+    assert "hx-disabled-elt" in text[updates_branch_end:]
+
+
+def test_base_html_disables_instantly_on_before_request_not_just_on_poll():
+    """Regression test for the "takes 0.5-1s to dim" report: base.html's poller must disable
+    every .updates-action-btn the instant htmx actually sends a request for one of them
+    (htmx:beforeRequest -- fires only after any hx-confirm was accepted), not rely solely on
+    the once-a-second poll to notice."""
+    text = (TEMPLATES / "base.html").read_text()
+    assert "htmx:beforeRequest" in text
+    assert "applyRunningState(true)" in text
 
 
 def test_stack_detail_retry_and_reset_carry_the_class():

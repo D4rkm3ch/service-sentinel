@@ -35,6 +35,17 @@
     // shared endpoint rather than hooking into any one page's own status display, since Stack
     // and Service pages don't render that at all. A no-op (never starts polling) on pages with
     // no such buttons, e.g. Logs/Compose/Settings.
+    //
+    // Disabling is also triggered instantly on htmx:beforeRequest for any of these buttons,
+    // not just left to the once-a-second poll -- the POST that kicks off a scoped/full check
+    // returns almost immediately (the actual work runs in a background thread), so waiting for
+    // the next poll tick to notice "running" meant a visible ~0.5-1s lag, sometimes preceded by
+    // a flicker back to enabled the moment that fast POST's own response landed (buttons don't
+    // carry hx-disabled-elt for exactly this reason -- it only covers the POST round-trip, not
+    // the background work it kicks off). beforeRequest fires only once htmx has actually
+    // decided to send the request (i.e. after any hx-confirm dialog was accepted), so a
+    // cancelled confirm never disables anything. The poll remains the source of truth for
+    // re-enabling once a check genuinely finishes.
     (function () {
       var buttons = document.querySelectorAll(".updates-action-btn");
       if (buttons.length === 0) return;
@@ -42,6 +53,12 @@
       function applyRunningState(running) {
         document.querySelectorAll(".updates-action-btn").forEach(function (el) { el.disabled = running; });
       }
+
+      document.body.addEventListener("htmx:beforeRequest", function (evt) {
+        if (evt.target.classList && evt.target.classList.contains("updates-action-btn")) {
+          applyRunningState(true);
+        }
+      });
 
       function poll() {
         fetch("/updates/running-state")

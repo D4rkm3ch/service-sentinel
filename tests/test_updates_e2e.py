@@ -180,10 +180,15 @@ def test_detail_page_registers_the_auto_read_script_only_when_eligible(client):
     detail = client.get(f"/updates/{sonarr_id}")
     assert "pagehide" in detail.text
     assert "suppressAutoRead" in detail.text
+    # visibilitychange is the primary signal now (pagehide alone proved unreliable, especially
+    # on Safari/iOS) -- both must be present, each guarded to only ever send once.
+    assert "visibilitychange" in detail.text
+    assert "autoReadSent" in detail.text
 
     client.post(f"/updates/{sonarr_id}/read")
     detail = client.get(f"/updates/{sonarr_id}")
     assert "pagehide" not in detail.text
+    assert "visibilitychange" not in detail.text
 
 
 def test_global_reset_and_recheck_wipes_then_repopulates(client):
