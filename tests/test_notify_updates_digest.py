@@ -168,17 +168,17 @@ def test_no_emoji_anywhere():
         assert not (0x1F300 <= ord(ch) <= 0x1FAFF), "no emoji anywhere, ever"
 
 
-def test_body_has_no_per_item_link_only_the_footer_link():
-    """A per-item [View](url) line was dropped as unnecessary clutter -- the footer's single
-    "View all updates" link is enough to get to the dashboard from a Discord message."""
+def test_body_has_no_links_at_all():
+    """Per-item [View](url) lines and the "View all updates" footer link were both dropped --
+    with no PUBLIC_URL configured (the common case), these were relative paths Discord doesn't
+    render as clickable at all, just dead markdown-looking text cluttering the message."""
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest([_item(update_id=99)], [])
     _, body, _ = mock_send.call_args[0]
     assert "/updates/99" not in body
-    assert "[View]" not in body
-    assert "[View all updates](/updates)" in body
+    assert "[View" not in body
 
 
 def test_title_is_just_the_severity_and_count_no_branding_prefix():

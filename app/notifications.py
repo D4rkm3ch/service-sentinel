@@ -87,7 +87,6 @@ def _send_severity_group(severity: str, group: list[dict]) -> None:
         for item in sorted(group, key=lambda i: i["container_name"].lower())
     ]
     body = "\n\n".join(sections)
-    body += f"\n\n[View all updates]({_dashboard_url('/updates')})"
     _send(title, body, _UPDATE_NOTIFY_TYPE.get(severity, NotifyType.INFO))
 
 
@@ -99,7 +98,6 @@ def _send_error_group(group: list[dict]) -> None:
         for err in sorted(group, key=lambda e: e["container_name"].lower())
     ]
     body = "\n".join(lines)
-    body += f"\n\n[View all updates]({_dashboard_url('/updates')})"
     _send(title, body, NotifyType.FAILURE)
 
 
