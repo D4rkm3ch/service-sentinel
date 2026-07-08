@@ -117,13 +117,11 @@ def is_configured() -> bool:
 
 def concurrency_limit() -> int:
     """How many AI calls persist.py's fan-out phases (release notes web search fallback,
-    summarization) should run at once. Gemini's free tier caps requests per minute (and per
-    day) per model tightly enough that even a handful of concurrent calls exhausts it almost
-    immediately -- serialized to one at a time rather than needing a real per-provider rate
-    limiter. Anthropic has no such constraint at the concurrency this app uses, so it keeps
-    the existing configurable concurrency."""
-    if db.get_ai_provider() == "gemini":
-        return 1
+    summarization) should run at once. Used to be forced to 1 for Gemini regardless of tier --
+    the free tier's request/minute cap is tight enough that a handful of concurrent calls
+    exhausts it almost immediately -- but a paid Gemini key has no such constraint (nor does
+    Anthropic), and _call_gemini()'s own retry/backoff already handles an occasional 429 or
+    503 gracefully under concurrency, so there's no longer a blanket reason to serialize."""
     return settings.ai_summarize_concurrency
 
 

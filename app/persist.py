@@ -118,8 +118,7 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
     call) — all done with no database transaction open, each phase fanned out across its own
     thread pool via _run_concurrent_phase() (ai_provider.concurrency_limit() caps both; lower
     than the registry check concurrency since these are meaningfully more expensive,
-    rate-limited calls, and forced down to 1 entirely when Gemini is the active provider — see
-    that function's docstring) — and only then does the actual write batch run. This keeps the
+    rate-limited calls) — and only then does the actual write batch run. This keeps the
     "one transaction for the whole write batch" property described below while never holding a
     SQLite transaction open across however long a batch of these calls takes.
     on_progress(stage, done, total) is called once per completion during each of the two fetch
@@ -207,13 +206,13 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
 def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[dict], object],
                            on_progress: ProgressFunc | None) -> dict[str, object]:
     """Shared shape for every fan-out phase in the pipeline (release notes fetching, AI
-    summarization) — a thread pool capped by ai_provider.concurrency_limit() (Gemini's free
-    tier can't take more than one request at a time without immediately 429ing; Anthropic uses
-    settings.ai_summarize_concurrency as before), progress reported once per completion under
-    a lock (safe from multiple worker threads at once, same approach reconcile.run_check()
-    uses), and the stage never announced at all (on_progress is never called with this stage
-    name) if there's nothing to do this round — see persist_check_outcome()'s docstring for
-    why a phase that goes quiet without reporting anything looks exactly like a hang."""
+    summarization) — a thread pool capped by ai_provider.concurrency_limit() (currently just
+    settings.ai_summarize_concurrency for both providers -- see that function's docstring for
+    why Gemini isn't specially capped), progress reported once per completion under a lock
+    (safe from multiple worker threads at once, same approach reconcile.run_check() uses), and
+    the stage never announced at all (on_progress is never called with this stage name) if
+    there's nothing to do this round — see persist_check_outcome()'s docstring for why a phase
+    that goes quiet without reporting anything looks exactly like a hang."""
     results: dict[str, object] = {}
     if not containers:
         return results

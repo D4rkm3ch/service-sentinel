@@ -253,9 +253,12 @@ def test_call_gemini_gives_up_after_max_attempts_for_persistent_server_overload(
 # concurrency_limit()
 # ---------------------------------------------------------------------------
 
-def test_concurrency_limit_is_one_for_gemini():
+def test_concurrency_limit_uses_the_configured_value_for_gemini():
+    """No longer forced to 1 -- that was specifically a free-tier accommodation; the retry
+    logic in _call_gemini() handles occasional rate-limiting under concurrency gracefully."""
     db.set_ai_provider("gemini")
-    assert ai_provider.concurrency_limit() == 1
+    with patch("app.ai_provider.settings.ai_summarize_concurrency", 7):
+        assert ai_provider.concurrency_limit() == 7
 
 
 def test_concurrency_limit_uses_the_configured_value_for_anthropic():

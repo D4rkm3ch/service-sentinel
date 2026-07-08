@@ -473,9 +473,9 @@ ANTHROPIC_MODELS = [
     ("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (fastest, cheapest)"),
 ]
 GEMINI_MODELS = [
-    ("gemini-2.5-flash", "Gemini 2.5 Flash (recommended, free tier)"),
-    ("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite (fastest, cheapest, free tier)"),
-    ("gemini-2.5-pro", "Gemini 2.5 Pro (highest quality, paid tier only)"),
+    ("gemini-2.5-flash", "Gemini 2.5 Flash (recommended)"),
+    ("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite (fastest, cheapest)"),
+    ("gemini-2.5-pro", "Gemini 2.5 Pro (highest quality, slower/costlier)"),
 ]
 
 
