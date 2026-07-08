@@ -21,6 +21,9 @@ one check still batches into a single message.
 Apprise's Discord plugin only builds a colored embed at all when the target webhook URL itself
 includes `?format=markdown` (e.g. `discord://id/token/?format=markdown`); a bare discord://
 URL falls back to a flat plain-text message with no color. See settings.html's Apprise URL hint.
+
+Every title is prefixed "release-radar — " for quick recognition in a channel with other bots
+posting, and _ASSET below renames Apprise's own default embed branding ("Apprise") to match.
 """
 
 import logging
@@ -32,6 +35,18 @@ from app import db
 from app.config import settings
 
 logger = logging.getLogger("release_radar.notifications")
+
+# Apprise's own default branding ("Apprise", with its megaphone logo as the avatar) shows up
+# in every notification unless overridden -- this asset renames the small in-embed author line
+# to "release-radar" instead. It does NOT touch the avatar image or the bot display name shown
+# at the very top of a Discord message (separate from the embed) -- those come from the target
+# webhook itself. To change them: add `&avatar=no` to the Apprise URL in Settings so Apprise
+# stops sending its own branded avatar_url, then set the desired name/icon directly on the
+# webhook in Discord (Server Settings -> Integrations -> Webhooks -> Edit).
+_ASSET = apprise.AppriseAsset(
+    app_id="release-radar", app_desc="release-radar notifications",
+    app_url="https://github.com/D4rkm3ch/release-radar",
+)
 
 FINDING_SEVERITY_ORDER = {"suggestion": 0, "warning": 1, "critical": 2}
 UPDATE_SEVERITY_ORDER = {"bugfix": 0, "feature": 1, "action_needed": 2, "breaking": 3}
@@ -57,7 +72,7 @@ def _send(title: str, body: str, notify_type: str = NotifyType.INFO) -> None:
     if not urls:
         return
     try:
-        a = apprise.Apprise()
+        a = apprise.Apprise(asset=_ASSET)
         for url in urls:
             a.add(url)
         a.notify(title=title, body=body, notify_type=notify_type, body_format=NotifyFormat.MARKDOWN)
@@ -68,11 +83,11 @@ def _send(title: str, body: str, notify_type: str = NotifyType.INFO) -> None:
 def _send_severity_group(severity: str, group: list[dict]) -> None:
     label = UPDATE_SEVERITY_LABELS.get(severity, severity.capitalize())
     count = len(group)
-    title = f"{label} — {count} update{'s' if count != 1 else ''}"
-    sections = []
-    for item in sorted(group, key=lambda i: i["container_name"].lower()):
-        url = _dashboard_url(f"/updates/{item['update_id']}")
-        sections.append(f"**{item['container_name']}** — `{item['image_repo']}:{item['tag']}` — [View]({url})")
+    title = f"release-radar — {label} ({count})"
+    sections = [
+        f"**{item['container_name']}** — `{item['image_repo']}:{item['tag']}`"
+        for item in sorted(group, key=lambda i: i["container_name"].lower())
+    ]
     body = "\n\n---\n\n".join(sections)
     body += f"\n\n[View all updates]({_dashboard_url('/updates')})"
     _send(title, body, _UPDATE_NOTIFY_TYPE.get(severity, NotifyType.INFO))
@@ -80,7 +95,7 @@ def _send_severity_group(severity: str, group: list[dict]) -> None:
 
 def _send_error_group(group: list[dict]) -> None:
     count = len(group)
-    title = f"Check errors — {count} container{'s' if count != 1 else ''}"
+    title = f"release-radar — Check errors ({count})"
     lines = [
         f"- **{err['container_name']}** — {err['error']}"
         for err in sorted(group, key=lambda e: e["container_name"].lower())
@@ -161,7 +176,7 @@ def send_test_notification(urls: list[str] | None = None) -> tuple[bool, str]:
         return False, "No Apprise URL configured yet."
 
     try:
-        a = apprise.Apprise()
+        a = apprise.Apprise(asset=_ASSET)
         all_valid = True
         for url in urls:
             if not a.add(url):

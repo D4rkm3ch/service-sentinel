@@ -45,8 +45,7 @@
       <col style="width: 32%">
       <col style="width: 15%">
       <col style="width: 17%">
-      <col style="width: 4%">
-      <col style="width: 10%">
+      <col style="width: 14%">
       <col style="width: 4%">
     </colgroup>
     <thead>
@@ -55,8 +54,7 @@
         <th>Image</th>
         <th>Detected</th>
         <th class="importance-cell">Importance</th>
-        <th class="status-icon-cell"></th>
-        <th>Read</th>
+        <th class="read-cell">Read</th>
         <th></th>
       </tr>
     </thead>
@@ -76,14 +74,9 @@
           <span class="meta">—</span>
           {% endif %}
         </td>
-        <td class="status-icon-cell">
+        <td class="read-cell">
           {% if m.latest_update.error %}
-          <span class="status-warning-icon" title="Needs manual check">⚠</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if m.latest_update.error %}
-            <span class="meta">—</span>
+            <span class="status-warning-icon" title="Needs manual check">⚠</span>
           {% elif m.latest_update.status == 'unread' %}
             <span class="badge badge-unread">Unread</span>
           {% else %}
@@ -98,8 +91,7 @@
         <td class="mono"><span class="truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</span></td>
         <td class="nowrap">—</td>
         <td class="importance-cell"><span class="badge badge-healthy">Up to date</span></td>
-        <td class="status-icon-cell"></td>
-        <td><span class="meta">—</span></td>
+        <td class="read-cell"><span class="meta">—</span></td>
         <td></td>
       </tr>
       {% endif %}

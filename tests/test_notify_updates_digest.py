@@ -67,11 +67,9 @@ def test_a_single_qualifying_item_sends_one_call():
             notifications.notify_updates_digest([_item(severity="breaking")], [])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
-    assert "Breaking Change" in title
-    assert "1 update" in title
+    assert title == "release-radar — Breaking Change (1)"
     assert "sonarr" in body
     assert "owner/repo:latest" in body
-    assert "/updates/1" in body
     assert notify_type == NotifyType.FAILURE
 
 
@@ -120,7 +118,7 @@ def test_multiple_items_of_the_same_severity_share_one_call():
             notifications.notify_updates_digest(items, [])
     mock_send.assert_called_once()
     title, body, _ = mock_send.call_args[0]
-    assert "2 update" in title
+    assert title == "release-radar — Breaking Change (2)"
     assert body.index("apple") < body.index("zebra")  # alphabetical within the group
 
 
@@ -139,7 +137,7 @@ def test_registry_errors_included_when_opted_in_as_their_own_call():
             notifications.notify_updates_digest([], [_error(name="qbittorrent", error="DNS lookup failed.")])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
-    assert "1 container" in title
+    assert title == "release-radar — Check errors (1)"
     assert "qbittorrent" in body
     assert "DNS lookup failed." in body
     assert notify_type == NotifyType.FAILURE
@@ -169,14 +167,36 @@ def test_no_emoji_anywhere():
         assert not (0x1F300 <= ord(ch) <= 0x1FAFF), "no emoji anywhere, ever"
 
 
-def test_body_links_to_each_update_and_to_the_updates_list():
+def test_body_has_no_per_item_link_only_the_footer_link():
+    """A per-item [View](url) line was dropped as unnecessary clutter -- the footer's single
+    "View all updates" link is enough to get to the dashboard from a Discord message."""
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest([_item(update_id=99)], [])
     _, body, _ = mock_send.call_args[0]
-    assert "/updates/99" in body
+    assert "/updates/99" not in body
+    assert "[View]" not in body
     assert "[View all updates](/updates)" in body
+
+
+def test_title_is_prefixed_with_release_radar_branding():
+    patches = _patched(_settings())
+    with patch("app.notifications._send") as mock_send:
+        with patches[0], patches[1], patches[2], patches[3]:
+            notifications.notify_updates_digest([_item(severity="breaking")], [])
+    title, _, _ = mock_send.call_args[0]
+    assert title.startswith("release-radar — ")
+
+
+def test_send_uses_an_asset_that_replaces_apprises_own_branding():
+    with patch("app.notifications.db.get_apprise_urls", return_value=["discord://id/token/?format=markdown"]), \
+         patch("app.notifications.apprise.Apprise") as mock_apprise_cls:
+        notifications._send("Title", "Body", NotifyType.WARNING)
+
+    mock_apprise_cls.assert_called_once_with(asset=notifications._ASSET)
+    assert notifications._ASSET.app_id == "release-radar"
+    assert notifications._ASSET.app_url == "https://github.com/D4rkm3ch/release-radar"
 
 
 def test_send_is_called_with_markdown_body_format_and_notify_type():

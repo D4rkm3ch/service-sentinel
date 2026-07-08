@@ -78,7 +78,7 @@ table {
 .updates-table th, .containers-table th {
   overflow: hidden;
 }
-.importance-cell {
+.importance-cell, .read-cell {
   text-align: center;
 }
 
@@ -122,9 +122,6 @@ tr.row-clickable {
   cursor: pointer;
 }
 
-.status-icon-cell {
-  text-align: center;
-}
 .status-warning-icon {
   color: var(--error);
   font-size: 15px;
