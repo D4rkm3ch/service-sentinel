@@ -4,12 +4,15 @@ with mocked Docker/registry calls, proving the full check -> persist -> render p
 Reset & re-check route actually wiping persisted state rather than being Stage 1's
 placeholder. Uses the shared `client` fixture from conftest.py."""
 
+import os
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from app import check_state, db
+from app.config import settings
 from app.docker_client import TrackedContainer
 
 
@@ -118,48 +121,84 @@ def test_detail_page_has_check_now_and_reset_and_recheck_with_only_the_latter_co
     assert "hx-confirm" in detail.text[reset_pos:]
 
 
-def test_mark_read_then_mark_unread_round_trip(client):
-    """Both directions are now in-place htmx toggles (Stage 6 polish) -- neither navigates
-    away, and the response swaps the button and the title-row badge together in one shot (a
-    primary swap plus an out-of-band swap)."""
+def test_regenerate_ai_response_button_is_disabled_and_no_longer_called_retry(client):
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+
+    detail = client.get(f"/updates/{sonarr['id']}")
+    assert "Regenerate AI Response" in detail.text
+    assert ">Retry<" not in detail.text
+    start = detail.text.index("Regenerate AI Response")
+    # It's still the same permanently-disabled Stage 7 placeholder, just renamed for clarity --
+    # confirm the nearby button tag actually carries `disabled`.
+    button_start = detail.text.rindex("<button", 0, start)
+    assert "disabled" in detail.text[button_start:start]
+
+
+def test_back_link_row_puts_updates_first_and_names_the_stack_link_generically(client, tmp_path):
+    """Updates always comes first regardless of whether this container is in a stack; the
+    stack link (only present for containers in a real multi-service compose stack -- Stage 12
+    territory, but the matching code is already live) is always labeled "Back to Stack",
+    never the stack's own (possibly AI-generated) display name."""
+    compose_file = Path(settings.compose_root) / "teststack.yml"
+    compose_file.write_text("services:\n  sonarr:\n    image: linuxserver/sonarr\n  plex:\n    image: linuxserver/plex\n")
+    try:
+        _run_check_and_wait(client)
+        sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+
+        detail = client.get(f"/updates/{sonarr['id']}")
+        assert "Back to Stack" in detail.text
+        updates_pos = detail.text.index("Back to Updates")
+        stack_pos = detail.text.index("Back to Stack")
+        assert updates_pos < stack_pos
+    finally:
+        os.remove(compose_file)
+
+
+def test_first_visit_to_an_unread_update_auto_marks_it_read(client):
+    """Opening the detail page at all now counts as "seen it," server-side and unconditional
+    -- a client-side "mark it on the way out" approach (pagehide, then visibilitychange as a
+    more reliable fallback) was tried first but proved unreliable enough in practice that this
+    replaced it outright: simpler, and the browser can't fail to run server code the way it
+    can fail to fire a JS event during navigation."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+    assert db.get_update(sonarr_id)["status"] == "unread"
+
+    detail = client.get(f"/updates/{sonarr_id}")
+    assert detail.status_code == 200
+    assert db.get_update(sonarr_id)["status"] == "read"
+    assert "badge-read" in detail.text
+    assert f'hx-post="/updates/{sonarr_id}/unread"' in detail.text  # shows "Mark as unread" now
+
+
+def test_manual_unread_toggle_works_but_revisiting_marks_it_read_again(client):
+    """Mark as unread still works as an explicit action -- but since auto-mark-as-read fires
+    on every visit, not just the first, coming back to the same page later marks it read
+    again too. That's the deliberate tradeoff for reliability: "unread" doesn't persist across
+    a repeat visit, only within the time before the page is next opened."""
     _run_check_and_wait(client)
     sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
     sonarr_id = sonarr["id"]
 
-    # Checked via the button's own hx-post target rather than a loose "Mark as unread" text
-    # search -- the auto-mark-as-read script's explanatory comment (see detail.html) happens
-    # to contain that exact phrase too, so a plain substring check is a false-positive trap.
-    unread_btn = f'hx-post="/updates/{sonarr_id}/unread"'
-    read_btn = f'hx-post="/updates/{sonarr_id}/read"'
-
-    resp = client.post(f"/updates/{sonarr_id}/read")
-    assert resp.status_code == 200
-    assert unread_btn in resp.text
-    assert 'id="read-status-badge" hx-swap-oob="true"' in resp.text
-    assert "badge-read" in resp.text
+    client.get(f"/updates/{sonarr_id}")  # auto-marks read
     assert db.get_update(sonarr_id)["status"] == "read"
-
-    detail = client.get(f"/updates/{sonarr_id}")
-    assert unread_btn in detail.text
-    assert 'id="read-toggle-btn"' in detail.text
 
     resp = client.post(f"/updates/{sonarr_id}/unread")
     assert resp.status_code == 200
-    assert read_btn in resp.text
     assert 'id="read-status-badge" hx-swap-oob="true"' in resp.text
     assert "badge-unread" in resp.text
     assert db.get_update(sonarr_id)["status"] == "unread"
 
-    # And the page itself, loaded fresh, reflects the same state (didn't just update the
-    # fragment without actually persisting).
-    detail = client.get(f"/updates/{sonarr_id}")
-    assert unread_btn not in detail.text
-    assert read_btn in detail.text
+    client.get(f"/updates/{sonarr_id}")
+    assert db.get_update(sonarr_id)["status"] == "read"
 
 
-def test_auto_read_beacon_route_marks_read_and_returns_the_fragment(client):
-    """navigator.sendBeacon() fires a POST to /read on page-leave (see detail.html) -- proves
-    the route it hits behaves correctly even though the caller never reads the response."""
+def test_mark_read_route_still_works_directly(client):
+    """The explicit "Mark as read" button/route (unread -> read, requires real content) is
+    still there and still works even though auto-mark-on-visit makes it rarely the thing that
+    actually flips the status in normal use anymore."""
     _run_check_and_wait(client)
     sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
     sonarr_id = sonarr["id"]
@@ -169,26 +208,19 @@ def test_auto_read_beacon_route_marks_read_and_returns_the_fragment(client):
     assert db.get_update(sonarr_id)["status"] == "read"
 
 
-def test_detail_page_registers_the_auto_read_script_only_when_eligible(client):
-    """The pagehide listener only makes sense (and only renders) when the page loaded unread
-    with real content to have seen -- an already-read update, or one with no content at all,
-    has nothing for leaving-the-page to mark."""
+def test_auto_mark_as_read_never_applies_to_an_error_row(client):
+    """Error rows have no read/unread concept -- the badge and toggle are both hidden for them
+    (see detail.html), so a visit must never flip their status column."""
     _run_check_and_wait(client)
-    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
-    sonarr_id = sonarr["id"]
+    broken = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "broken")
+    broken_id = broken["id"]
+    assert db.get_update(broken_id)["status"] == "unread"
 
-    detail = client.get(f"/updates/{sonarr_id}")
-    assert "pagehide" in detail.text
-    assert "suppressAutoRead" in detail.text
-    # visibilitychange is the primary signal now (pagehide alone proved unreliable, especially
-    # on Safari/iOS) -- both must be present, each guarded to only ever send once.
-    assert "visibilitychange" in detail.text
-    assert "autoReadSent" in detail.text
-
-    client.post(f"/updates/{sonarr_id}/read")
-    detail = client.get(f"/updates/{sonarr_id}")
-    assert "pagehide" not in detail.text
-    assert "visibilitychange" not in detail.text
+    detail = client.get(f"/updates/{broken_id}")
+    assert detail.status_code == 200
+    assert db.get_update(broken_id)["status"] == "unread"
+    assert "badge-unread" not in detail.text
+    assert "badge-read" not in detail.text
 
 
 def test_global_reset_and_recheck_wipes_then_repopulates(client):

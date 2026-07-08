@@ -819,6 +819,17 @@ def update_detail(request: Request, update_id: int):
     update = db.get_update(update_id)
     if update is None:
         raise HTTPException(status_code=404, detail="Update not found")
+
+    # Auto-mark-as-read: viewing this page at all counts as "seen it," the instant it's
+    # opened -- a JS "mark it on the way out" approach (pagehide/visibilitychange) was tried
+    # first but even the more reliable visibilitychange signal wasn't reliable enough in
+    # practice, so this is deliberately unconditional server-side state instead of a
+    # best-effort client-side one. The Mark as read/unread toggle still works exactly as
+    # before for whenever the user wants to flip it back either way.
+    if update["status"] == "unread" and not update["error"] and (update["summary_markdown"] or update["release_notes_raw"]):
+        db.mark_update_status(update_id, "read")
+        update = db.get_update(update_id)
+
     summary_html = render_markdown(update["summary_markdown"]) if update["summary_markdown"] else None
     # No AI summary yet without Stage 7 -- release_notes_raw (Stage 6) is the real content on
     # a fresh install, shown as-is (still markdown-rendered, since GitHub release bodies and
@@ -829,17 +840,13 @@ def update_detail(request: Request, update_id: int):
         else None
     )
     stack_info = compose_lookup.get_stack_info(update["container_name"])
-    stack_id = None
-    stack_name = None
-    if stack_info and len(stack_info["service_names"]) >= 2:
-        stack_id = stack_info["stack_id"]
-        stack_name = stacks.get_or_generate_stack_name(stack_info["stack_id"], stack_info["service_names"])
+    stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
     return templates.TemplateResponse(
         "detail.html",
         {
             "request": request, "update": update, "summary_html": summary_html,
             "release_notes_html": release_notes_html,
-            "stack_id": stack_id, "stack_name": stack_name, "active_tab": "updates",
+            "stack_id": stack_id, "active_tab": "updates",
         },
     )
 

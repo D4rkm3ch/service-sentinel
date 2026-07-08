@@ -3,10 +3,10 @@
 {% block content %}
 
 <div class="back-link-row">
-  {% if stack_id %}
-  <a href="/updates/stack?id={{ stack_id|urlencode }}" class="back-link">← Back to {{ stack_name }}</a>
-  {% endif %}
   <a href="/updates" class="back-link">← Back to Updates</a>
+  {% if stack_id %}
+  <a href="/updates/stack?id={{ stack_id|urlencode }}" class="back-link">← Back to Stack</a>
+  {% endif %}
 </div>
 
 <section>
@@ -40,15 +40,14 @@
         Mark as read
       </button>
       {% elif update.status == 'read' %}
-      <button type="button" hx-post="/updates/{{ update.id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML"
-              onclick="suppressAutoRead = true;">
+      <button type="button" hx-post="/updates/{{ update.id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML">
         Mark as unread
       </button>
       {% endif %}
     </span>
     <button type="button" disabled
-            title="Regenerates the AI-suggested summary in place -- arriving in a later stage, once AI summarization is built">
-      Retry
+            title="Regenerates the AI-written response for this update in place -- arriving in a later stage, once AI summarization is built">
+      Regenerate AI Response
     </button>
     <button type="button" class="updates-action-btn"
             hx-post="/updates/{{ update.id }}/check-now"
@@ -78,37 +77,5 @@
     {% endif %}
   </div>
 </section>
-
-{% if update.status == 'unread' and not update.error and (update.summary_markdown or update.release_notes_raw) %}
-<script>
-  // Auto-mark-as-read: visiting this page and then leaving counts as "seen it." Only fires if
-  // the user hasn't explicitly clicked "Mark as unread" during this same visit, so an explicit
-  // unread doesn't get silently flipped back to read a moment later just because they
-  // navigated away. This block only renders at all when the page loaded unread, so there was
-  // something for the user to actually see in the first place (matches the same conditions
-  // "Mark as read" itself needs to be clickable).
-  //
-  // pagehide alone (a first attempt here) turned out unreliable in practice -- the
-  // unload/pagehide event family is well documented as inconsistent across browsers,
-  // especially Safari/iOS, where it can simply not fire for some navigations. visibilitychange
-  // going "hidden" is the currently-recommended, far more reliable signal for "the user is
-  // done looking at this page" (it fires for a tab switch, backgrounding, AND navigating away,
-  // since all of those hide the document first) -- pagehide is kept only as a backup for the
-  // rare case visibilitychange didn't already catch it, guarded so it only ever sends once.
-  var suppressAutoRead = false;
-  var autoReadSent = false;
-
-  function sendAutoReadBeacon() {
-    if (suppressAutoRead || autoReadSent) return;
-    autoReadSent = true;
-    navigator.sendBeacon("/updates/{{ update.id }}/read");
-  }
-
-  document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "hidden") sendAutoReadBeacon();
-  });
-  window.addEventListener("pagehide", sendAutoReadBeacon);
-</script>
-{% endif %}
 
 {% endblock %}
