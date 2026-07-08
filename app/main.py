@@ -75,9 +75,8 @@ templates.env.globals["severity_label"] = severity_label
 # Every markdown-rendered block in the app (release notes, AI summaries/overviews, finding
 # descriptions and suggested fixes) can contain links the user didn't put there themselves --
 # a GitHub release body linking to Watchtower, a CHANGELOG.md, an upstream issue. Those should
-# open in a new tab rather than navigating the user away from release-radar; internal links
-# this app generates itself (e.g. _linkify_stack_mentions's "#row-<service>" jump links) are
-# same-page anchors, not http(s) URLs, so this regex never touches them.
+# open in a new tab rather than navigating the user away from release-radar. The regex only
+# matches http(s) URLs, so it never touches non-link markup this app generates itself.
 _EXTERNAL_LINK_RE = re.compile(r'<a href="(https?://[^"]*)"')
 
 
@@ -749,9 +748,11 @@ def reset_and_recheck_updates():
     return RedirectResponse(url="/updates", status_code=303)
 
 
-def _linkify_stack_mentions(text: str, service_names: list[str]) -> str:
-    """Turns exact mentions of a stack's own service names within the analysis text into
-    jump-links to that service's row on the same page. Runs on the raw markdown before
+def _emphasize_stack_mentions(text: str, service_names: list[str]) -> str:
+    """Bolds exact mentions of a stack's own service names within the analysis text, purely to
+    make them easier to pick out while reading -- these used to be jump-links to that service's
+    row further down the same page, which was pointless since the table with all of them is
+    already right there, visible, on the same page load. Runs on the raw markdown before
     rendering, since inline HTML passes through markdown.markdown() unescaped. Longest names
     are matched first in one combined pass so a shorter name that happens to be a substring
     of a longer one (rare, but possible) can't steal part of the match."""
@@ -759,7 +760,7 @@ def _linkify_stack_mentions(text: str, service_names: list[str]) -> str:
         return text
     names_sorted = sorted(set(service_names), key=len, reverse=True)
     pattern = re.compile(r"\b(" + "|".join(re.escape(n) for n in names_sorted) + r")\b")
-    return pattern.sub(lambda m: f'<a href="#row-{m.group(1)}">{m.group(1)}</a>', text)
+    return pattern.sub(lambda m: f'<strong>{m.group(1)}</strong>', text)
 
 
 def _stack_member_names(stack_id: str) -> list[str]:
@@ -778,8 +779,8 @@ def stack_detail(request: Request, id: str):
     analysis_row = db.get_stack_analysis(id)
     analysis_html = None
     if analysis_row:
-        linked_text = _linkify_stack_mentions(analysis_row["analysis_markdown"], member_names)
-        analysis_html = render_markdown(linked_text)
+        emphasized_text = _emphasize_stack_mentions(analysis_row["analysis_markdown"], member_names)
+        analysis_html = render_markdown(emphasized_text)
 
     members = []
     for name in member_names:

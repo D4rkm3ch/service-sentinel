@@ -90,7 +90,14 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  /* A real border-bottom here (and on td below) rendered as a visibly wavy/broken line
+     wherever it sat between two rows with different backgrounds (row-unread/row-error tints
+     vs. the default) -- border-collapse resolves per-cell borders against a shared table-wide
+     edge, and that resolution visibly seams at fractional device pixel ratios when the
+     colors on either side differ. An inset box-shadow is composited as its own overlay
+     instead of a collapsible border, so it always renders as one crisp straight line
+     regardless of the row's background color. */
+  box-shadow: inset 0 -1px 0 var(--border);
   position: sticky;
   top: 0;
   background: var(--bg-panel);
@@ -99,7 +106,7 @@ th {
 
 td {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  box-shadow: inset 0 -1px 0 var(--border);
 }
 
 tr.row-unread { background: rgba(94, 201, 166, 0.04); }
@@ -148,6 +155,13 @@ tr.row-clickable {
   white-space: nowrap;
 }
 
+/* Always apply to a <span> (or similar) NESTED inside a <td>, never to the <td> itself: a
+   <td> with display:block stops being a real table cell, and if two such <td>s ever end up
+   adjacent siblings in the same <tr> (no plain <td> between them), Chromium collapses them
+   into a single anonymous table-cell track instead of two columns -- the whole row's content
+   from that point on visibly shifts left by one column. Confirmed by direct reproduction: the
+   stack detail table hit exactly this the moment its Container/Image columns became adjacent
+   after the (redundant, single-stack-page) Stack column was dropped. */
 .truncate-cell {
   display: block;
   max-width: 100%;

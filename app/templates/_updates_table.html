@@ -1,4 +1,6 @@
 {% import "_sort_header.html" as sh %}
+<div id="updates-table" hx-get="/updates/partial?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}"
+     hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
 {% if is_partial %}<span id="updates-count-badge" class="heading-count" hx-swap-oob="true">({{ updates|length }})</span>{% endif %}
 {% set preserve_other = '&csort=' ~ csort ~ '&cdir=' ~ cdir %}
 {% if updates %}
@@ -15,20 +17,20 @@
   </colgroup>
   <thead>
     <tr>
-      <th>{{ sh.sort_link('Container', 'container', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
-      <th>{{ sh.sort_link('Stack', 'stack', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
-      <th>{{ sh.sort_link('Image', 'image', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
-      <th>{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
-      <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Container', 'container', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
+      <th>{{ sh.sort_link('Stack', 'stack', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
+      <th>{{ sh.sort_link('Image', 'image', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
+      <th>{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
+      <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th class="status-icon-cell"></th>
-      <th>Read</th>
+      <th>{{ sh.sort_link('Read', 'status', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th></th>
     </tr>
   </thead>
   <tbody>
     {% for u in updates %}
     <tr class="{{ 'row-error' if u.status == 'error' else 'row-unread' }} {{ 'row-clickable' if u.id else '' }}" {% if u.id %}onclick="window.location='/updates/{{ u.id }}'"{% endif %}>
-      <td class="mono truncate-cell" title="{{ u.container_name }}">{{ u.container_name }}</td>
+      <td class="mono"><span class="truncate-cell" title="{{ u.container_name }}">{{ u.container_name }}</span></td>
       <td>
         {% if u.stack_name %}
         <a href="/updates/stack?id={{ u.stack_id|urlencode }}" class="stack-cell" title="{{ u.stack_name }}" onclick="event.stopPropagation()">{{ u.stack_name }}</a>
@@ -36,7 +38,7 @@
         <span class="meta">—</span>
         {% endif %}
       </td>
-      <td class="mono truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}">{{ u.image_repo }}:{{ u.tag }}</td>
+      <td class="mono"><span class="truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}">{{ u.image_repo }}:{{ u.tag }}</span></td>
       <td class="nowrap">{{ u.created_at[:16].replace('T', ' ') if u.created_at else '—' }}</td>
       <td class="importance-cell">
         {% if u.severity %}
@@ -76,3 +78,4 @@
 <p class="empty">No updates detected yet. Either everything's current, or the first check hasn't run.
 Use "Check now" above to run one immediately.</p>
 {% endif %}
+</div>

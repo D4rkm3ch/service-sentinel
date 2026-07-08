@@ -1,4 +1,6 @@
 {% import "_sort_header.html" as sh %}
+<div id="containers-table" hx-get="/updates/partial/containers?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}"
+     hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
 {% if is_partial %}<span id="containers-count-badge" class="heading-count" hx-swap-oob="true">({{ containers|length }})</span>{% endif %}
 {% set preserve_other = '&sort=' ~ sort ~ '&dir=' ~ dir %}
 {% if containers %}
@@ -11,16 +13,16 @@
   </colgroup>
   <thead>
     <tr>
-      <th>{{ sh.sort_link('Container', 'container', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
-      <th>{{ sh.sort_link('Stack', 'stack', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
-      <th>{{ sh.sort_link('Image', 'image', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
-      <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, '/updates', 'desc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other) }}</th>
+      <th>{{ sh.sort_link('Container', 'container', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
+      <th>{{ sh.sort_link('Stack', 'stack', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
+      <th>{{ sh.sort_link('Image', 'image', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
+      <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, '/updates', 'desc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
     </tr>
   </thead>
   <tbody>
     {% for c in containers %}
     <tr>
-      <td class="mono truncate-cell" title="{{ c.container_name }}">{{ c.container_name }}</td>
+      <td class="mono"><span class="truncate-cell" title="{{ c.container_name }}">{{ c.container_name }}</span></td>
       <td>
         {% if c.stack_name %}
         <a href="/updates/stack?id={{ c.stack_id|urlencode }}" class="stack-cell" title="{{ c.stack_name }}">{{ c.stack_name }}</a>
@@ -28,7 +30,7 @@
         <span class="meta">—</span>
         {% endif %}
       </td>
-      <td class="mono truncate-cell" title="{{ c.image_repo }}:{{ c.tag }}">{{ c.image_repo }}:{{ c.tag }}</td>
+      <td class="mono"><span class="truncate-cell" title="{{ c.image_repo }}:{{ c.tag }}">{{ c.image_repo }}:{{ c.tag }}</span></td>
       <td class="nowrap">{{ c.last_checked_at[:16].replace('T', ' ') if c.last_checked_at else '—' }}</td>
     </tr>
     {% endfor %}
@@ -37,3 +39,4 @@
 {% else %}
 <p class="empty">No containers tracked yet.</p>
 {% endif %}
+</div>

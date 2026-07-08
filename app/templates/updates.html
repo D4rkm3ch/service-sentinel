@@ -4,18 +4,12 @@
 
 <section class="panel">
   {% include "_feature_header.html" %}
-  <div id="updates-table" hx-get="/updates/partial?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}"
-       hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
-    {% include "_updates_table.html" %}
-  </div>
+  {% include "_updates_table.html" %}
 </section>
 
 <section class="panel">
   <h1>Tracked containers <span class="heading-count" id="containers-count-badge">({{ containers_count }})</span></h1>
-  <div id="containers-table" hx-get="/updates/partial/containers?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}"
-       hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
-    {% include "_containers_table.html" %}
-  </div>
+  {% include "_containers_table.html" %}
 </section>
 
 {% endblock %}

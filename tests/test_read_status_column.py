@@ -58,7 +58,8 @@ def test_updates_page_shows_a_read_column(client):
         persist.run_and_persist_check()
 
     page = client.get("/updates")
-    assert "<th>Read</th>" in page.text
+    assert "sort=status" in page.text  # Read is now a sortable column header, not a bare <th>
+    assert page.text.count("Read") == 1  # only the header label -- "Unread" badges don't match
     assert "badge-unread\">Unread</span>" in page.text
 
     rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}

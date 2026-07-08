@@ -1,4 +1,4 @@
-{% macro sort_link(label, column, current_sort, current_dir, base_url, default_dir='asc', sort_param='sort', dir_param='dir', extra_qs='') %}
+{% macro sort_link(label, column, current_sort, current_dir, base_url, default_dir='asc', sort_param='sort', dir_param='dir', extra_qs='', partial_url=none, target_id=none) %}
 {% if current_sort == column %}
   {% set next_dir = 'desc' if current_dir == 'asc' else 'asc' %}
   {% set arrow = '▲' if current_dir == 'asc' else '▼' %}
@@ -6,7 +6,18 @@
   {% set next_dir = default_dir %}
   {% set arrow = '' %}
 {% endif %}
-<a href="{{ base_url }}?{{ sort_param }}={{ column }}&{{ dir_param }}={{ next_dir }}{{ extra_qs }}" class="sort-link {{ 'sort-link-active' if current_sort == column else '' }}">
+{% set qs = sort_param ~ '=' ~ column ~ '&' ~ dir_param ~ '=' ~ next_dir ~ extra_qs %}
+{# partial_url/target_id (when given) turn this into an htmx-driven swap of just that table's
+   own self-polling div, instead of a full page navigation -- a plain <a href> reload was
+   resetting scroll position to the top of the page on every sort click. hx-push-url still
+   points at the real page URL (not the partial endpoint) so the address bar/bookmarks/back
+   button stay correct; hx-swap="outerHTML" replaces the whole polling div (not just its
+   table), which is what lets the div's own hx-get regenerate with the new sort baked in --
+   otherwise its next 20s auto-poll would silently revert to whatever sort was active when the
+   page first loaded. See _updates_table.html/_containers_table.html for the div itself. #}
+<a href="{{ base_url }}?{{ qs }}"
+   {% if partial_url %}hx-get="{{ partial_url }}?{{ qs }}" hx-target="#{{ target_id }}" hx-swap="outerHTML" hx-push-url="{{ base_url }}?{{ qs }}"{% endif %}
+   class="sort-link {{ 'sort-link-active' if current_sort == column else '' }}">
   {{ label }}{% if arrow %} <span class="sort-arrow">{{ arrow }}</span>{% endif %}
 </a>
 {% endmacro %}
