@@ -175,13 +175,13 @@ def test_persist_check_outcome_uses_a_fixed_number_of_connections_not_one_per_co
     separate connect+commit+close cycles (each a real fsync in WAL mode) happening silently
     after the progress bar already showed the check as done. Proves the batch still opens a
     small, fixed number of connections regardless of container count -- two for the
-    read/write phases (as before), plus two more for ai_provider.is_configured()'s pair of
-    Settings reads (provider + that provider's key), which happens exactly once per batch, not
-    once per container -- by counting calls to sqlite3.connect() itself, rather than timing it
-    (timing is storage-dependent and wasn't reliable to assert on across environments). Still
-    nowhere near the old ~200; the two-phase read/write split exists so release notes fetching
-    (real network calls) never happens with a write transaction held open, not to reintroduce
-    per-container connections."""
+    read/write phases (as before), plus three more for ai_provider's own Settings reads
+    (is_configured()'s provider + key check, concurrency_limit()'s provider check), which
+    happen exactly once per batch, not once per container -- by counting calls to
+    sqlite3.connect() itself, rather than timing it (timing is storage-dependent and wasn't
+    reliable to assert on across environments). Still nowhere near the old ~200; the two-phase
+    read/write split exists so release notes fetching (real network calls) never happens with
+    a write transaction held open, not to reintroduce per-container connections."""
     original_connect = sqlite3.connect
     connect_calls = []
 
@@ -194,7 +194,7 @@ def test_persist_check_outcome_uses_a_fixed_number_of_connections_not_one_per_co
     with patch("app.db.sqlite3.connect", side_effect=counting_connect):
         persist.persist_check_outcome(_outcome(*containers))
 
-    assert connect_calls == [1, 1, 1, 1], f"expected a fixed connection count for the whole batch, got {len(connect_calls)}"
+    assert connect_calls == [1, 1, 1, 1, 1], f"expected a fixed connection count for the whole batch, got {len(connect_calls)}"
     assert len(db.list_tracked_containers_with_status()) == 20
 
 

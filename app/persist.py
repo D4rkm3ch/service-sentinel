@@ -27,7 +27,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 from app import ai_provider, check_state, compose_lookup, db, reconcile, release_notes
-from app.config import settings
 from app.summarizer import summarize_update
 
 logger = logging.getLogger("release_radar.persist")
@@ -115,13 +114,14 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
     Stage 6/7 add a read-fetch-summarize-write shape: first a read-only pass figures out which
     containers are genuinely new (or changed) update_available transitions, then release notes
     are fetched for just those (real GitHub API calls), then an AI summary + severity is
-    generated for whichever of those actually got real notes text back (real Anthropic API
-    calls) — all done with no database transaction open, each phase fanned out across its own
-    thread pool via _run_concurrent_phase() (settings.ai_summarize_concurrency caps both; kept
-    lower than the registry check concurrency since these are meaningfully more expensive,
-    rate-limited calls) — and only then does the actual write batch run. This keeps the "one
-    transaction for the whole write batch" property described below while never holding a
-    SQLite transaction open across however long a batch of GitHub/Anthropic API calls takes.
+    generated for whichever of those actually got real notes text back (a real AI provider
+    call) — all done with no database transaction open, each phase fanned out across its own
+    thread pool via _run_concurrent_phase() (ai_provider.concurrency_limit() caps both; lower
+    than the registry check concurrency since these are meaningfully more expensive,
+    rate-limited calls, and forced down to 1 entirely when Gemini is the active provider — see
+    that function's docstring) — and only then does the actual write batch run. This keeps the
+    "one transaction for the whole write batch" property described below while never holding a
+    SQLite transaction open across however long a batch of these calls takes.
     on_progress(stage, done, total) is called once per completion during each of the two fetch
     phases (stage="release_notes", stage="summarizing"; done-count updated under a lock, safe
     to call from multiple worker threads at once — same approach as reconcile.run_check()'s
@@ -198,12 +198,13 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
 def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[dict], object],
                            on_progress: ProgressFunc | None) -> dict[str, object]:
     """Shared shape for every fan-out phase in the pipeline (release notes fetching, AI
-    summarization) — a thread pool capped by settings.ai_summarize_concurrency, progress
-    reported once per completion under a lock (safe from multiple worker threads at once,
-    same approach reconcile.run_check() uses), and the stage never announced at all
-    (on_progress is never called with this stage name) if there's nothing to do this round —
-    see persist_check_outcome()'s docstring for why a phase that goes quiet without reporting
-    anything looks exactly like a hang."""
+    summarization) — a thread pool capped by ai_provider.concurrency_limit() (Gemini's free
+    tier can't take more than one request at a time without immediately 429ing; Anthropic uses
+    settings.ai_summarize_concurrency as before), progress reported once per completion under
+    a lock (safe from multiple worker threads at once, same approach reconcile.run_check()
+    uses), and the stage never announced at all (on_progress is never called with this stage
+    name) if there's nothing to do this round — see persist_check_outcome()'s docstring for
+    why a phase that goes quiet without reporting anything looks exactly like a hang."""
     results: dict[str, object] = {}
     if not containers:
         return results
@@ -225,7 +226,7 @@ def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[
             on_progress(stage, current, total)
         return container["container_name"], result
 
-    max_workers = min(settings.ai_summarize_concurrency, total)
+    max_workers = min(ai_provider.concurrency_limit(), total)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for name, result in pool.map(_call_and_report, containers):
             results[name] = result

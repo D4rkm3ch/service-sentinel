@@ -7,6 +7,7 @@ shapes look like."""
 from unittest.mock import MagicMock, patch
 
 import pytest
+from google.genai import errors as genai_errors
 
 from app import ai_provider, db
 
@@ -112,11 +113,11 @@ def test_complete_text_gemini_sends_model_and_returns_response_text():
     assert kwargs["contents"] == "hi"
 
 
-def test_complete_text_gemini_configures_a_patient_retry_policy_for_free_tier_rate_limits():
-    """Free-tier Gemini caps requests/minute per model -- several containers needing
-    summarization in the same check will 429 immediately under the SDK's own default retry
-    budget. Proves the client is built with a longer retry window rather than relying on
-    whatever the SDK ships as its own default."""
+def test_gemini_client_disables_the_sdks_own_retry():
+    """The SDK's built-in retry can only key off HTTP status code, not the quota metadata in
+    the response body that distinguishes a worth-retrying per-minute limit from a pointless-
+    to-retry exhausted daily quota -- see _call_gemini(). Proves that distinction is handled
+    entirely by our own wrapper by confirming the SDK's own retry is turned off."""
     db.set_ai_provider("gemini")
     db.set_gemini_api_key("AIza-test")
     with patch("app.ai_provider.genai.Client") as mock_client_cls:
@@ -124,8 +125,110 @@ def test_complete_text_gemini_configures_a_patient_retry_policy_for_free_tier_ra
         ai_provider.complete_text(system=None, user_message="hi", max_tokens=30)
 
     http_options = mock_client_cls.call_args.kwargs["http_options"]
-    assert http_options.retry_options.attempts >= 8
-    assert http_options.retry_options.max_delay >= 30
+    assert http_options.retry_options.attempts == 1
+
+
+def _per_minute_429(retry_delay="2s"):
+    return genai_errors.ClientError(429, {
+        "error": {
+            "code": 429, "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [
+                    {"quotaId": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"},
+                ]},
+                {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry_delay},
+            ],
+        },
+    })
+
+
+def _per_day_429():
+    return genai_errors.ClientError(429, {
+        "error": {
+            "code": 429, "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [
+                    {"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"},
+                ]},
+                {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "16s"},
+            ],
+        },
+    })
+
+
+def test_call_gemini_retries_a_transient_per_minute_rate_limit_and_succeeds():
+    calls = [_per_minute_429("0.01s"), "ok"]
+
+    def fn():
+        result = calls.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    with patch("app.ai_provider.time.sleep") as mock_sleep:
+        result = ai_provider._call_gemini(fn)
+
+    assert result == "ok"
+    mock_sleep.assert_called_once()
+
+
+def test_call_gemini_fails_immediately_on_an_exhausted_daily_quota():
+    """No amount of waiting inside this same run fixes an exhausted daily quota -- must not
+    burn through the retry budget (or any real time) on something that can't succeed today."""
+    call_count = 0
+
+    def fn():
+        nonlocal call_count
+        call_count += 1
+        raise _per_day_429()
+
+    with patch("app.ai_provider.time.sleep") as mock_sleep:
+        with pytest.raises(genai_errors.ClientError):
+            ai_provider._call_gemini(fn)
+
+    assert call_count == 1
+    mock_sleep.assert_not_called()
+
+
+def test_call_gemini_gives_up_after_max_attempts_for_persistent_per_minute_limiting():
+    call_count = 0
+
+    def fn():
+        nonlocal call_count
+        call_count += 1
+        raise _per_minute_429("0.01s")
+
+    with patch("app.ai_provider.time.sleep"):
+        with pytest.raises(genai_errors.ClientError):
+            ai_provider._call_gemini(fn)
+
+    assert call_count == ai_provider._GEMINI_MAX_ATTEMPTS
+
+
+def test_call_gemini_never_retries_a_non_rate_limit_error():
+    def fn():
+        raise genai_errors.ClientError(500, {"error": {"code": 500, "status": "INTERNAL"}})
+
+    with patch("app.ai_provider.time.sleep") as mock_sleep:
+        with pytest.raises(genai_errors.ClientError):
+            ai_provider._call_gemini(fn)
+
+    mock_sleep.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# concurrency_limit()
+# ---------------------------------------------------------------------------
+
+def test_concurrency_limit_is_one_for_gemini():
+    db.set_ai_provider("gemini")
+    assert ai_provider.concurrency_limit() == 1
+
+
+def test_concurrency_limit_uses_the_configured_value_for_anthropic():
+    db.set_ai_provider("anthropic")
+    with patch("app.ai_provider.settings.ai_summarize_concurrency", 7):
+        assert ai_provider.concurrency_limit() == 7
 
 
 def test_complete_text_gemini_handles_a_none_response_text():
