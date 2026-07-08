@@ -42,12 +42,30 @@ def test_stack_detail_retry_and_reset_carry_the_class():
     assert text.count("updates-action-btn") == 2  # Retry and Reset & re-check
 
 
-def test_detail_page_check_now_and_reset_carry_the_class_but_disabled_regen_does_not():
+def test_detail_page_check_now_and_reset_always_carry_the_class():
     text = (TEMPLATES / "detail.html").read_text()
-    assert text.count("updates-action-btn") == 2  # Check Now and Reset & Re-check
-    # The permanently-disabled Regenerate AI Response button must never gain this class --
-    # base.html's poller unconditionally sets .disabled = running, which would wrongly
-    # re-enable a not-yet-implemented button the instant any check elsewhere finishes.
-    start = text.index('class="button-warn" disabled')
-    end = text.index("</button>", start)
-    assert "updates-action-btn" not in text[start:end]
+    # Check Now and Reset & Re-check are unconditional -- exactly 2 occurrences outside the
+    # Regenerate AI Response if/else block (checked separately below), which itself contributes
+    # a 3rd only in its enabled branch.
+    regen_start = text.index("{% if update.release_notes_raw %}")
+    regen_end = text.index("{% endif %}", regen_start)
+    assert text[:regen_start].count("updates-action-btn") + text[regen_end:].count("updates-action-btn") == 2
+
+
+def test_detail_page_regenerate_button_class_depends_on_whether_notes_exist():
+    """Regenerate AI Response only carries the class (and is only clickable) in the branch
+    that renders when release_notes_raw exists -- the no-notes branch stays permanently
+    disabled without it, same reasoning as the old permanently-disabled Retry button: base.html's
+    poller unconditionally sets .disabled = running, which would wrongly re-enable a button
+    with nothing to regenerate from the instant any check elsewhere finishes."""
+    text = (TEMPLATES / "detail.html").read_text()
+    regen_start = text.index("{% if update.release_notes_raw %}")
+    regen_else = text.index("{% else %}", regen_start)
+    regen_end = text.index("{% endif %}", regen_else)
+
+    enabled_branch = text[regen_start:regen_else]
+    disabled_branch = text[regen_else:regen_end]
+    assert "updates-action-btn" in enabled_branch
+    assert "hx-post" in enabled_branch
+    assert "updates-action-btn" not in disabled_branch
+    assert "disabled" in disabled_branch

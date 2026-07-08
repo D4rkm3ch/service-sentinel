@@ -170,6 +170,8 @@ _FAST_POLL_FEATURES = {"updates"}
 _STAGE_LABELS = {
     "checking": "Checking for updates",
     "release_notes": "Grabbing release notes",
+    "summarizing": "Summarizing with AI",
+    "regenerating": "Regenerating AI response",
 }
 
 
@@ -885,16 +887,6 @@ def mark_unread(request: Request, update_id: int):
     return _read_toggle_response(request, update_id)
 
 
-@app.post("/updates/{update_id}/retry")
-def retry_update_route(update_id: int):
-    # Retry means "regenerate the AI summary in place" — there's no AI summary to regenerate
-    # until Stage 7, so the button itself is disabled with an explanatory tooltip in
-    # detail.html rather than being wired here. This route is unreachable from the UI as a
-    # result; kept as a safe no-op (redirect back to the same update) in case anything still
-    # posts to it directly, and IS the one to wire up for real once Stage 7 lands.
-    return RedirectResponse(url=f"/updates/{update_id}", status_code=303)
-
-
 def _item_key(update_id: int) -> str:
     return f"update:{update_id}"
 
@@ -958,6 +950,19 @@ def reset_and_recheck_update_route(request: Request, update_id: int):
     notes fetch that failed without waiting for a real update. Confirmed client-side since,
     unlike Check now above, this really does throw away state."""
     return _launch_scoped_check(request, update_id, persist.run_claimed_single_reset_and_check)
+
+
+@app.post("/updates/{update_id}/regenerate")
+def regenerate_update_route(request: Request, update_id: int):
+    """Stage 7: Regenerate AI Response is real now -- re-runs summarization for this update's
+    already-stored release notes in place (no registry check, no fresh notes fetch). The
+    button itself is disabled server-side (see detail.html) whenever there's no
+    release_notes_raw to regenerate from at all, so this route mainly exists to be reached by
+    a real click. Reuses the exact same launch/spinner/poll machinery as Check Now and
+    Reset & Re-check above -- the update's id never changes for this action, so the poller's
+    "look the container back up by name, redirect to its current id" logic just lands back on
+    the same page."""
+    return _launch_scoped_check(request, update_id, persist.run_claimed_regenerate_summary)
 
 
 @app.get("/updates/{update_id}/recheck-status-poll")

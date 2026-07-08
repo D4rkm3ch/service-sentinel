@@ -50,10 +50,18 @@
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Check Now
     </button>
-    <button type="button" class="button-warn" disabled
-            title="Regenerates the AI-written response for this update in place -- arriving in a later stage, once AI summarization is built">
+    {% if update.release_notes_raw %}
+    <button type="button" class="button-warn updates-action-btn"
+            hx-post="/updates/{{ update.id }}/regenerate"
+            hx-target="#item-recheck-status" hx-swap="outerHTML">
       Regenerate AI Response
     </button>
+    {% else %}
+    <button type="button" class="button-warn" disabled
+            title="No release notes are available yet to generate a response from">
+      Regenerate AI Response
+    </button>
+    {% endif %}
     <button type="button" class="button-danger updates-action-btn"
             hx-post="/updates/{{ update.id }}/reset-and-recheck"
             hx-target="#item-recheck-status" hx-swap="outerHTML"

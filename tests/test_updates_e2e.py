@@ -127,18 +127,62 @@ def test_detail_page_has_check_now_and_reset_and_recheck_with_only_the_latter_co
     assert toggle_pos < check_now_pos < regen_pos < reset_pos
 
 
-def test_regenerate_ai_response_button_is_disabled_and_no_longer_called_retry(client):
+def test_regenerate_button_is_enabled_when_release_notes_exist(client):
+    """Stage 7: real notes were fetched during the check (the fixture mocks a real return
+    value) -- Regenerate AI Response is clickable, not the permanently-disabled placeholder
+    it used to be, and it's no longer called Retry."""
     _run_check_and_wait(client)
     sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
 
     detail = client.get(f"/updates/{sonarr['id']}")
     assert "Regenerate AI Response" in detail.text
     assert ">Retry<" not in detail.text
+    assert f'hx-post="/updates/{sonarr["id"]}/regenerate"' in detail.text
+
+
+def test_regenerate_button_is_disabled_when_no_release_notes_were_found(client):
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)):
+        _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+
+    detail = client.get(f"/updates/{sonarr['id']}")
+    assert "Regenerate AI Response" in detail.text
+    assert f'hx-post="/updates/{sonarr["id"]}/regenerate"' not in detail.text
     start = detail.text.index("Regenerate AI Response")
-    # It's still the same permanently-disabled Stage 7 placeholder, just renamed for clarity --
-    # confirm the nearby button tag actually carries `disabled`.
     button_start = detail.text.rindex("<button", 0, start)
     assert "disabled" in detail.text[button_start:start]
+
+
+def test_regenerate_route_regenerates_the_summary_in_place_without_changing_the_id(client):
+    """Regenerate AI Response re-runs summarization for the already-stored release notes --
+    no registry check, no fresh notes fetch, and (unlike Check Now/Reset & Re-check) the
+    update's id never changes since the row is updated in place, not deleted and recreated."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+
+    with patch("app.persist.settings.anthropic_api_key", "sk-test"), \
+         patch("app.persist.summarize_update", return_value=("## Bug Fixes\nRegenerated.", "bugfix")):
+        resp = client.post(f"/updates/{sonarr_id}/regenerate")
+        assert resp.status_code == 200
+        assert 'id="item-recheck-status"' in resp.text
+        assert "spinner" in resp.text
+
+        for _ in range(50):
+            item = check_state.get_item_state(f"update:{sonarr_id}")
+            if item is None or not item["running"]:
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("regenerate never finished")
+
+        poll = client.get(f"/updates/{sonarr_id}/recheck-status-poll")
+        assert poll.headers.get("hx-redirect") == f"/updates/{sonarr_id}"  # same id, updated in place
+
+    update = db.get_update(sonarr_id)
+    assert update["summary_markdown"] == "## Bug Fixes\nRegenerated."
+    assert update["severity"] == "bugfix"
+    assert update["status"] == "unread"  # regenerating resets it back to unread
 
 
 def test_back_link_row_puts_updates_first_and_names_the_stack_link_generically(client, tmp_path):
@@ -269,16 +313,14 @@ def test_global_reset_and_recheck_wipes_then_repopulates(client):
     assert len(rows) == 3  # repopulated fresh, not left empty
 
 
-def test_retry_route_is_still_a_disabled_placeholder(client):
-    """The button itself is disabled in the UI (Stage 7 hasn't shipped an AI summary to
-    regenerate yet) -- this just proves the route it would have posted to is still a harmless
-    no-op if ever hit directly."""
+def test_retry_route_no_longer_exists(client):
+    """The old placeholder /retry route is gone entirely now that Regenerate AI Response
+    (POST /regenerate) is real -- nothing in the UI has posted to /retry since the rename."""
     _run_check_and_wait(client)
     sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
 
-    resp = client.post(f"/updates/{sonarr['id']}/retry", follow_redirects=False)
-    assert resp.status_code == 303
-    assert resp.headers["location"] == f"/updates/{sonarr['id']}"
+    resp = client.post(f"/updates/{sonarr['id']}/retry")
+    assert resp.status_code == 404
 
 
 def _run_scoped_action_and_wait(client, sonarr_id, path):
