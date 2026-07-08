@@ -1,18 +1,21 @@
 <span id="read-toggle-btn">
-{% if status == 'unread' and has_content %}
-<form method="post" action="/updates/{{ update_id }}/read">
-  <button type="submit">Mark as read</button>
-</form>
-{% elif status == 'read' %}
-<button type="button" hx-post="/updates/{{ update_id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML">
+{% if update.status == 'unread' and (update.summary_markdown or update.release_notes_raw) %}
+<button type="button" hx-post="/updates/{{ update.id }}/read" hx-target="#read-toggle-btn" hx-swap="outerHTML">
+  Mark as read
+</button>
+{% elif update.status == 'read' %}
+<button type="button" hx-post="/updates/{{ update.id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML"
+        onclick="suppressAutoRead = true;">
   Mark as unread
 </button>
 {% endif %}
 </span>
 <span id="read-status-badge" hx-swap-oob="true">
-{% if status == 'unread' %}
-<span class="badge badge-unread">Unread</span>
-{% else %}
-<span class="badge badge-read">Read</span>
+{% if not update.error %}
+  {% if update.status == 'unread' %}
+  <span class="badge badge-unread">Unread</span>
+  {% else %}
+  <span class="badge badge-read">Read</span>
+  {% endif %}
 {% endif %}
 </span>

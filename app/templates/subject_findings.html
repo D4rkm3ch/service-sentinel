@@ -12,8 +12,8 @@
     </a>
   </div>
 
-  {% if overview %}
-  <div class="overview-summary">{{ overview }}</div>
+  {% if overview_html %}
+  <div class="overview-summary">{{ overview_html | safe }}</div>
   {% endif %}
 
   {% if findings %}

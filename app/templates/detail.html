@@ -36,11 +36,12 @@
   <div class="action-row" style="display:flex; align-items:center; gap:10px;">
     <span id="read-toggle-btn">
       {% if update.status == 'unread' and (update.summary_markdown or update.release_notes_raw) %}
-      <form method="post" action="/updates/{{ update.id }}/read">
-        <button type="submit">Mark as read</button>
-      </form>
+      <button type="button" hx-post="/updates/{{ update.id }}/read" hx-target="#read-toggle-btn" hx-swap="outerHTML">
+        Mark as read
+      </button>
       {% elif update.status == 'read' %}
-      <button type="button" hx-post="/updates/{{ update.id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML">
+      <button type="button" hx-post="/updates/{{ update.id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML"
+              onclick="suppressAutoRead = true;">
         Mark as unread
       </button>
       {% endif %}
@@ -50,10 +51,17 @@
       Retry
     </button>
     <button type="button" class="updates-action-btn"
-            hx-post="/updates/{{ update.id }}/reset-and-recheck"
+            hx-post="/updates/{{ update.id }}/check-now"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
             hx-disabled-elt="this">
       Check now
+    </button>
+    <button type="button" class="button-danger updates-action-btn"
+            hx-post="/updates/{{ update.id }}/reset-and-recheck"
+            hx-target="#item-recheck-status" hx-swap="outerHTML"
+            hx-confirm="This wipes this update's history and re-checks it fresh. Continue?"
+            hx-disabled-elt="this">
+      Reset &amp; re-check
     </button>
     <span id="item-recheck-status"></span>
   </div>
@@ -72,5 +80,23 @@
     {% endif %}
   </div>
 </section>
+
+{% if update.status == 'unread' and not update.error and (update.summary_markdown or update.release_notes_raw) %}
+<script>
+  // Auto-mark-as-read: visiting this page and then leaving counts as "seen it." Fires only
+  // once, on the way out, via sendBeacon (fetch would get cancelled mid-navigation) -- and
+  // only if the user hasn't explicitly clicked "Mark as unread" during this same visit, so an
+  // explicit unread doesn't get silently flipped back to read a moment later just because
+  // they navigated away. This block only renders at all when the page loaded unread, so there
+  // was something for the user to actually see in the first place (matches the same
+  // conditions "Mark as read" itself needs to be clickable).
+  var suppressAutoRead = false;
+  window.addEventListener("pagehide", function () {
+    if (!suppressAutoRead) {
+      navigator.sendBeacon("/updates/{{ update.id }}/read");
+    }
+  });
+</script>
+{% endif %}
 
 {% endblock %}

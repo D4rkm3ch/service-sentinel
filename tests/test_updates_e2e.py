@@ -97,37 +97,55 @@ def test_update_detail_page_renders_real_content(client):
     assert "https://example.com/notes" in detail.text
 
 
-def test_detail_page_scoped_button_is_check_now_with_no_confirm(client):
-    """Stage 6 polish: the per-item button only replaces the row if the digest actually
-    changed -- exactly like every other "Check now" in the app -- so it's labeled and behaves
-    that way, not like the destructive-sounding "Reset & re-check" the global button is."""
+def test_detail_page_has_check_now_and_reset_and_recheck_with_only_the_latter_confirmed(client):
+    """Stage 6 polish: two distinct scoped actions now -- Check now (only replaces the row if
+    the digest actually changed, no confirmation) and Reset & re-check (wipes this update's
+    row first, forcing a fresh notes fetch even if nothing changed, confirmed like the
+    destructive global button)."""
     _run_check_and_wait(client)
     sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
 
     detail = client.get(f"/updates/{sonarr['id']}")
     assert "Check now" in detail.text
-    assert "hx-confirm" not in detail.text
+    assert "Reset &amp; re-check" in detail.text
+    assert f'hx-post="/updates/{sonarr["id"]}/check-now"' in detail.text
+    assert f'hx-post="/updates/{sonarr["id"]}/reset-and-recheck"' in detail.text
+
+    check_now_pos = detail.text.index(f'/updates/{sonarr["id"]}/check-now')
+    reset_pos = detail.text.index(f'/updates/{sonarr["id"]}/reset-and-recheck')
+    # hx-confirm sits between the two hx-post attributes on the Reset & re-check button only.
+    assert "hx-confirm" not in detail.text[check_now_pos:reset_pos]
+    assert "hx-confirm" in detail.text[reset_pos:]
 
 
 def test_mark_read_then_mark_unread_round_trip(client):
-    """Mark as read is a plain form that redirects to the list (unchanged). Mark as unread is
-    new (Stage 6 polish): an htmx toggle that stays on the page and flips the button/badge
-    back in place via one response (a primary swap plus an out-of-band swap)."""
+    """Both directions are now in-place htmx toggles (Stage 6 polish) -- neither navigates
+    away, and the response swaps the button and the title-row badge together in one shot (a
+    primary swap plus an out-of-band swap)."""
     _run_check_and_wait(client)
     sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
     sonarr_id = sonarr["id"]
 
-    resp = client.post(f"/updates/{sonarr_id}/read", follow_redirects=False)
-    assert resp.status_code == 303
+    # Checked via the button's own hx-post target rather than a loose "Mark as unread" text
+    # search -- the auto-mark-as-read script's explanatory comment (see detail.html) happens
+    # to contain that exact phrase too, so a plain substring check is a false-positive trap.
+    unread_btn = f'hx-post="/updates/{sonarr_id}/unread"'
+    read_btn = f'hx-post="/updates/{sonarr_id}/read"'
+
+    resp = client.post(f"/updates/{sonarr_id}/read")
+    assert resp.status_code == 200
+    assert unread_btn in resp.text
+    assert 'id="read-status-badge" hx-swap-oob="true"' in resp.text
+    assert "badge-read" in resp.text
     assert db.get_update(sonarr_id)["status"] == "read"
 
     detail = client.get(f"/updates/{sonarr_id}")
-    assert "Mark as unread" in detail.text
+    assert unread_btn in detail.text
     assert 'id="read-toggle-btn"' in detail.text
 
     resp = client.post(f"/updates/{sonarr_id}/unread")
     assert resp.status_code == 200
-    assert "Mark as read" in resp.text
+    assert read_btn in resp.text
     assert 'id="read-status-badge" hx-swap-oob="true"' in resp.text
     assert "badge-unread" in resp.text
     assert db.get_update(sonarr_id)["status"] == "unread"
@@ -135,8 +153,37 @@ def test_mark_read_then_mark_unread_round_trip(client):
     # And the page itself, loaded fresh, reflects the same state (didn't just update the
     # fragment without actually persisting).
     detail = client.get(f"/updates/{sonarr_id}")
-    assert "Mark as unread" not in detail.text
-    assert "Mark as read" in detail.text
+    assert unread_btn not in detail.text
+    assert read_btn in detail.text
+
+
+def test_auto_read_beacon_route_marks_read_and_returns_the_fragment(client):
+    """navigator.sendBeacon() fires a POST to /read on page-leave (see detail.html) -- proves
+    the route it hits behaves correctly even though the caller never reads the response."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+
+    resp = client.post(f"/updates/{sonarr_id}/read")
+    assert resp.status_code == 200
+    assert db.get_update(sonarr_id)["status"] == "read"
+
+
+def test_detail_page_registers_the_auto_read_script_only_when_eligible(client):
+    """The pagehide listener only makes sense (and only renders) when the page loaded unread
+    with real content to have seen -- an already-read update, or one with no content at all,
+    has nothing for leaving-the-page to mark."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+
+    detail = client.get(f"/updates/{sonarr_id}")
+    assert "pagehide" in detail.text
+    assert "suppressAutoRead" in detail.text
+
+    client.post(f"/updates/{sonarr_id}/read")
+    detail = client.get(f"/updates/{sonarr_id}")
+    assert "pagehide" not in detail.text
 
 
 def test_global_reset_and_recheck_wipes_then_repopulates(client):
@@ -168,19 +215,10 @@ def test_retry_route_is_still_a_disabled_placeholder(client):
     assert resp.headers["location"] == f"/updates/{sonarr['id']}"
 
 
-def test_scoped_reset_and_recheck_reruns_just_that_container(client):
-    """Stage 6: per-item Reset & re-check is real now -- posts an htmx fragment (spinner, not
-    a redirect) immediately, does a real scoped re-check of just that one container in the
-    background, and the poller ends with an HX-Redirect once done. Also proves it shares the
-    same "only one check at a time" mutex as a full check (released cleanly afterwards) and
-    doesn't prune every other tracked container the way a full check's outcome would."""
-    _run_check_and_wait(client)
-    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
-    sonarr_id = sonarr["id"]
-
+def _run_scoped_action_and_wait(client, sonarr_id, path):
     with patch("app.reconcile.list_tracked_containers", return_value=_fake_containers()), \
          patch("app.reconcile.get_latest_digest", side_effect=_fake_digest):
-        resp = client.post(f"/updates/{sonarr_id}/reset-and-recheck")
+        resp = client.post(f"/updates/{sonarr_id}/{path}")
         assert resp.status_code == 200
         assert 'id="item-recheck-status"' in resp.text
         assert "spinner" in resp.text
@@ -191,12 +229,44 @@ def test_scoped_reset_and_recheck_reruns_just_that_container(client):
                 break
             time.sleep(0.1)
         else:
-            raise AssertionError("scoped recheck never finished")
+            raise AssertionError("scoped action never finished")
 
-        poll = client.get(f"/updates/{sonarr_id}/recheck-status-poll")
-        # Same digest transition as before (_fake_digest is unchanged) -> same row, same id.
-        assert poll.headers.get("hx-redirect") == f"/updates/{sonarr_id}"
+        return client.get(f"/updates/{sonarr_id}/recheck-status-poll")
+
+
+def test_scoped_check_now_reruns_just_that_container_without_touching_an_unchanged_row(client):
+    """Check now (non-destructive): posts an htmx fragment (spinner, not a redirect)
+    immediately, does a real scoped re-check of just that one container in the background, and
+    the poller ends with an HX-Redirect once done. Also proves it shares the same "only one
+    check at a time" mutex as a full check (released cleanly afterwards) and doesn't prune
+    every other tracked container the way a full check's outcome would."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+
+    poll = _run_scoped_action_and_wait(client, sonarr_id, "check-now")
+    # Same digest transition as before (_fake_digest is unchanged) -> row untouched, same id.
+    assert poll.headers.get("hx-redirect") == f"/updates/{sonarr_id}"
 
     assert check_state.get_state("updates")["running"] is False
     # Not pruned down to just the one container the scoped outcome actually contained.
+    assert len(db.list_tracked_containers_with_status()) == 3
+
+
+def test_scoped_reset_and_recheck_forces_a_fresh_row_even_when_the_digest_is_unchanged(client):
+    """Reset & re-check (destructive): deletes the update row first, so even though
+    _fake_digest reports the exact same pending transition as the original check, the row
+    comes back with a brand new id -- proving it genuinely forced a fresh notes fetch rather
+    than silently no-op'ing like Check now would for the same unchanged digest."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+
+    poll = _run_scoped_action_and_wait(client, sonarr_id, "reset-and-recheck")
+    redirect_url = poll.headers.get("hx-redirect")
+    assert redirect_url is not None
+    assert redirect_url != f"/updates/{sonarr_id}"
+    assert redirect_url.startswith("/updates/")
+
+    assert check_state.get_state("updates")["running"] is False
     assert len(db.list_tracked_containers_with_status()) == 3

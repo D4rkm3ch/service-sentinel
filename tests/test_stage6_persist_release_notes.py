@@ -230,3 +230,54 @@ def test_fetch_happens_before_the_write_transaction_opens():
 
     row = db.list_tracked_containers_with_status()[0]
     assert row["id"] is not None
+
+
+def test_run_and_persist_single_check_does_not_touch_an_unchanged_row(monkeypatch):
+    """Check now (non-destructive): re-checking a container whose digest hasn't moved since
+    the last check must not re-fetch notes or replace the row -- same "unchanged" rule a full
+    check already follows, just scoped to one container."""
+    persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+    first_id = db.list_tracked_containers_with_status()[0]["id"]
+
+    def fake_run_check_one(container_name, on_progress=None):
+        assert container_name == "sonarr"
+        return _outcome(_c("sonarr", "update_available"))  # exact same transition as before
+
+    monkeypatch.setattr("app.persist.reconcile.run_check_one", fake_run_check_one)
+    with patch("app.persist.release_notes.get_release_notes") as mock_fetch:
+        persist.run_and_persist_single_check("sonarr")
+
+    mock_fetch.assert_not_called()
+    assert db.list_tracked_containers_with_status()[0]["id"] == first_id
+
+
+def test_run_and_persist_single_reset_and_check_forces_a_fresh_row_and_refetch(monkeypatch):
+    """Reset & re-check (destructive): deletes the existing row first, so even the exact same
+    digest transition looks brand new to persist_check_outcome() -- forcing a fresh notes
+    fetch and a new row/id, unlike Check now above."""
+    persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+    first_id = db.list_tracked_containers_with_status()[0]["id"]
+
+    def fake_run_check_one(container_name, on_progress=None):
+        return _outcome(_c("sonarr", "update_available"))  # exact same transition as before
+
+    monkeypatch.setattr("app.persist.reconcile.run_check_one", fake_run_check_one)
+    with patch("app.persist.release_notes.get_release_notes", return_value=("fresh notes", "https://example.com")) as mock_fetch:
+        persist.run_and_persist_single_reset_and_check("sonarr")
+
+    mock_fetch.assert_called_once()
+    rows = db.list_tracked_containers_with_status()
+    assert rows[0]["id"] != first_id
+    update = db.get_update(rows[0]["id"])
+    assert update["release_notes_raw"] == "fresh notes"
+
+
+def test_run_and_persist_single_reset_and_check_is_a_noop_if_nothing_was_tracked_yet(monkeypatch):
+    """No existing row to delete -- must not raise, just behave like a normal fresh check."""
+    def fake_run_check_one(container_name, on_progress=None):
+        return _outcome(_c("sonarr", "up_to_date", latest_digest="sha256:old"))
+
+    monkeypatch.setattr("app.persist.reconcile.run_check_one", fake_run_check_one)
+    persist.run_and_persist_single_reset_and_check("sonarr")
+
+    assert db.list_tracked_containers_with_status()[0]["status"] == "up_to_date"

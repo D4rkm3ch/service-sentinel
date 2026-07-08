@@ -258,25 +258,48 @@ def _persist_one(container: dict, existing, release_notes_result, conn) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Scoped single-container re-check — backs the per-update "Reset & re-check" button (Stage 6).
-# Shares the exact same "only one check at a time" mutex as the full check above (claimed via
-# try_start_updates_check()) so it can never run concurrently with a full check and race on
-# the same rows, but must NOT overwrite the full check's "Last checked: N checked, M found"
-# summary with its own single-container result — see check_state.release_running() vs
-# set_finished() for how that's kept separate.
+# Scoped single-container re-check — backs the per-update "Check now" and "Reset & re-check"
+# buttons (Stage 6). Both share the exact same "only one check at a time" mutex as the full
+# check above (claimed via try_start_updates_check()) so neither can ever run concurrently
+# with a full check and race on the same rows, but must NOT overwrite the full check's
+# "Last checked: N checked, M found" summary with its own single-container result — see
+# check_state.release_running() vs set_finished() for how that's kept separate.
 # ---------------------------------------------------------------------------
 
 def run_and_persist_single_check(container_name: str, on_progress: ProgressFunc | None = None) -> dict:
     """Single-container equivalent of run_and_persist_check() — re-checks just container_name
     against the registry and, if it's a genuinely new/changed update, fetches its release
-    notes fresh, exactly like a full check would for that one container. prune=False on the
-    persist call below is load-bearing: this outcome's container list is deliberately just the
-    one container, and pruning against a 1-item list would delete every other tracked
-    container's state."""
+    notes fresh, exactly like a full check would for that one container. Non-destructive: the
+    row is only touched if the digest actually moved, exactly like every other "Check now" in
+    the app (see run_and_persist_single_reset_and_check below for the force-fresh variant).
+    prune=False on the persist call below is load-bearing: this outcome's container list is
+    deliberately just the one container, and pruning against a 1-item list would delete every
+    other tracked container's state."""
     reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
     outcome = reconcile.run_check_one(container_name, on_progress=reconcile_progress)
     persist_check_outcome(outcome, on_progress=on_progress, prune=False)
     return outcome
+
+
+def run_and_persist_single_reset_and_check(container_name: str, on_progress: ProgressFunc | None = None) -> dict:
+    """The per-item "Reset & re-check" button's real behavior: deletes this container's
+    existing update row first (if any), then runs the same scoped check as
+    run_and_persist_single_check() above. Deleting first is what makes this force a fresh
+    release notes fetch even when the digest hasn't actually changed since the last check
+    (_is_new_or_changed_update() in persist_check_outcome() only fetches for a container with
+    no existing row, or one whose recorded digests don't match) — useful for retrying a notes
+    fetch that failed without waiting for the image to genuinely update again. Mirrors the
+    global Reset & re-check's "wipe history, then check" shape, scoped to one container.
+
+    Deliberately does NOT also wipe this container's container_state row the way the global
+    button's db.reset_updates_data() wipes that whole table: container_state is just a
+    persisted display cache, re-upserted fresh on every check regardless of its prior
+    contents, so clearing it first would only risk the container briefly vanishing from the
+    Tracked Containers list mid-recheck for no functional benefit."""
+    existing = db.get_latest_update_for_container(container_name)
+    if existing is not None:
+        db.delete_update(existing["id"])
+    return run_and_persist_single_check(container_name, on_progress=on_progress)
 
 
 def run_claimed_single_check(item_key: str, container_name: str) -> None:
@@ -292,6 +315,21 @@ def run_claimed_single_check(item_key: str, container_name: str) -> None:
         )
     except Exception:
         logger.exception("Scoped re-check failed unexpectedly for %s", container_name)
+    finally:
+        check_state.finish_item(item_key)
+        check_state.release_running("updates")
+
+
+def run_claimed_single_reset_and_check(item_key: str, container_name: str) -> None:
+    """Reset & re-check's counterpart to run_claimed_single_check() above — identical shape
+    and safety net, wired to the force-fresh variant instead."""
+    try:
+        run_and_persist_single_reset_and_check(
+            container_name,
+            on_progress=lambda stage, done, total: check_state.set_item_progress(item_key, stage, done, total),
+        )
+    except Exception:
+        logger.exception("Scoped reset & re-check failed unexpectedly for %s", container_name)
     finally:
         check_state.finish_item(item_key)
         check_state.release_running("updates")

@@ -757,12 +757,13 @@ def logs_container_detail(request: Request, container_name: str, show_silenced: 
         return RedirectResponse(url=f"/findings/{findings[0]['id']}", status_code=303)
 
     overview = _get_or_build_overview("logs", container_name, container_name, findings)
+    overview_html = render_markdown(overview) if overview else None
     toggle_url = f"/logs/container/{quote(container_name)}?{urlencode({'show_silenced': 0 if show_silenced else 1})}"
     return templates.TemplateResponse(
         "subject_findings.html",
         {
             "request": request, "findings": findings, "display_name": container_name,
-            "back_url": "/logs", "show_silenced": show_silenced, "overview": overview,
+            "back_url": "/logs", "show_silenced": show_silenced, "overview_html": overview_html,
             "toggle_url": toggle_url,
             "active_tab": "logs",
         },
@@ -796,12 +797,13 @@ def compose_file_detail(request: Request, path: str, show_silenced: bool = False
 
     display_name = compose_lookup.subject_display_name("compose", path)
     overview = _get_or_build_overview("compose", path, display_name, findings)
+    overview_html = render_markdown(overview) if overview else None
     toggle_url = f"/compose/file?{urlencode({'path': path, 'show_silenced': 0 if show_silenced else 1})}"
     return templates.TemplateResponse(
         "subject_findings.html",
         {
             "request": request, "findings": findings, "display_name": display_name,
-            "back_url": "/compose", "show_silenced": show_silenced, "overview": overview,
+            "back_url": "/compose", "show_silenced": show_silenced, "overview_html": overview_html,
             "toggle_url": toggle_url,
             "active_tab": "compose",
         },
@@ -842,27 +844,30 @@ def update_detail(request: Request, update_id: int):
     )
 
 
+def _read_toggle_response(request: Request, update_id: int):
+    """Shared by mark_read/mark_unread: both just flip the status column then re-render the
+    same fragment (the button and the title-row badge, the latter via an out-of-band swap) --
+    the fragment itself decides which button to show from the update's current status."""
+    update = db.get_update(update_id)
+    if update is None:
+        raise HTTPException(status_code=404, detail="Update not found")
+    return templates.TemplateResponse("_read_toggle.html", {"request": request, "update": update})
+
+
 @app.post("/updates/{update_id}/read")
-def mark_read(update_id: int):
+def mark_read(request: Request, update_id: int):
+    # Neither direction navigates away anymore -- both are in-place htmx toggles (see
+    # detail.html's action row and _read_toggle.html). Also the target of the auto-mark-as-
+    # read beacon detail.html fires via navigator.sendBeacon() on leaving the page, so this
+    # has to tolerate being called with no meaningful response ever being read.
     db.mark_update_status(update_id, "read")
-    return RedirectResponse(url="/updates", status_code=303)
+    return _read_toggle_response(request, update_id)
 
 
 @app.post("/updates/{update_id}/unread")
 def mark_unread(request: Request, update_id: int):
-    # Unlike Mark as read (a plain form redirecting back to the list -- "I'm done, take me
-    # away"), marking something unread again is something you do while still looking at it, so
-    # this stays in place: an htmx fragment that swaps the button back to "Mark as read" and
-    # updates the title-row badge via an out-of-band swap, both from the one response.
-    update = db.get_update(update_id)
-    if update is None:
-        raise HTTPException(status_code=404, detail="Update not found")
     db.mark_update_status(update_id, "unread")
-    has_content = bool(update["summary_markdown"] or update["release_notes_raw"])
-    return templates.TemplateResponse(
-        "_read_toggle.html",
-        {"request": request, "update_id": update_id, "status": "unread", "has_content": has_content},
-    )
+    return _read_toggle_response(request, update_id)
 
 
 @app.post("/updates/{update_id}/retry")
@@ -891,24 +896,13 @@ def _render_item_status(request: Request, update_id: int, item_key: str, busy_me
     )
 
 
-@app.post("/updates/{update_id}/reset-and-recheck")
-def reset_and_recheck_update_route(request: Request, update_id: int):
-    """Real as of Stage 6: re-checks just this one container (digest + release notes if
-    something changed), sharing the same "only one check at a time" mutex a full check uses
-    (see persist.run_claimed_single_check) without disturbing the full check's own status
-    display. Non-destructive -- it only touches the update row if the digest actually moved,
-    exactly like every other "Check now" in the app, which is why the button is labeled and
-    behaves that way rather than the wipe-then-recheck "Reset & re-check" does globally.
-
-    Renders the live spinner/progress fragment next to the button; the poller it kicks off
-    (see the recheck-status-poll route below) follows up with an HX-Redirect once the
-    container's update row has possibly moved to a new id, changed, or disappeared.
-
-    The route name kept "reset-and-recheck" even though the button itself is now "Check now" --
-    it's an internal URL, not user-facing text, and renaming it would just be churn.
+def _launch_scoped_check(request: Request, update_id: int, target) -> object:
+    """Shared by the per-item Check now and Reset & re-check routes below — identical claim/
+    launch/render shape, differing only in which persist.py function actually does the work
+    (non-destructive vs delete-the-row-first) once the background thread starts.
 
     try_start_updates_check() failing here (the busy_message branch) should be rare in
-    practice: every button that can reach this route is disabled client-side the moment
+    practice: every button that can reach either route is disabled client-side the moment
     /updates/running-state reports a check in flight (see base.html), so this is just a
     defensive fallback for the brief window before that poll catches up."""
     update = db.get_update(update_id)
@@ -923,10 +917,32 @@ def reset_and_recheck_update_route(request: Request, update_id: int):
         )
 
     check_state.start_item(item_key, update["container_name"])
-    threading.Thread(
-        target=persist.run_claimed_single_check, args=(item_key, update["container_name"]), daemon=True,
-    ).start()
+    threading.Thread(target=target, args=(item_key, update["container_name"]), daemon=True).start()
     return _render_item_status(request, update_id, item_key)
+
+
+@app.post("/updates/{update_id}/check-now")
+def check_now_update_route(request: Request, update_id: int):
+    """Non-destructive scoped re-check: re-checks just this container (digest + release notes
+    if something changed), only touching the row if the digest actually moved -- exactly like
+    every other "Check now" in the app, hence no confirmation dialog on the button.
+
+    Shares the same "only one check at a time" mutex a full check uses (see
+    persist.run_claimed_single_check) without disturbing the full check's own status display.
+    Renders the live spinner/progress fragment next to the button; the poller it kicks off
+    (see the recheck-status-poll route below) follows up with an HX-Redirect once the
+    container's update row has possibly moved to a new id, changed, or disappeared."""
+    return _launch_scoped_check(request, update_id, persist.run_claimed_single_check)
+
+
+@app.post("/updates/{update_id}/reset-and-recheck")
+def reset_and_recheck_update_route(request: Request, update_id: int):
+    """Destructive scoped equivalent of the global Reset & re-check: wipes just this update's
+    history first (see persist.run_and_persist_single_reset_and_check), forcing a fresh
+    release notes fetch even if the digest hasn't actually changed -- useful for retrying a
+    notes fetch that failed without waiting for a real update. Confirmed client-side since,
+    unlike Check now above, this really does throw away state."""
+    return _launch_scoped_check(request, update_id, persist.run_claimed_single_reset_and_check)
 
 
 @app.get("/updates/{update_id}/recheck-status-poll")
