@@ -80,6 +80,42 @@ def test_registry_exception_is_caught_per_container_and_marked_error():
     assert outcome["errors"] == 1
 
 
+def test_run_check_many_only_checks_the_named_containers():
+    """Backs the stack-level Reset & re-check button -- must only touch the containers named,
+    never the rest of the fleet, which is exactly the "checked all 59" scenario it exists to
+    rule out."""
+    containers = [
+        _container("sonarr", repo="owner/sonarr"),
+        _container("radarr", repo="owner/radarr"),
+        _container("unrelated", repo="owner/unrelated"),
+    ]
+
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", return_value="sha256:old"):
+        outcome = reconcile.run_check_many(["sonarr", "radarr"])
+
+    names = {r["container_name"] for r in outcome["containers"]}
+    assert names == {"sonarr", "radarr"}
+
+
+def test_run_check_many_with_no_matching_containers_returns_empty():
+    with patch("app.reconcile.list_tracked_containers", return_value=[_container("other")]), \
+         patch("app.reconcile.get_latest_digest") as mock_digest:
+        outcome = reconcile.run_check_many(["gone"])
+
+    assert outcome["containers"] == []
+    assert outcome["errors"] == 0
+    mock_digest.assert_not_called()
+
+
+def test_run_check_many_docker_socket_failure_reports_one_error():
+    with patch("app.reconcile.list_tracked_containers", side_effect=RuntimeError("socket down")):
+        outcome = reconcile.run_check_many(["sonarr"])
+
+    assert outcome["containers"] == []
+    assert outcome["errors"] == 1
+
+
 def test_registry_checks_run_concurrently_not_sequentially():
     """The whole point of Stage 2: prove containers are checked in parallel, not one at a
     time. 20 containers, each simulating a 200ms network wait, with concurrency capped at 5.

@@ -68,6 +68,8 @@
         <td class="importance-cell">
           {% if m.latest_update.severity %}
           <span class="badge badge-sev-{{ m.latest_update.severity }}">{{ severity_label('updates', m.latest_update.severity) }}</span>
+          {% elif not m.latest_update.error and not m.latest_update.release_notes_raw %}
+          <span class="badge badge-sev-bugfix">Notes not found</span>
           {% else %}
           <span class="meta">—</span>
           {% endif %}

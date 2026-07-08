@@ -25,13 +25,14 @@ def clean_db():
     db.reset_updates_data()
 
 
-def _seed(name, severity="", error=None, image_repo="owner/x", tag="latest"):
+def _seed(name, severity="", error=None, image_repo="owner/x", tag="latest", release_notes_raw="Some release notes."):
     db.upsert_container_state(name, image_repo, tag, "sha256:old")
     db.record_update(
         container_name=name, image_repo=image_repo, tag=tag,
         old_digest="sha256:old", new_digest="sha256:new",
         summary_markdown=None, source_url=None,
         error=error, severity=severity,
+        release_notes_raw=release_notes_raw,
     )
     time.sleep(0.005)  # ensures distinguishable created_at ordering between seeds
 
@@ -112,6 +113,43 @@ def test_stack_column_actually_populates_and_sorts(client):
         assert by_stack.text.index("plex") < by_stack.text.index("lonely-app")
     finally:
         compose_file.unlink()
+
+
+def test_notes_not_found_sorts_below_bugfix_and_is_not_pinned_top(client):
+    _seed("breaking-app", severity="breaking")
+    _seed("bugfix-app", severity="bugfix")
+    _seed("no-notes-app", severity="", release_notes_raw=None)
+    _seed("unclassified-app", severity="")  # has notes, just no severity yet -- still pinned top
+
+    ascending = client.get("/updates", params={"sort": "importance", "dir": "asc"})
+    pos = {n: ascending.text.index(n) for n in [
+        "breaking-app", "bugfix-app", "no-notes-app", "unclassified-app",
+    ]}
+    # Genuinely unclassified (has notes, no severity) still pinned to the very top.
+    assert pos["unclassified-app"] < pos["breaking-app"]
+    # "Notes not found" ranks below even bugfix, but sorts with the ranked group, not pinned top.
+    assert pos["breaking-app"] < pos["bugfix-app"] < pos["no-notes-app"]
+
+    descending = client.get("/updates", params={"sort": "importance", "dir": "desc"})
+    dpos = {n: descending.text.index(n) for n in [
+        "breaking-app", "bugfix-app", "no-notes-app", "unclassified-app",
+    ]}
+    # Unclassified still pinned top even reversed...
+    assert dpos["unclassified-app"] < dpos["bugfix-app"]
+    # ...but the ranked group (including notes-not-found) genuinely flips: least severe first now.
+    assert dpos["no-notes-app"] < dpos["bugfix-app"] < dpos["breaking-app"]
+
+
+def test_notes_not_found_gets_its_own_dull_badge_not_a_blank_dash(client):
+    _seed("no-notes-app", severity="", release_notes_raw=None)
+    _seed("errored-app", error="registry unreachable", release_notes_raw=None)
+
+    page = client.get("/updates")
+    assert "Notes not found" in page.text
+    # An error row must never be relabeled as "notes not found" -- it's a real error, pinned top.
+    error_row_start = page.text.rindex("<tr", 0, page.text.index("errored-app"))
+    error_row_end = page.text.index("</tr>", error_row_start)
+    assert "Notes not found" not in page.text[error_row_start:error_row_end]
 
 
 def test_lastchecked_sort_works_for_the_full_containers_table(client):

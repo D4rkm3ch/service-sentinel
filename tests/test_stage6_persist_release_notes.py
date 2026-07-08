@@ -86,6 +86,36 @@ def test_repeated_check_with_same_pending_update_does_not_refetch():
         assert mock_fetch.call_count == 1
 
 
+def test_repeated_check_retries_release_notes_when_previously_empty():
+    """Check now's retry-fix: if a prior fetch came up completely empty (release_notes_raw
+    still None), the exact same unchanged digest transition must still trigger a fresh fetch on
+    every later check -- unlike a genuinely unchanged row that already has notes on file (see
+    test_repeated_check_with_same_pending_update_does_not_refetch above)."""
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)) as mock_fetch:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+        assert mock_fetch.call_count == 1
+
+        # Same exact transition again, notes still empty from the first attempt.
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+        assert mock_fetch.call_count == 2
+
+
+def test_retried_fetch_that_finally_succeeds_actually_gets_written():
+    """Guards against the retried fetch's result being silently discarded by the "unchanged"
+    short-circuit in _persist_one -- the digest itself never changed, only whether notes exist,
+    so the write must still happen once they're finally found."""
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)):
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+    row = db.list_tracked_containers_with_status()[0]
+    assert db.get_update(row["id"])["release_notes_raw"] is None
+
+    with patch("app.persist.release_notes.get_release_notes", return_value=("finally found it", "https://example.com")):
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    row = db.list_tracked_containers_with_status()[0]
+    assert db.get_update(row["id"])["release_notes_raw"] == "finally found it"
+
+
 def test_a_newer_digest_on_top_of_a_pending_one_triggers_a_fresh_fetch():
     with patch("app.persist.release_notes.get_release_notes", return_value=("v2 notes", "https://example.com/v2")) as mock_fetch:
         persist.persist_check_outcome(
@@ -232,11 +262,13 @@ def test_fetch_happens_before_the_write_transaction_opens():
     assert row["id"] is not None
 
 
-def test_run_and_persist_single_check_does_not_touch_an_unchanged_row(monkeypatch):
-    """Check now (non-destructive): re-checking a container whose digest hasn't moved since
-    the last check must not re-fetch notes or replace the row -- same "unchanged" rule a full
-    check already follows, just scoped to one container."""
-    persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+def test_run_and_persist_single_check_does_not_touch_an_unchanged_row_that_already_has_notes(monkeypatch):
+    """Check now (non-destructive): re-checking a container whose digest hasn't moved, and
+    which already has real release notes on file, must not re-fetch or replace the row -- same
+    "unchanged" rule a full check already follows, just scoped to one container. (A row still
+    missing notes *does* get retried on every check -- see the retry tests above.)"""
+    with patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")):
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
     first_id = db.list_tracked_containers_with_status()[0]["id"]
 
     def fake_run_check_one(container_name, on_progress=None):

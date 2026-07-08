@@ -147,3 +147,48 @@ def run_check_one(container_name: str, on_progress: Callable[[int, int], None] |
 
     errors = 1 if result["status"] == "error" else 0
     return {"containers": [result], "errors": errors, "checked_at": checked_at}
+
+
+def run_check_many(container_names: list[str], on_progress: Callable[[int, int], None] | None = None) -> dict:
+    """Same shape and semantics as run_check() above, scoped to a set of already-tracked
+    containers by name -- backs the stack-level "Reset & re-check" button, which needs to
+    re-check every service in one compose stack without touching the other tracked containers.
+    Container names not currently tracked (removed since the page was loaded) are silently
+    skipped rather than counted as errors, same as run_check_one's "not found" handling would
+    suggest, just without failing the whole batch over one missing member."""
+    checked_at = datetime.now(timezone.utc).isoformat()
+
+    try:
+        all_containers = list_tracked_containers()
+    except Exception:
+        logger.exception("Could not reach the Docker socket")
+        return {"containers": [], "errors": 1, "checked_at": checked_at}
+
+    name_set = set(container_names)
+    containers = [c for c in all_containers if c.name in name_set]
+    if not containers:
+        return {"containers": [], "errors": 0, "checked_at": checked_at}
+
+    total = len(containers)
+    if on_progress:
+        on_progress(0, total)
+
+    progress_lock = threading.Lock()
+    done_count = 0
+
+    def _check_and_report(container: TrackedContainer) -> dict:
+        nonlocal done_count
+        result = _check_one(container)
+        if on_progress:
+            with progress_lock:
+                done_count += 1
+                current = done_count
+            on_progress(current, total)
+        return result
+
+    max_workers = min(settings.registry_check_concurrency, total)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        results = list(pool.map(_check_and_report, containers))
+
+    errors = sum(1 for r in results if r["status"] == "error")
+    return {"containers": results, "errors": errors, "checked_at": checked_at}

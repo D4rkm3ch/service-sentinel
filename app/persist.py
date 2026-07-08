@@ -233,12 +233,16 @@ def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[
 
 
 def _is_new_or_changed_update(container: dict, existing) -> bool:
-    """True only for a container that actually needs release notes fetched: it currently has
-    an update available, and either nothing was recorded for it before or what's recorded no
-    longer matches (a newer update superseded it). Unchanged from the last check, or not an
-    update at all, both return False so notes are never re-fetched for the same transition."""
+    """True for a container that actually needs release notes fetched: either it's a genuinely
+    new/changed update_available transition (nothing recorded before, or what's recorded no
+    longer matches), or it's an existing pending update that's still missing release_notes_raw
+    entirely -- a prior fetch came up empty, so Check now retries it on every subsequent check
+    rather than leaving it permanently stuck with no notes. Unchanged from the last check with
+    notes already on file, or not an update at all, both return False."""
     if container["status"] != "update_available":
         return False
+    if existing is not None and not existing["release_notes_raw"]:
+        return True
     existing_unchanged = (
         existing is not None
         and existing["old_digest"] == container.get("current_digest")
@@ -296,17 +300,21 @@ def _persist_one(container: dict, existing, release_notes_result, summary_result
         return
 
     error_text = _REGISTRY_ERROR_TEXT if status == "error" else None
+    release_notes_raw, source_url = release_notes_result if release_notes_result else (None, None)
+    summary_markdown, severity = summary_result if summary_result else (None, "")
+
     unchanged = (
         existing is not None
         and existing["old_digest"] == current_digest
         and existing["new_digest"] == latest_digest
         and (existing["error"] is not None) == (error_text is not None)
+        # A retried fetch (see _is_new_or_changed_update) that still comes up empty isn't a
+        # real change -- only force a fresh row, losing the existing id/read status, when this
+        # round actually found something new that the existing row didn't already have.
+        and not (release_notes_raw and not existing["release_notes_raw"])
     )
     if unchanged:
         return
-
-    release_notes_raw, source_url = release_notes_result if release_notes_result else (None, None)
-    summary_markdown, severity = summary_result if summary_result else (None, "")
 
     if existing is not None:
         db.delete_update(existing["id"], conn=conn)
@@ -364,6 +372,23 @@ def run_and_persist_single_reset_and_check(container_name: str, on_progress: Pro
     if existing is not None:
         db.delete_update(existing["id"])
     return run_and_persist_single_check(container_name, on_progress=on_progress)
+
+
+def run_and_persist_many_reset_and_check(container_names: list[str], on_progress: ProgressFunc | None = None) -> dict:
+    """Stack-level counterpart to run_and_persist_single_reset_and_check() -- wipes the
+    existing update row (if any) for every named container first, then re-checks all of them
+    in one pass via reconcile.run_check_many(). prune=False for the same reason the single-item
+    version uses it: this outcome's container list is deliberately just the stack's members,
+    not every tracked container."""
+    for name in container_names:
+        existing = db.get_latest_update_for_container(name)
+        if existing is not None:
+            db.delete_update(existing["id"])
+
+    reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
+    outcome = reconcile.run_check_many(container_names, on_progress=reconcile_progress)
+    persist_check_outcome(outcome, on_progress=on_progress, prune=False)
+    return outcome
 
 
 def run_claimed_single_check(item_key: str, container_name: str) -> None:

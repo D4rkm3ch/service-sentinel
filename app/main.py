@@ -339,6 +339,13 @@ def _launch_check_if_not_running() -> None:
 # severity," they're unclassified, and always stay pinned to the top regardless of direction.
 _IMPORTANCE_RANK = {"breaking": 0, "action_needed": 1, "feature": 2, "bugfix": 3}
 
+# Synthetic rank for "release notes could not be found" rows -- lower priority than even a real
+# bugfix classification, so it sorts last among ranked rows, but (unlike a genuine unclassified
+# row) it's not pinned to the top: there's nothing to investigate here, the check already ran
+# and came up empty. Not part of _IMPORTANCE_RANK itself since it's not a real AI severity
+# value -- see _sort_and_filter_rows for how a row earns this tier.
+_NOTES_NOT_FOUND_RANK = 4
+
 
 def _attach_stack_info(rows: list[dict], name_key: str) -> list[dict]:
     """Attaches stack_id/stack_name to each row (container/update record) so the table can
@@ -376,7 +383,10 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
     Importance is the odd one out: unclassified rows (errors, or anything AI summarization
     hasn't reached) are pinned to the very top regardless of direction -- they might be
     critical issues the operator isn't aware of yet and can't be allowed to just scroll off
-    the bottom on a reverse sort the way a genuinely low-severity bugfix can."""
+    the bottom on a reverse sort the way a genuinely low-severity bugfix can. Rows where a
+    check ran and genuinely found no release notes are a separate, lower tier: nothing to
+    investigate there, so they sort alongside real severities (below even bugfix) instead of
+    being pinned to the top."""
     filtered = [r for r in rows if not updates_only or r["status"] in ("update_available", "error")]
     annotated = _attach_stack_info(filtered, "container_name")
     reverse = direction == "desc"
@@ -400,10 +410,18 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
             annotated = grouped + ungrouped
     elif sort == "importance":
         classified = [r for r in annotated if r.get("severity") in _IMPORTANCE_RANK]
-        unclassified = [r for r in annotated if r.get("severity") not in _IMPORTANCE_RANK]
-        classified.sort(key=lambda r: _IMPORTANCE_RANK[r["severity"]], reverse=reverse)
+        notes_not_found = [
+            r for r in annotated
+            if r.get("severity") not in _IMPORTANCE_RANK and not r.get("error") and not r.get("release_notes_raw")
+        ]
+        unclassified = [
+            r for r in annotated
+            if r.get("severity") not in _IMPORTANCE_RANK and (r.get("error") or r.get("release_notes_raw"))
+        ]
+        ranked = classified + notes_not_found
+        ranked.sort(key=lambda r: _IMPORTANCE_RANK.get(r["severity"], _NOTES_NOT_FOUND_RANK), reverse=reverse)
         unclassified.sort(key=lambda r: r["container_name"].lower())
-        annotated = unclassified + classified
+        annotated = unclassified + ranked
     else:
         annotated.sort(key=lambda r: r["container_name"].lower(), reverse=reverse)
 
@@ -665,14 +683,18 @@ def _linkify_stack_mentions(text: str, service_names: list[str]) -> str:
     return pattern.sub(lambda m: f'<a href="#row-{m.group(1)}">{m.group(1)}</a>', text)
 
 
+def _stack_member_names(stack_id: str) -> list[str]:
+    index = compose_lookup.build_stack_index()
+    return sorted(
+        c["container_name"] for c in db.all_container_states()
+        if (match := compose_lookup.match_container_to_stack(c["container_name"], index)) and match["stack_id"] == stack_id
+    )
+
+
 @app.get("/updates/stack")
 def stack_detail(request: Request, id: str):
     stack_row = db.get_stack(id)
-    index = compose_lookup.build_stack_index()
-    member_names = sorted(
-        c["container_name"] for c in db.all_container_states()
-        if (match := compose_lookup.match_container_to_stack(c["container_name"], index)) and match["stack_id"] == id
-    )
+    member_names = _stack_member_names(id)
     display_name = stack_row["display_name"] if stack_row else (member_names[0] if member_names else "Unknown stack")
     analysis_row = db.get_stack_analysis(id)
     analysis_html = None
@@ -737,9 +759,26 @@ async def retry_stack_route(request: Request):
 
 @app.post("/updates/stack/reset-and-recheck")
 async def reset_and_recheck_stack_route(request: Request):
-    # Not reachable from the UI yet — stack detection returns in Stage 12.
+    """Stack-scoped equivalent of the per-item Reset & re-check: wipes and re-checks every
+    service belonging to this stack, and no others. Runs synchronously in the request (the
+    button is a plain form post, not htmx, matching how it's always been wired) since a stack
+    is a handful of services at most -- nowhere near the size where a background thread +
+    spinner/poll setup like the per-item buttons use would earn its keep.
+
+    Shares the same "only one check at a time" mutex as every other check. If it's already
+    held (a full check or another scoped action mid-flight), this is a silent no-op and just
+    redirects back -- the button is already disabled client-side the moment
+    /updates/running-state reports anything running, so this is only a defensive fallback for
+    the brief window before that poll catches up, same as _launch_scoped_check's busy_message
+    branch for the per-item buttons."""
     form = await request.form()
     stack_id = form.get("stack_id", "")
+    member_names = _stack_member_names(stack_id) if stack_id else []
+    if member_names and persist.try_start_updates_check():
+        try:
+            persist.run_and_persist_many_reset_and_check(member_names)
+        finally:
+            check_state.release_running("updates")
     return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
 
 
