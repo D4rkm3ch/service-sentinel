@@ -268,7 +268,14 @@ a {
 
 .action-row {
   margin-top: 20px;
-  margin-bottom: 20px;
+}
+
+.detail-body {
+  /* padding, not margin -- guarantees real space above the notice/summary/AI content on the
+     update detail page regardless of margin-collapse quirks with whatever sibling precedes
+     it (the action-row buttons above always have their own margin-top, never a margin-bottom
+     to collapse against here). */
+  padding-top: 20px;
 }
 
 .overview-summary {

@@ -5,6 +5,8 @@ app.persist.release_notes.get_release_notes directly (real fetching is release_n
 own responsibility and already covered by test_release_notes.py) so these tests are purely
 about *when* persist.py decides to call it and what it does with the result."""
 
+import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -166,6 +168,53 @@ def test_run_and_persist_check_reports_both_stages_in_order(monkeypatch):
         ("checking", 0, 1), ("checking", 1, 1),
         ("release_notes", 0, 1), ("release_notes", 1, 1),
     ]
+
+
+def test_release_notes_fetches_run_concurrently_not_sequentially():
+    """Proves the thread pool is actually parallelizing fetches, not just wrapping the old
+    sequential loop -- 4 fetches at 0.15s each must finish well under 4x0.15s if truly
+    concurrent (settings.ai_summarize_concurrency defaults to 4, so all 4 fit in one batch)."""
+    def slow_fetch(image_repo, tag, source_override=None, changelog_url_override=None):
+        time.sleep(0.15)
+        return (f"notes for {image_repo}", "https://example.com")
+
+    containers = [_c(f"c{i}", "update_available", repo=f"owner/repo{i}") for i in range(4)]
+
+    with patch("app.persist.release_notes.get_release_notes", side_effect=slow_fetch):
+        start = time.monotonic()
+        persist.persist_check_outcome(_outcome(*containers))
+        elapsed = time.monotonic() - start
+
+    assert elapsed < 0.4, f"4 fetches at 0.15s each took {elapsed:.2f}s -- doesn't look concurrent"
+    rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}
+    for i in range(4):
+        assert rows[f"c{i}"]["id"] is not None
+
+
+def test_progress_covers_every_step_exactly_once_regardless_of_completion_order():
+    """With several fetches running concurrently, done-count updates arrive from different
+    worker threads and so can land in any order -- but every value from 1..total must still
+    be reported exactly once (the shared lock in persist.py must serialize the increments
+    correctly, same approach reconcile.run_check() already uses for the checking stage)."""
+    def fetch(image_repo, tag, source_override=None, changelog_url_override=None):
+        time.sleep(0.02)
+        return (None, None)
+
+    containers = [_c(f"c{i}", "update_available", repo=f"owner/repo{i}") for i in range(6)]
+    calls = []
+    calls_lock = threading.Lock()
+
+    def on_progress(stage, done, total):
+        with calls_lock:
+            calls.append((stage, done, total))
+
+    with patch("app.persist.release_notes.get_release_notes", side_effect=fetch):
+        persist.persist_check_outcome(_outcome(*containers), on_progress=on_progress)
+
+    release_notes_calls = [c for c in calls if c[0] == "release_notes"]
+    done_values = sorted(c[1] for c in release_notes_calls)
+    assert done_values == list(range(7))  # the initial (0, total) announce, then 1..6 once each
+    assert all(c[2] == 6 for c in release_notes_calls)
 
 
 def test_fetch_happens_before_the_write_transaction_opens():

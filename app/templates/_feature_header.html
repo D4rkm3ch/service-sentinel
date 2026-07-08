@@ -11,12 +11,13 @@
     {% if feature == "updates" %}
     <form method="post" action="/updates/reset-and-recheck"
           onsubmit="return confirm('This wipes all Update history and tracking state, then re-checks everything fresh. Continue?')">
-      <button type="submit" class="button-danger" title="Wipe all tracked-container and update history, then run a fresh check">
+      <button type="submit" class="button-danger updates-action-btn" title="Wipe all tracked-container and update history, then run a fresh check">
         Reset &amp; re-check
       </button>
     </form>
     {% endif %}
-    <button hx-post="/{{ feature }}/check-now" hx-target="#check-status" hx-swap="innerHTML" hx-disabled-elt="this">
+    <button class="{{ 'updates-action-btn' if feature == 'updates' else '' }}"
+            hx-post="/{{ feature }}/check-now" hx-target="#check-status" hx-swap="innerHTML" hx-disabled-elt="this">
       Check now
     </button>
   </div>

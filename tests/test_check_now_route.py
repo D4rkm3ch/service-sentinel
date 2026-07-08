@@ -98,3 +98,17 @@ def test_status_poll_keeps_2s_cadence_for_logs_and_compose(client):
     check_state._state["logs"]["running"] = False  # don't leak "running" into other tests
     assert "delay:2000ms" in resp.text
     assert "/10" not in resp.text  # no progress text was ever wired up for logs
+
+
+def test_running_state_endpoint_reflects_the_shared_updates_mutex(client):
+    """Backs the global button-disabling poller in base.html (Updates/Stack/Service pages) --
+    just the one boolean, reflecting the exact same flag a full check and a scoped per-item
+    recheck both claim, regardless of which page or button started it."""
+    check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
+    assert client.get("/updates/running-state").json() == {"running": False}
+
+    check_state.set_running("updates")
+    assert client.get("/updates/running-state").json() == {"running": True}
+
+    check_state.release_running("updates")
+    assert client.get("/updates/running-state").json() == {"running": False}

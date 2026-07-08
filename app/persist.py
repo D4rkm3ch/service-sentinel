@@ -17,9 +17,12 @@ time.
 """
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 from app import check_state, db, reconcile, release_notes
+from app.config import settings
 
 logger = logging.getLogger("release_radar.persist")
 
@@ -104,15 +107,20 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
 
     Stage 6 adds a read-fetch-write shape: first a read-only pass figures out which
     containers are genuinely new (or changed) update_available transitions, then release
-    notes are fetched sequentially for just those — real network calls, done with no
-    database transaction open — and only then does the actual write batch run. This keeps
-    the "one transaction for the whole write batch" property described below while never
-    holding a SQLite transaction open across however long a handful of GitHub API calls take.
+    notes are fetched for just those — real network calls, done with no database transaction
+    open, fanned out across a thread pool exactly like reconcile.run_check() already does for
+    registry checks (settings.ai_summarize_concurrency caps it; kept lower than the registry
+    check concurrency since GitHub API calls are meaningfully more expensive and rate-limited)
+    — and only then does the actual write batch run. This keeps the "one transaction for the
+    whole write batch" property described below while never holding a SQLite transaction open
+    across however long a batch of GitHub API calls takes.
     on_progress(stage, done, total) is called with stage="release_notes" once per fetch during
-    that phase, exactly like reconcile.run_check() already does for stage="checking" — skipped
-    entirely (never called with this stage) if nothing needs notes this round, so the caller
-    never has to render a meaningless "0/0". A phase that fetches things but never reports
-    progress here is exactly the "hangs at N/N" bug this stage previously reintroduced.
+    that phase (done-count updated under a lock, safe to call from multiple worker threads at
+    once — same approach as reconcile.run_check()'s progress callback), exactly like
+    reconcile.run_check() already does for stage="checking" — skipped entirely (never called
+    with this stage) if nothing needs notes this round, so the caller never has to render a
+    meaningless "0/0". A phase that fetches things but never reports progress here is exactly
+    the "hangs at N/N" bug this stage previously reintroduced.
 
     Holds a single connection/transaction for the whole write batch rather than letting each
     db.py call open and commit its own — with 59 containers and up to four db.py calls each,
@@ -146,10 +154,24 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
         total = len(to_fetch)
         if on_progress:
             on_progress("release_notes", 0, total)
-        for i, container in enumerate(to_fetch, start=1):
-            release_notes_by_name[container["container_name"]] = _fetch_release_notes(container)
+
+        progress_lock = threading.Lock()
+        done_count = 0
+
+        def _fetch_and_report(container: dict) -> tuple[str, tuple[str | None, str | None]]:
+            nonlocal done_count
+            result = _fetch_release_notes(container)
             if on_progress:
-                on_progress("release_notes", i, total)
+                with progress_lock:
+                    done_count += 1
+                    current = done_count
+                on_progress("release_notes", current, total)
+            return container["container_name"], result
+
+        max_workers = min(settings.ai_summarize_concurrency, total)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for name, result in pool.map(_fetch_and_report, to_fetch):
+                release_notes_by_name[name] = result
 
     conn = db.open_conn()
     try:

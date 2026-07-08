@@ -17,13 +17,15 @@
     {% else %}
     <span class="badge badge-lg">—</span>
     {% endif %}
-    {% if not update.error %}
-      {% if update.status == 'unread' %}
-      <span class="badge badge-unread">Unread</span>
-      {% else %}
-      <span class="badge badge-read">Read</span>
+    <span id="read-status-badge">
+      {% if not update.error %}
+        {% if update.status == 'unread' %}
+        <span class="badge badge-unread">Unread</span>
+        {% else %}
+        <span class="badge badge-read">Read</span>
+        {% endif %}
       {% endif %}
-    {% endif %}
+    </span>
   </div>
   <p class="meta">
     <span class="mono">{{ update.image_repo }}:{{ update.tag }}</span>
@@ -32,36 +34,43 @@
   </p>
 
   <div class="action-row" style="display:flex; align-items:center; gap:10px;">
-    {% if update.status == 'unread' and (update.summary_markdown or update.release_notes_raw) %}
-    <form method="post" action="/updates/{{ update.id }}/read">
-      <button type="submit">Mark as read</button>
-    </form>
-    {% endif %}
+    <span id="read-toggle-btn">
+      {% if update.status == 'unread' and (update.summary_markdown or update.release_notes_raw) %}
+      <form method="post" action="/updates/{{ update.id }}/read">
+        <button type="submit">Mark as read</button>
+      </form>
+      {% elif update.status == 'read' %}
+      <button type="button" hx-post="/updates/{{ update.id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML">
+        Mark as unread
+      </button>
+      {% endif %}
+    </span>
     <button type="button" disabled
             title="Regenerates the AI-suggested summary in place -- arriving in a later stage, once AI summarization is built">
       Retry
     </button>
-    <span id="item-recheck-status"></span>
-    <button type="button" class="button-danger"
+    <button type="button" class="updates-action-btn"
             hx-post="/updates/{{ update.id }}/reset-and-recheck"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
-            hx-confirm="This wipes this update's history and re-checks it fresh. Continue?"
             hx-disabled-elt="this">
-      Reset &amp; re-check
+      Check now
     </button>
+    <span id="item-recheck-status"></span>
   </div>
 
-  {% if update.error %}
-    <div class="notice notice-error">{{ update.error }}</div>
-  {% endif %}
+  <div class="detail-body">
+    {% if update.error %}
+      <div class="notice notice-error">{{ update.error }}</div>
+    {% endif %}
 
-  {% if update.summary_markdown %}
-    <div class="summary">{{ summary_html | safe }}</div>
-  {% elif release_notes_html %}
-    <div class="summary">{{ release_notes_html | safe }}</div>
-  {% elif not update.error %}
-    <p class="meta">No release notes could be found for this image.</p>
-  {% endif %}
+    {% if update.summary_markdown %}
+      <div class="summary">{{ summary_html | safe }}</div>
+    {% elif release_notes_html %}
+      <div class="summary">{{ release_notes_html | safe }}</div>
+    {% elif not update.error %}
+      <p class="meta">No release notes could be found for this image.</p>
+    {% endif %}
+  </div>
 </section>
 
 {% endblock %}

@@ -25,12 +25,12 @@
   <div class="action-row" style="display:flex; gap:10px;">
     <form method="post" action="/updates/stack/retry">
       <input type="hidden" name="stack_id" value="{{ stack_id }}">
-      <button type="submit">Retry</button>
+      <button type="submit" class="updates-action-btn">Retry</button>
     </form>
     <form method="post" action="/updates/stack/reset-and-recheck"
           onsubmit="return confirm('This wipes update history for every service in this stack and re-checks them all fresh. Continue?')">
       <input type="hidden" name="stack_id" value="{{ stack_id }}">
-      <button type="submit" class="button-danger">Reset &amp; re-check</button>
+      <button type="submit" class="button-danger updates-action-btn">Reset &amp; re-check</button>
     </form>
   </div>
 

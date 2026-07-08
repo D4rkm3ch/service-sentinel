@@ -97,6 +97,48 @@ def test_update_detail_page_renders_real_content(client):
     assert "https://example.com/notes" in detail.text
 
 
+def test_detail_page_scoped_button_is_check_now_with_no_confirm(client):
+    """Stage 6 polish: the per-item button only replaces the row if the digest actually
+    changed -- exactly like every other "Check now" in the app -- so it's labeled and behaves
+    that way, not like the destructive-sounding "Reset & re-check" the global button is."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+
+    detail = client.get(f"/updates/{sonarr['id']}")
+    assert "Check now" in detail.text
+    assert "hx-confirm" not in detail.text
+
+
+def test_mark_read_then_mark_unread_round_trip(client):
+    """Mark as read is a plain form that redirects to the list (unchanged). Mark as unread is
+    new (Stage 6 polish): an htmx toggle that stays on the page and flips the button/badge
+    back in place via one response (a primary swap plus an out-of-band swap)."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+
+    resp = client.post(f"/updates/{sonarr_id}/read", follow_redirects=False)
+    assert resp.status_code == 303
+    assert db.get_update(sonarr_id)["status"] == "read"
+
+    detail = client.get(f"/updates/{sonarr_id}")
+    assert "Mark as unread" in detail.text
+    assert 'id="read-toggle-btn"' in detail.text
+
+    resp = client.post(f"/updates/{sonarr_id}/unread")
+    assert resp.status_code == 200
+    assert "Mark as read" in resp.text
+    assert 'id="read-status-badge" hx-swap-oob="true"' in resp.text
+    assert "badge-unread" in resp.text
+    assert db.get_update(sonarr_id)["status"] == "unread"
+
+    # And the page itself, loaded fresh, reflects the same state (didn't just update the
+    # fragment without actually persisting).
+    detail = client.get(f"/updates/{sonarr_id}")
+    assert "Mark as unread" not in detail.text
+    assert "Mark as read" in detail.text
+
+
 def test_global_reset_and_recheck_wipes_then_repopulates(client):
     _run_check_and_wait(client)
     assert len(db.list_tracked_containers_with_status()) == 3

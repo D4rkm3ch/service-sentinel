@@ -72,6 +72,19 @@ def severity_label(context: str, value: str) -> str:
 
 templates.env.globals["severity_label"] = severity_label
 
+# Every markdown-rendered block in the app (release notes, AI summaries/overviews, finding
+# descriptions and suggested fixes) can contain links the user didn't put there themselves --
+# a GitHub release body linking to Watchtower, a CHANGELOG.md, an upstream issue. Those should
+# open in a new tab rather than navigating the user away from release-radar; internal links
+# this app generates itself (e.g. _linkify_stack_mentions's "#row-<service>" jump links) are
+# same-page anchors, not http(s) URLs, so this regex never touches them.
+_EXTERNAL_LINK_RE = re.compile(r'<a href="(https?://[^"]*)"')
+
+
+def render_markdown(text: str) -> str:
+    return _EXTERNAL_LINK_RE.sub(r'<a target="_blank" rel="noopener" href="\1"', markdown.markdown(text))
+
+
 TRIGGER_FUNCS = {
     "logs": trigger_log_check_now,
     "compose": trigger_compose_check_now,
@@ -208,6 +221,17 @@ def updates_check_now(request: Request):
 @app.get("/updates/status-poll")
 def updates_status_poll(request: Request):
     return _render_status_poll(request, "updates")
+
+
+@app.get("/updates/running-state")
+def updates_running_state():
+    """Tiny polled-everywhere signal (see base.html) for disabling every Updates-related
+    Check now / Reset & re-check button across the Updates, Stack, and Service pages while
+    any check -- full or a single scoped per-item recheck, both claim the same mutex -- is in
+    flight. Deliberately its own minimal endpoint rather than reusing status-poll's full HTML
+    fragment: this needs to be pollable from pages that don't render the status badge at all
+    (Stack, Service), and every caller only ever needs the one boolean."""
+    return {"running": get_state("updates")["running"]}
 
 
 @app.get("/updates/partial")
@@ -624,7 +648,7 @@ def stack_detail(request: Request, id: str):
     analysis_html = None
     if analysis_row:
         linked_text = _linkify_stack_mentions(analysis_row["analysis_markdown"], member_names)
-        analysis_html = markdown.markdown(linked_text)
+        analysis_html = render_markdown(linked_text)
 
     members = []
     for name in member_names:
@@ -793,12 +817,12 @@ def update_detail(request: Request, update_id: int):
     update = db.get_update(update_id)
     if update is None:
         raise HTTPException(status_code=404, detail="Update not found")
-    summary_html = markdown.markdown(update["summary_markdown"]) if update["summary_markdown"] else None
+    summary_html = render_markdown(update["summary_markdown"]) if update["summary_markdown"] else None
     # No AI summary yet without Stage 7 -- release_notes_raw (Stage 6) is the real content on
     # a fresh install, shown as-is (still markdown-rendered, since GitHub release bodies and
     # changelog files both are) whenever there's no AI summary to show instead.
     release_notes_html = (
-        markdown.markdown(update["release_notes_raw"])
+        render_markdown(update["release_notes_raw"])
         if not update["summary_markdown"] and update["release_notes_raw"]
         else None
     )
@@ -822,6 +846,23 @@ def update_detail(request: Request, update_id: int):
 def mark_read(update_id: int):
     db.mark_update_status(update_id, "read")
     return RedirectResponse(url="/updates", status_code=303)
+
+
+@app.post("/updates/{update_id}/unread")
+def mark_unread(request: Request, update_id: int):
+    # Unlike Mark as read (a plain form redirecting back to the list -- "I'm done, take me
+    # away"), marking something unread again is something you do while still looking at it, so
+    # this stays in place: an htmx fragment that swaps the button back to "Mark as read" and
+    # updates the title-row badge via an out-of-band swap, both from the one response.
+    update = db.get_update(update_id)
+    if update is None:
+        raise HTTPException(status_code=404, detail="Update not found")
+    db.mark_update_status(update_id, "unread")
+    has_content = bool(update["summary_markdown"] or update["release_notes_raw"])
+    return templates.TemplateResponse(
+        "_read_toggle.html",
+        {"request": request, "update_id": update_id, "status": "unread", "has_content": has_content},
+    )
 
 
 @app.post("/updates/{update_id}/retry")
@@ -852,12 +893,24 @@ def _render_item_status(request: Request, update_id: int, item_key: str, busy_me
 
 @app.post("/updates/{update_id}/reset-and-recheck")
 def reset_and_recheck_update_route(request: Request, update_id: int):
-    """Real as of Stage 6: wipes just this container's history and re-checks it (digest +
-    release notes) on its own, sharing the same "only one check at a time" mutex a full check
-    uses (see persist.run_claimed_single_check) without disturbing the full check's own status
-    display. Renders the live spinner/progress fragment next to the button; the poller it
-    kicks off (see the recheck-status-poll route below) follows up with an HX-Redirect once
-    the container's update row has possibly moved to a new id, changed, or disappeared."""
+    """Real as of Stage 6: re-checks just this one container (digest + release notes if
+    something changed), sharing the same "only one check at a time" mutex a full check uses
+    (see persist.run_claimed_single_check) without disturbing the full check's own status
+    display. Non-destructive -- it only touches the update row if the digest actually moved,
+    exactly like every other "Check now" in the app, which is why the button is labeled and
+    behaves that way rather than the wipe-then-recheck "Reset & re-check" does globally.
+
+    Renders the live spinner/progress fragment next to the button; the poller it kicks off
+    (see the recheck-status-poll route below) follows up with an HX-Redirect once the
+    container's update row has possibly moved to a new id, changed, or disappeared.
+
+    The route name kept "reset-and-recheck" even though the button itself is now "Check now" --
+    it's an internal URL, not user-facing text, and renaming it would just be churn.
+
+    try_start_updates_check() failing here (the busy_message branch) should be rare in
+    practice: every button that can reach this route is disabled client-side the moment
+    /updates/running-state reports a check in flight (see base.html), so this is just a
+    defensive fallback for the brief window before that poll catches up."""
     update = db.get_update(update_id)
     if update is None:
         raise HTTPException(status_code=404, detail="Update not found")
@@ -866,7 +919,7 @@ def reset_and_recheck_update_route(request: Request, update_id: int):
     if not persist.try_start_updates_check():
         return _render_item_status(
             request, update_id, item_key,
-            busy_message="A check is already running — try again shortly.",
+            busy_message="A check just started elsewhere — try again shortly.",
         )
 
     check_state.start_item(item_key, update["container_name"])
@@ -915,8 +968,8 @@ def finding_detail(request: Request, finding_id: int):
     finding = db.get_finding(finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
-    description_html = markdown.markdown(finding["description_markdown"] or "")
-    suggested_fix_html = markdown.markdown(finding["suggested_fix"]) if finding["suggested_fix"] else None
+    description_html = render_markdown(finding["description_markdown"] or "")
+    suggested_fix_html = render_markdown(finding["suggested_fix"]) if finding["suggested_fix"] else None
     display_name = compose_lookup.subject_display_name(finding["source"], finding["subject"])
     return templates.TemplateResponse(
         "finding_detail.html",
