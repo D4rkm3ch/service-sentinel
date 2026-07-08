@@ -4,7 +4,8 @@ Stage 7 adds AI summarization: a per-service summary_markdown + severity classif
 generated from Stage 6's fetched release notes plus the operator's own compose config for
 that service, for the exact same set of genuinely-new/changed updates that get fresh release
 notes. Deliberately no toggle for this one — it's the "single path" base tier, unlike the
-optional (and separate, not yet wired up here) stack-level cross-service analysis. Stage 10
+optional stack-level cross-service analysis (see stacks.run_stack_analysis_pass(), also called
+from here, once the write transaction commits, gated by its own Deep Analysis toggle). Stage 10
 wires up real notifications: every write that's genuinely new/changed (not a repeat of the
 exact same pending transition) is collected into a candidate list, and offered to
 notifications.notify_updates_digest() as a single batched call once the write transaction has
@@ -32,7 +33,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
-from app import ai_provider, check_state, compose_lookup, db, notifications, reconcile, release_notes
+from app import ai_provider, check_state, compose_lookup, db, notifications, reconcile, release_notes, stacks
 from app.summarizer import summarize_update
 
 logger = logging.getLogger("release_radar.persist")
@@ -223,6 +224,17 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
             notifications.notify_updates_digest(items, errors)
         except Exception:
             logger.exception("Notification digest failed for this check")
+
+    # Also fired only after the transaction has committed -- a real AI call per affected stack.
+    # Naturally a no-op unless 2+ members of the same stack are both present in this particular
+    # outcome's containers (always true for a full check, true for a stack-scoped re-check,
+    # never true for a single-container scoped check) and the Deep Analysis toggle is on -- see
+    # stacks.run_stack_analysis_pass()'s own docstring for exactly why no special-casing per
+    # caller is needed here.
+    try:
+        stacks.run_stack_analysis_pass(containers)
+    except Exception:
+        logger.exception("Stack analysis pass failed for this check")
 
 
 def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[dict], object],

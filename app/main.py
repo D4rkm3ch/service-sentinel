@@ -779,6 +779,28 @@ def _stack_member_names(stack_id: str) -> list[str]:
     )
 
 
+def _stack_members_for_analysis(stack_id: str) -> list[dict]:
+    """Builds the same check-outcome-shaped member dicts stacks.regenerate_stack_analysis()
+    expects (container_name, image_repo, tag, current_digest, latest_digest), from whatever's
+    currently persisted -- used by the stack page's Retry button, which (unlike a real check)
+    has no fresh reconcile.py outcome of its own to draw from."""
+    members = []
+    for name in _stack_member_names(stack_id):
+        container_row = db.get_container_state(name)
+        if container_row is None:
+            continue
+        latest_update = db.get_latest_update_for_container(name)
+        latest_digest = latest_update["new_digest"] if latest_update else container_row["last_seen_digest"]
+        members.append({
+            "container_name": name,
+            "image_repo": container_row["image_repo"],
+            "tag": container_row["tag"],
+            "current_digest": container_row["last_seen_digest"],
+            "latest_digest": latest_digest,
+        })
+    return members
+
+
 @app.get("/updates/stack")
 def stack_detail(request: Request, id: str):
     stack_row = db.get_stack(id)
@@ -838,10 +860,21 @@ async def reset_stack_name_route(request: Request):
 
 @app.post("/updates/stack/retry")
 async def retry_stack_route(request: Request):
-    # Not reachable from the UI yet — stack detection returns in Stage 12. Kept as a safe
-    # no-op (not removed) rather than calling functions that no longer exist in Stage 1.
+    """Force-regenerates this stack's cross-service analysis blurb, bypassing the content-hash
+    cache regardless of whether anything's actually changed since the last one -- same
+    "an explicit click always regenerates" semantics as the per-update Regenerate AI Response
+    button. Runs synchronously in the request, same as Reset & re-check just below (a stack is
+    a handful of services at most, not worth a background-thread+spinner setup for). Shares the
+    same "only one check at a time" mutex as every other check, so this can't race a full
+    check's own automatic regeneration of the same stack's analysis row."""
     form = await request.form()
     stack_id = form.get("stack_id", "")
+    if stack_id and persist.try_start_updates_check():
+        try:
+            members = _stack_members_for_analysis(stack_id)
+            stacks.regenerate_stack_analysis(stack_id, members, force=True)
+        finally:
+            check_state.release_running("updates")
     return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
 
 

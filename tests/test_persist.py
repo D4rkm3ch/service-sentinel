@@ -186,7 +186,11 @@ def test_persist_check_outcome_uses_a_fixed_number_of_connections_not_one_per_co
     those out before ever calling into notifications.py, so
     notifications.notify_updates_digest() (and its own Settings reads) never gets invoked at
     all here, let alone once per container -- see tests/test_persist_notifications.py for the
-    digest-call-shape tests themselves."""
+    digest-call-shape tests themselves. One more connection comes from
+    stacks.run_stack_analysis_pass()'s own Deep Analysis toggle read (Stage 12) -- checked once
+    per batch same as everything else here, and these 20 containers are all on different image
+    repos with no compose files in this test's COMPOSE_ROOT, so there's no stack to actually
+    analyze regardless."""
     original_connect = sqlite3.connect
     connect_calls = []
 
@@ -199,7 +203,7 @@ def test_persist_check_outcome_uses_a_fixed_number_of_connections_not_one_per_co
     with patch("app.db.sqlite3.connect", side_effect=counting_connect):
         persist.persist_check_outcome(_outcome(*containers))
 
-    assert connect_calls == [1, 1, 1, 1], f"expected a fixed connection count for the whole batch, got {len(connect_calls)}"
+    assert connect_calls == [1, 1, 1, 1, 1], f"expected a fixed connection count for the whole batch, got {len(connect_calls)}"
     assert len(db.list_tracked_containers_with_status()) == 20
 
 
