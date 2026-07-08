@@ -674,7 +674,8 @@ tr:hover .row-chevron {
   align-items: center;
   gap: 8px;
 }
-.schedule-fields select, .schedule-fields input[type="text"], .schedule-fields input[type="time"], .schedule-fields input[type="number"] {
+.schedule-fields select, .schedule-fields input[type="text"], .schedule-fields input[type="time"], .schedule-fields input[type="number"],
+.field-input {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);

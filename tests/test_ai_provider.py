@@ -106,10 +106,26 @@ def test_complete_text_gemini_sends_model_and_returns_response_text():
         result = ai_provider.complete_text(system="be terse", user_message="hi", max_tokens=100)
 
     assert result == "hello from gemini"
-    mock_client_cls.assert_called_once_with(api_key="AIza-test")
+    assert mock_client_cls.call_args.kwargs["api_key"] == "AIza-test"
     kwargs = mock_client_cls.return_value.models.generate_content.call_args.kwargs
     assert kwargs["model"] == "gemini-2.5-flash"
     assert kwargs["contents"] == "hi"
+
+
+def test_complete_text_gemini_configures_a_patient_retry_policy_for_free_tier_rate_limits():
+    """Free-tier Gemini caps requests/minute per model -- several containers needing
+    summarization in the same check will 429 immediately under the SDK's own default retry
+    budget. Proves the client is built with a longer retry window rather than relying on
+    whatever the SDK ships as its own default."""
+    db.set_ai_provider("gemini")
+    db.set_gemini_api_key("AIza-test")
+    with patch("app.ai_provider.genai.Client") as mock_client_cls:
+        mock_client_cls.return_value.models.generate_content.return_value = _gemini_response("ok")
+        ai_provider.complete_text(system=None, user_message="hi", max_tokens=30)
+
+    http_options = mock_client_cls.call_args.kwargs["http_options"]
+    assert http_options.retry_options.attempts >= 8
+    assert http_options.retry_options.max_delay >= 30
 
 
 def test_complete_text_gemini_handles_a_none_response_text():

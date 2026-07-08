@@ -21,6 +21,24 @@ from app import db
 
 logger = logging.getLogger("release_radar.ai_provider")
 
+# Gemini's free tier caps requests per minute per model (5/min as of this writing) -- with
+# several containers needing summarization in the same check, concurrent calls (see
+# settings.ai_summarize_concurrency) blow through that in the first second and come back with
+# a 429 the SDK's own default retry budget (5 attempts, capped around 30s total) isn't patient
+# enough to ride out. This is deliberately more patient than the SDK default -- a background
+# check taking a few extra minutes to work through a quota window is a fine tradeoff for
+# actually getting a summary instead of silently failing every container past the first few.
+_GEMINI_RETRY_OPTIONS = genai_types.HttpRetryOptions(
+    attempts=8, initial_delay=2.0, max_delay=30.0, exp_base=2.0,
+)
+
+
+def _gemini_client() -> "genai.Client":
+    return genai.Client(
+        api_key=db.get_gemini_api_key(),
+        http_options=genai_types.HttpOptions(retry_options=_GEMINI_RETRY_OPTIONS),
+    )
+
 
 def is_configured() -> bool:
     """True if the currently-selected provider has an API key on file. Every call site in
@@ -64,7 +82,7 @@ def _complete_anthropic(system: str | None, user_message: str, max_tokens: int) 
 
 
 def _complete_gemini(system: str | None, user_message: str, max_tokens: int) -> str:
-    client = genai.Client(api_key=db.get_gemini_api_key())
+    client = _gemini_client()
     config = genai_types.GenerateContentConfig(max_output_tokens=max_tokens, system_instruction=system)
     response = client.models.generate_content(
         model=db.get_gemini_model(), contents=user_message, config=config,
@@ -87,7 +105,7 @@ def _web_search_anthropic(user_message: str, max_tokens: int) -> str:
 
 
 def _web_search_gemini(user_message: str, max_tokens: int) -> str:
-    client = genai.Client(api_key=db.get_gemini_api_key())
+    client = _gemini_client()
     config = genai_types.GenerateContentConfig(
         max_output_tokens=max_tokens,
         tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
