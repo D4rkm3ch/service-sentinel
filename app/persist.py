@@ -26,7 +26,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
-from app import check_state, compose_lookup, db, reconcile, release_notes
+from app import ai_provider, check_state, compose_lookup, db, reconcile, release_notes
 from app.config import settings
 from app.summarizer import summarize_update
 
@@ -166,7 +166,7 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
     # isn't configured, matching every other AI call site's own early-out, so this never logs
     # a stream of "not configured" exceptions once per new update.
     to_summarize = []
-    if settings.anthropic_api_key:
+    if ai_provider.is_configured():
         to_summarize = [
             c for c in to_fetch
             if (release_notes_by_name.get(c["container_name"]) or (None, None))[0]

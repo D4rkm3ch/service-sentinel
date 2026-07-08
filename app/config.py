@@ -10,9 +10,11 @@ class Settings:
     """
 
     def __init__(self) -> None:
-        self.anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "")
+        # AI provider/key/model moved to Settings (see app/ai_provider.py, app/db.py) so they
+        # can change without a redeploy -- no longer read from env vars here. ANTHROPIC_API_KEY
+        # and CLAUDE_MODEL are still read once, at db.init_db() time only, to carry over an
+        # existing install's compose-file values into the database on upgrade.
         self.github_token: str = os.environ.get("GITHUB_TOKEN", "")
-        self.claude_model: str = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5")
 
         self.compose_root: Path = Path(os.environ.get("COMPOSE_ROOT", "/compose"))
         self.data_dir: Path = Path(os.environ.get("DATA_DIR", "/data"))
@@ -44,13 +46,11 @@ class Settings:
         self.log_max_lines_per_container: int = int(os.environ.get("LOG_MAX_LINES_PER_CONTAINER", "5000"))
 
     def validate(self) -> list[str]:
-        """Returns a list of human-readable problems. Empty list means we're good to start."""
+        """Returns a list of human-readable problems. Empty list means we're good to start.
+        No longer checks for an AI provider key here -- that's now a Settings-page concern
+        (see app/ai_provider.py), checked at call time by whichever feature needs it, not a
+        startup-time requirement the whole app depends on."""
         problems = []
-        if not self.anthropic_api_key:
-            problems.append(
-                "ANTHROPIC_API_KEY is not set. The app will start but every check will fail "
-                "at the summarization step."
-            )
         if not self.compose_root.exists():
             problems.append(
                 f"COMPOSE_ROOT ({self.compose_root}) does not exist inside the container. "

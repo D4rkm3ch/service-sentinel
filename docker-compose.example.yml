@@ -6,9 +6,10 @@ services:
     ports:
       - "8420:8000"
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # AI provider, API key, and model are configured from the Settings page in the UI, not
+      # here -- see the "AI Provider" panel. Switching providers or updating a key takes
+      # effect immediately, no redeploy needed.
       - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-5}
       - COMPOSE_ROOT=/compose
       - DATA_DIR=/data
       - TZ=${TZ:-Australia/Sydney}

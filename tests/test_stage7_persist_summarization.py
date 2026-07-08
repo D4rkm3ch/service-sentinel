@@ -39,7 +39,7 @@ def _c(name, status, repo="owner/repo", tag="latest", current_digest="sha256:old
 
 
 def test_new_update_with_notes_gets_summarized_and_stored():
-    with patch("app.persist.settings.anthropic_api_key", "sk-test"), \
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")), \
          patch("app.persist.compose_lookup.find_service_config", return_value={"image": "owner/repo"}), \
          patch("app.persist.summarize_update", return_value=("## Bug Fixes\nFixed a bug.", "bugfix")) as mock_summarize:
@@ -57,7 +57,7 @@ def test_new_update_with_notes_gets_summarized_and_stored():
 
 
 def test_no_summarization_when_no_release_notes_were_found():
-    with patch("app.persist.settings.anthropic_api_key", "sk-test"), \
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", return_value=(None, "https://hub.docker.com/r/owner/repo/tags")), \
          patch("app.persist.summarize_update") as mock_summarize:
         persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
@@ -72,7 +72,7 @@ def test_no_summarization_when_no_release_notes_were_found():
 def test_no_summarization_at_all_when_api_key_is_not_configured():
     """Skipped entirely, not attempted-and-failed per container -- must never even try, let
     alone log a stream of "not configured" exceptions once per new update."""
-    with patch("app.persist.settings.anthropic_api_key", ""), \
+    with patch("app.persist.ai_provider.is_configured", return_value=False), \
          patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")), \
          patch("app.persist.summarize_update") as mock_summarize:
         persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
@@ -85,7 +85,7 @@ def test_no_summarization_at_all_when_api_key_is_not_configured():
 
 
 def test_summarization_failure_falls_back_to_no_summary_not_a_broken_check():
-    with patch("app.persist.settings.anthropic_api_key", "sk-test"), \
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")), \
          patch("app.persist.compose_lookup.find_service_config", return_value=None), \
          patch("app.persist.summarize_update", side_effect=RuntimeError("boom")):
@@ -100,7 +100,7 @@ def test_summarization_failure_falls_back_to_no_summary_not_a_broken_check():
 
 
 def test_repeated_check_with_same_pending_update_does_not_resummarize():
-    with patch("app.persist.settings.anthropic_api_key", "sk-test"), \
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")), \
          patch("app.persist.summarize_update", return_value=("summary", "bugfix")) as mock_summarize:
         persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
@@ -119,7 +119,7 @@ def test_summarization_runs_concurrently_not_sequentially():
 
     containers = [_c(f"c{i}", "update_available", repo=f"owner/repo{i}") for i in range(4)]
 
-    with patch("app.persist.settings.anthropic_api_key", "sk-test"), \
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", return_value=("notes", "https://example.com")), \
          patch("app.persist.summarize_update", side_effect=slow_summarize):
         start = time.monotonic()
@@ -141,7 +141,7 @@ def test_progress_reports_summarizing_stage_only_for_containers_with_notes():
         with lock:
             calls.append((stage, done, total))
 
-    with patch("app.persist.settings.anthropic_api_key", "sk-test"), \
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", side_effect=[("notes", "url"), (None, None)]), \
          patch("app.persist.summarize_update", return_value=("summary", "bugfix")):
         persist.persist_check_outcome(
@@ -162,7 +162,7 @@ def test_fetch_happens_before_the_write_transaction_opens():
         assert db.list_tracked_containers_with_status() == []
         return ("summary", "bugfix")
 
-    with patch("app.persist.settings.anthropic_api_key", "sk-test"), \
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", return_value=("notes", "url")), \
          patch("app.persist.summarize_update", side_effect=summarize_and_check):
         persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))

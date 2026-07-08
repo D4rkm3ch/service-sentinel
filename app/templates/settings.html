@@ -131,11 +131,67 @@ This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
 </section>
 
 <section class="panel">
+  <h2 class="settings-heading-lg">AI Provider</h2>
+  <p class="meta">Powers release note summaries, severity classification, log/compose analysis, and (if \
+enabled below) the release notes web search fallback. Only one provider is active at a time -- switching \
+here takes effect on the next check, no restart needed.</p>
+
+  <div class="settings-subsection settings-subsection-first">
+    <h4>Active provider</h4>
+    <select name="ai_provider" class="mono" hx-post="/settings/ai/provider" hx-trigger="change" hx-target="#saved-ai-provider">
+      <option value="anthropic" {{ 'selected' if ai_provider == 'anthropic' else '' }}>Anthropic (Claude)</option>
+      <option value="gemini" {{ 'selected' if ai_provider == 'gemini' else '' }}>Google Gemini</option>
+    </select>
+    <span class="saved-indicator-slot" id="saved-ai-provider"></span>
+  </div>
+
+  <div class="settings-subsection {{ '' if ai_provider == 'anthropic' else 'faded' }}">
+    <h4>Anthropic</h4>
+    <p class="meta">{{ 'API key configured.' if anthropic_key_configured else 'No API key configured yet.' }} Get one from \
+<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
+    <div class="api-key-row">
+      <input type="password" id="anthropic_api_key_field" class="mono" autocomplete="off"
+             placeholder="{{ 'Leave blank to keep the current key' if anthropic_key_configured else 'sk-ant-...' }}">
+      <button type="button" onclick="saveApiKey('anthropic')">Save key</button>
+      <span class="saved-indicator-slot" id="saved-anthropic_api_key"></span>
+    </div>
+    <div style="margin-top:10px">
+      <select name="anthropic_model" class="mono" hx-post="/settings/ai/anthropic-model" hx-trigger="change" hx-target="#saved-anthropic_model">
+        {% for value, label in anthropic_models %}
+        <option value="{{ value }}" {{ 'selected' if value == anthropic_model else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
+    </div>
+  </div>
+
+  <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'faded' }}">
+    <h4>Gemini</h4>
+    <p class="meta">{{ 'API key configured.' if gemini_key_configured else 'No API key configured yet.' }} Get one \
+(no card required for the free tier) from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</p>
+    <div class="api-key-row">
+      <input type="password" id="gemini_api_key_field" class="mono" autocomplete="off"
+             placeholder="{{ 'Leave blank to keep the current key' if gemini_key_configured else 'AIza...' }}">
+      <button type="button" onclick="saveApiKey('gemini')">Save key</button>
+      <span class="saved-indicator-slot" id="saved-gemini_api_key"></span>
+    </div>
+    <div style="margin-top:10px">
+      <select name="gemini_model" class="mono" hx-post="/settings/ai/gemini-model" hx-trigger="change" hx-target="#saved-gemini_model">
+        {% for value, label in gemini_models %}
+        <option value="{{ value }}" {{ 'selected' if value == gemini_model else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="saved-indicator-slot" id="saved-gemini_model"></span>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
   <h2 class="settings-heading-lg">Release Notes Discovery</h2>
   <p class="meta">When a container's release notes can't be found any other way (no matching GitHub repo by \
-naming convention, no manual override), let Claude search the web for them. A real API call per lookup, \
-but only ever once per image -- the result is cached and reused from then on, same as every other \
-discovered source.</p>
+naming convention, no manual override), let the configured AI provider search the web for them. A real API \
+call per lookup, but only ever once per image -- the result is cached and reused from then on, same as \
+every other discovered source.</p>
 
   <div class="settings-subsection settings-subsection-first">
     <div class="toggle-with-label">
@@ -153,12 +209,28 @@ discovered source.</p>
 </section>
 
 <script>
+function saveApiKey(provider) {
+  const field = document.getElementById(provider + '_api_key_field');
+  const value = field.value.trim();
+  if (!value) return;
+  fetch('/settings/ai/' + provider + '-key', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'api_key=' + encodeURIComponent(value),
+  }).then(() => {
+    field.value = '';
+    field.placeholder = 'Leave blank to keep the current key';
+    const slot = document.getElementById('saved-' + provider + '_api_key');
+    if (slot) slot.innerHTML = '<span class="saved-indicator">Saved</span>';
+  });
+}
+
 function handleWebSearchToggle(el) {
   if (el.checked) {
     const ok = confirm(
-      'When release notes can\'t be found any other way, this lets Claude search the web for ' +
-      'them -- a real API call per image, though the result is cached so it only happens once ' +
-      'per image, not on every check.\n\nEnable web search for release notes?'
+      'When release notes can\'t be found any other way, this lets the configured AI provider ' +
+      'search the web for them -- a real API call per image, though the result is cached so it ' +
+      'only happens once per image, not on every check.\n\nEnable web search for release notes?'
     );
     if (!ok) {
       el.checked = false;

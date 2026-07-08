@@ -8,15 +8,15 @@ Three independent features, each **off by default** — nothing runs and no toke
 until you turn each one on from the Overview page:
 
 - **Updates** — checks running containers against their registries on a schedule, and when
-  something's genuinely new, asks Claude to summarize what's new and what's breaking, checked
-  against your own compose configuration.
+  something's genuinely new, asks your configured AI provider to summarize what's new and
+  what's breaking, checked against your own compose configuration.
 - **Log health** — daily, pulls each container's recent logs, filters them locally down to
   lines that look suspicious (this happens before anything touches the API — a clean container
-  never costs a token), and only sends the flagged excerpts to Claude to separate real problems
-  from routine noise.
+  never costs a token), and only sends the flagged excerpts to your AI provider to separate
+  real problems from routine noise.
 - **Compose health** — hashes every compose file it can see; a file that's new or has changed
-  gets reviewed by Claude for security, reliability, and optimization issues, secrets redacted
-  before anything leaves your network. Unchanged files cost nothing on repeat checks.
+  gets reviewed by your AI provider for security, reliability, and optimization issues, secrets
+  redacted before anything leaves your network. Unchanged files cost nothing on repeat checks.
 
 Findings from Log health and Compose health are deduplicated by fingerprint — a recurring issue
 updates its occurrence count rather than spamming a new notification every day — and can be
@@ -26,7 +26,8 @@ manually silenced from the dashboard if you've seen it and don't need to be told
 
 - Read-only access to the Docker socket (to list running containers, their images, and logs)
 - Read-only access to the folder where your compose files live (e.g. Dockge's stacks directory)
-- Your own Anthropic API key (your tokens, your usage — see `.env.example`)
+- An API key for Anthropic (Claude) or Google Gemini — your tokens, your usage. Configured from
+  the Settings page in the app itself (AI Provider panel), not the compose file.
 - Optionally, a GitHub token to raise the GitHub API rate limit (unauthenticated is 60 req/hr)
 
 ## Per-container labels

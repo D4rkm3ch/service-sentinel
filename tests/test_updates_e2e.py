@@ -161,8 +161,7 @@ def test_regenerate_route_regenerates_the_summary_in_place_without_changing_the_
     sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
     sonarr_id = sonarr["id"]
 
-    with patch("app.persist.settings.anthropic_api_key", "sk-test"), \
-         patch("app.persist.summarize_update", return_value=("## Bug Fixes\nRegenerated.", "bugfix")):
+    with patch("app.persist.summarize_update", return_value=("## Bug Fixes\nRegenerated.", "bugfix")):
         resp = client.post(f"/updates/{sonarr_id}/regenerate")
         assert resp.status_code == 200
         assert 'id="item-recheck-status"' in resp.text

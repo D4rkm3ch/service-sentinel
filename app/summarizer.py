@@ -2,10 +2,8 @@ import json
 import logging
 import re
 
-import anthropic
-
+from app import ai_provider
 from app.ai_json import extract_json
-from app.config import settings
 
 logger = logging.getLogger("release_radar.summarizer")
 
@@ -69,10 +67,8 @@ def summarize_update(
     """Returns (summary_markdown, severity). Severity is parsed out of the model's response
     and stripped from the markdown before it's returned, since it's for our own use (dashboard
     badge, notification threshold), not something that reads naturally inline in the note."""
-    if not settings.anthropic_api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not configured")
-
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    if not ai_provider.is_configured():
+        raise RuntimeError("No AI provider is configured (see Settings)")
 
     compose_block = (
         json.dumps(compose_config, indent=2, default=str)
@@ -97,14 +93,7 @@ Operator's compose configuration for this service:
 ---"""
 
     for attempt in range(2):
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=1000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
-
-        text = "".join(block.text for block in response.content if block.type == "text")
+        text = ai_provider.complete_text(system=SYSTEM_PROMPT, user_message=user_message, max_tokens=1000)
 
         match = SEVERITY_LINE_PATTERN.search(text)
         severity = match.group(1).lower() if match else "feature"
@@ -159,7 +148,7 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
     asking the model to actually work out a remediation costs meaningfully more output tokens
     than just naming the problem.
     """
-    if not settings.anthropic_api_key or not excerpts_by_container:
+    if not ai_provider.is_configured() or not excerpts_by_container:
         return []
 
     sections = []
@@ -169,14 +158,9 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
 
     system_prompt = LOG_TRIAGE_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_LOG if include_fix else "")
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=2500 if include_fix else 2000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
+    text = ai_provider.complete_text(
+        system=system_prompt, user_message=user_message, max_tokens=2500 if include_fix else 2000,
     )
-    text = "".join(block.text for block in response.content if block.type == "text")
     data = extract_json(text)
     return data if isinstance(data, list) else []
 
@@ -215,20 +199,15 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
     include_fix requests an additional "fix" field (Deep Analysis) — off by default for the
     same token-cost reason as the log triage function.
     """
-    if not settings.anthropic_api_key:
+    if not ai_provider.is_configured():
         return []
 
     user_message = f"File: {file_path}\n\n{redacted_yaml}"
     system_prompt = COMPOSE_REVIEW_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_COMPOSE if include_fix else "")
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=2000 if include_fix else 1500,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
+    text = ai_provider.complete_text(
+        system=system_prompt, user_message=user_message, max_tokens=2000 if include_fix else 1500,
     )
-    text = "".join(block.text for block in response.content if block.type == "text")
     data = extract_json(text)
     return data if isinstance(data, list) else []
 
@@ -246,7 +225,7 @@ the current state is. No markdown headers, no bullet list, no restating every ti
 def summarize_findings_overview(subject_display: str, findings: list[dict]) -> str:
     """Short combined AI overview shown above a subject's findings list. Only meaningful for
     2+ findings — callers should skip calling this for 0 or 1."""
-    if not settings.anthropic_api_key or not findings:
+    if not ai_provider.is_configured() or not findings:
         return ""
 
     listing = "\n".join(
@@ -256,14 +235,9 @@ def summarize_findings_overview(subject_display: str, findings: list[dict]) -> s
     )
     user_message = f"Subject: {subject_display}\n\nFindings:\n{listing}"
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=400,
-        system=FINDINGS_OVERVIEW_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
-    return "".join(block.text for block in response.content if block.type == "text").strip()
+    return ai_provider.complete_text(
+        system=FINDINGS_OVERVIEW_SYSTEM_PROMPT, user_message=user_message, max_tokens=400,
+    ).strip()
 
 
 def generate_stack_name(service_names: list[str]) -> str:
@@ -273,7 +247,7 @@ def generate_stack_name(service_names: list[str]) -> str:
     never invents a name outside the actual service list."""
     if not service_names:
         return "Unnamed stack"
-    if len(service_names) == 1 or not settings.anthropic_api_key:
+    if len(service_names) == 1 or not ai_provider.is_configured():
         return sorted(service_names)[0]
 
     prompt = (
@@ -282,13 +256,7 @@ def generate_stack_name(service_names: list[str]) -> str:
         "written above — no extra text, no punctuation, nothing else."
     )
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=30,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        answer = "".join(block.text for block in response.content if block.type == "text").strip()
+        answer = ai_provider.complete_text(system=None, user_message=prompt, max_tokens=30).strip()
         if answer in service_names:
             return answer
     except Exception:
@@ -315,7 +283,7 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
     services. Deliberately separate from the per-service summary: this is about whether a
     change in one service could ripple into its stack-mates, not a restatement of the change
     itself."""
-    if not settings.anthropic_api_key or len(all_service_names) < 2:
+    if not ai_provider.is_configured() or len(all_service_names) < 2:
         return ""
 
     user_message = (
@@ -324,11 +292,6 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
         f"Recent update activity in this stack:\n{changed_summary_text}"
     )
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=150,
-        system=STACK_ANALYSIS_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
-    return "".join(block.text for block in response.content if block.type == "text").strip()
+    return ai_provider.complete_text(
+        system=STACK_ANALYSIS_SYSTEM_PROMPT, user_message=user_message, max_tokens=150,
+    ).strip()

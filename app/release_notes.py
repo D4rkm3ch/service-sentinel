@@ -3,8 +3,8 @@
 Stage 6 of the ground-up rebuild: real release notes. Stage 8 (brought forward once Stage 7's
 AI summarization landed) adds a web search fallback, opt-in via Settings
 (db.get_release_notes_web_search_enabled) since it's the most expensive step here — a real
-Anthropic API call with web search tool use, versus everything above being either free or a
-plain HTTP request. Priority order get_release_notes() actually uses:
+AI provider call with web search/grounding tool use (see app/ai_provider.py), versus everything
+above being either free or a plain HTTP request. Priority order get_release_notes() actually uses:
 1. A per-container 'releaseradar.changelog_url' label override — fetched as plain text/markdown.
 2. The cached location that worked last time for this exact image (see release_notes_cache
    in db.py) — skips straight past guessing if it still works, and falls through to full
@@ -13,7 +13,7 @@ plain HTTP request. Priority order get_release_notes() actually uses:
 4. Best-effort guesses based on naming convention: ghcr.io images map directly to a GitHub
    repo; LinuxServer images follow their docker-<name>/<name> convention; a plain Docker Hub
    image's namespace is often the same as the project's GitHub username too.
-5. If enabled in Settings, asks Claude to search the web — see _web_search_release_notes()
+5. If enabled in Settings, asks the configured AI provider to search the web — see _web_search_release_notes()
    below. A successful result is cached exactly like a successful guess (as "github" if the
    discovered URL is a GitHub repo, via _extract_github_repo_from_url, so future lookups reuse
    the cheap GitHub Releases API path instead of searching again; as a plain "url" otherwise),
@@ -27,10 +27,9 @@ treat that as "flag for manual review" rather than failing the whole check."""
 import logging
 import re
 
-import anthropic
 import httpx
 
-from app import db
+from app import ai_provider, db
 from app.ai_json import extract_json
 from app.config import settings
 
@@ -111,11 +110,12 @@ def _fetch_manual_url(url: str) -> tuple[str | None, str | None]:
 
 
 def _web_search_release_notes(image_repo: str, tag: str) -> tuple[str | None, str | None]:
-    """Last-resort fallback: asks Claude to search the web for the real release notes when
-    guessing the source repo directly didn't work. Only called when the free options above
-    have already failed, since this costs a small amount per search. Capped at 3 searches so
-    even this worst case has a predictable ceiling rather than open-ended exploration."""
-    if not settings.anthropic_api_key:
+    """Last-resort fallback: asks the configured AI provider to search the web for the real
+    release notes when guessing the source repo directly didn't work. Only called when the free
+    options above have already failed, since this costs a small amount per search. Capped at 3
+    searches (Anthropic) so even this worst case has a predictable ceiling rather than
+    open-ended exploration -- Gemini's grounding tool decides its own query count."""
+    if not ai_provider.is_configured():
         return None, None
 
     prompt = f"""Find the official release notes or changelog for the Docker image "{image_repo}", \
@@ -131,29 +131,16 @@ this shape:
 faithful description of what changed in this release in your own words, or null if nothing found"}}"""
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=1200,
-            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
-            messages=[{"role": "user", "content": prompt}],
-        )
+        text = ai_provider.web_search(prompt, max_tokens=1200)
     except Exception:
         logger.exception("Web search fallback failed for %s:%s", image_repo, tag)
         return None, None
 
-    text_blocks = [block.text for block in response.content if block.type == "text"]
-    if not text_blocks:
+    if not text.strip():
         logger.warning("Web search fallback returned no text for %s:%s", image_repo, tag)
         return None, None
 
-    # The model often narrates its search process in earlier text blocks and only puts the
-    # final JSON answer in the last one — concatenating everything breaks JSON parsing, so
-    # try the last block alone first, and only fall back to the full concatenation (in case
-    # the model put the JSON somewhere else) if that doesn't parse.
-    data = extract_json(text_blocks[-1].strip())
-    if data is None:
-        data = extract_json("".join(text_blocks).strip())
+    data = extract_json(text.strip())
     if data is None:
         logger.warning("Web search fallback returned non-JSON for %s:%s", image_repo, tag)
         return None, None

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -177,10 +178,31 @@ def init_db() -> None:
             "deep_analysis_logs_enabled": "false",
             "deep_analysis_compose_enabled": "false",
             "release_notes_web_search_enabled": "false",
+            "ai_provider": "anthropic",
+            "anthropic_model": "claude-sonnet-5",
+            "gemini_model": "gemini-2.5-flash",
         }
         for key, value in default_settings.items():
             conn.execute(
                 "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)", (key, value)
+            )
+
+        # Migration: the AI provider key/model used to live only in the compose file's
+        # ANTHROPIC_API_KEY/CLAUDE_MODEL env vars (see app/ai_provider.py) — one-time carry
+        # those into the database on an install that still has them set, so upgrading doesn't
+        # silently lose a working key. INSERT OR IGNORE means this only ever seeds an empty
+        # slot; it never overwrites a key already saved from the Settings page.
+        env_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if env_key:
+            conn.execute(
+                "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
+                ("anthropic_api_key", env_key),
+            )
+        env_model = os.environ.get("CLAUDE_MODEL", "")
+        if env_model:
+            conn.execute(
+                "UPDATE app_settings SET value = ? WHERE key = 'anthropic_model' AND value = 'claude-sonnet-5'",
+                (env_model,),
             )
 
         # Migration: an existing install may already have notify_severity_updates seeded with
@@ -979,6 +1001,54 @@ def get_release_notes_web_search_enabled() -> bool:
 
 def set_release_notes_web_search_enabled(enabled: bool) -> None:
     _set_setting("release_notes_web_search_enabled", "true" if enabled else "false")
+
+
+# ---------------------------------------------------------------------------
+# AI provider (moved off compose-file env vars and into Settings so a provider/model/key can
+# be changed without a redeploy — the whole point being able to switch away from a provider
+# that's temporarily out of credits without touching the compose file at all). Only one
+# provider is ever active at a time; see app/ai_provider.py for how everything that used to
+# call anthropic.Anthropic() directly now goes through this instead.
+# ---------------------------------------------------------------------------
+
+def get_ai_provider() -> str:
+    return _get_setting("ai_provider", "anthropic")
+
+
+def set_ai_provider(provider: str) -> None:
+    _set_setting("ai_provider", provider)
+
+
+def get_anthropic_api_key() -> str:
+    return _get_setting("anthropic_api_key", "")
+
+
+def set_anthropic_api_key(key: str) -> None:
+    _set_setting("anthropic_api_key", key)
+
+
+def get_anthropic_model() -> str:
+    return _get_setting("anthropic_model", "claude-sonnet-5")
+
+
+def set_anthropic_model(model: str) -> None:
+    _set_setting("anthropic_model", model)
+
+
+def get_gemini_api_key() -> str:
+    return _get_setting("gemini_api_key", "")
+
+
+def set_gemini_api_key(key: str) -> None:
+    _set_setting("gemini_api_key", key)
+
+
+def get_gemini_model() -> str:
+    return _get_setting("gemini_model", "gemini-2.5-flash")
+
+
+def set_gemini_model(model: str) -> None:
+    _set_setting("gemini_model", model)
 
 
 # ---------------------------------------------------------------------------

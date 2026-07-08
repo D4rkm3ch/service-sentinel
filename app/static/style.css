@@ -549,6 +549,17 @@ tr:hover .row-chevron {
   align-items: center;
   gap: 8px;
 }
+.api-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.api-key-row input {
+  flex: 1;
+  min-width: 0;
+  max-width: 360px;
+}
 .toggle-with-label {
   display: flex;
   align-items: center;

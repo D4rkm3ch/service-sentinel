@@ -464,6 +464,20 @@ VALID_FEATURES = ("updates", "logs", "compose")
 # system's IANA zone database, which doesn't change while the process is running.
 AVAILABLE_TIMEZONES = sorted(available_timezones())
 
+# Curated rather than exhaustive -- a short, known-good list per provider beats a free-text
+# field nobody can be expected to get exactly right, and beats an exhaustive list that goes
+# stale the moment either vendor ships a new model.
+ANTHROPIC_MODELS = [
+    ("claude-sonnet-5", "Claude Sonnet 5 (recommended)"),
+    ("claude-opus-4-8", "Claude Opus 4.8 (highest quality, slower/costlier)"),
+    ("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (fastest, cheapest)"),
+]
+GEMINI_MODELS = [
+    ("gemini-2.5-flash", "Gemini 2.5 Flash (recommended, free tier)"),
+    ("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite (fastest, cheapest, free tier)"),
+    ("gemini-2.5-pro", "Gemini 2.5 Pro (highest quality, paid tier only)"),
+]
+
 
 def _int_field(form, name: str, default: int) -> int:
     try:
@@ -540,6 +554,13 @@ def settings_page(request: Request):
             "deep_analysis": deep_analysis, "update_severities": list(UPDATE_SEVERITIES),
             "release_notes_web_search_enabled": db.get_release_notes_web_search_enabled(),
             "timezone": db.get_timezone(), "available_timezones": AVAILABLE_TIMEZONES,
+            "ai_provider": db.get_ai_provider(),
+            "anthropic_key_configured": bool(db.get_anthropic_api_key()),
+            "anthropic_model": db.get_anthropic_model(),
+            "anthropic_models": ANTHROPIC_MODELS,
+            "gemini_key_configured": bool(db.get_gemini_api_key()),
+            "gemini_model": db.get_gemini_model(),
+            "gemini_models": GEMINI_MODELS,
             "active_tab": "settings",
         },
     )
@@ -576,6 +597,56 @@ async def save_release_notes_web_search(request: Request):
     form = await request.form()
     db.set_release_notes_web_search_enabled(form.get("enabled") == "on")
     return {"status": "ok"}
+
+
+@app.post("/settings/ai/provider")
+async def save_ai_provider(request: Request):
+    form = await request.form()
+    provider = form.get("ai_provider", "")
+    if provider not in ("anthropic", "gemini"):
+        raise HTTPException(status_code=400, detail="Unknown provider")
+    db.set_ai_provider(provider)
+    return _saved(request)
+
+
+@app.post("/settings/ai/anthropic-key")
+async def save_anthropic_key(request: Request):
+    form = await request.form()
+    key = (form.get("api_key") or "").strip()
+    # Blank submission means "leave it as-is" (the field's placeholder already says so once a
+    # key is on file) -- never overwrite a working key with an accidental empty save.
+    if key:
+        db.set_anthropic_api_key(key)
+    return {"status": "ok"}
+
+
+@app.post("/settings/ai/anthropic-model")
+async def save_anthropic_model(request: Request):
+    form = await request.form()
+    model = form.get("anthropic_model", "")
+    if model not in dict(ANTHROPIC_MODELS):
+        raise HTTPException(status_code=400, detail="Unknown model")
+    db.set_anthropic_model(model)
+    return _saved(request)
+
+
+@app.post("/settings/ai/gemini-key")
+async def save_gemini_key(request: Request):
+    form = await request.form()
+    key = (form.get("api_key") or "").strip()
+    if key:
+        db.set_gemini_api_key(key)
+    return {"status": "ok"}
+
+
+@app.post("/settings/ai/gemini-model")
+async def save_gemini_model(request: Request):
+    form = await request.form()
+    model = form.get("gemini_model", "")
+    if model not in dict(GEMINI_MODELS):
+        raise HTTPException(status_code=400, detail="Unknown model")
+    db.set_gemini_model(model)
+    return _saved(request)
 
 
 @app.post("/settings/schedule/{scope}")
