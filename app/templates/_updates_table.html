@@ -4,13 +4,13 @@
 {% if updates %}
 <table class="updates-table">
   <colgroup>
-    <col style="width: 12%">
-    <col style="width: 12%">
-    <col style="width: 24%">
-    <col style="width: 12%">
-    <col style="width: 15%">
-    <col style="width: 15%">
-    <col style="width: 6%">
+    <col style="width: 13%">
+    <col style="width: 13%">
+    <col style="width: 28%">
+    <col style="width: 13%">
+    <col style="width: 16%">
+    <col style="width: 4%">
+    <col style="width: 9%">
     <col style="width: 4%">
   </colgroup>
   <thead>
@@ -19,15 +19,15 @@
       <th>{{ sh.sort_link('Stack', 'stack', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Image', 'image', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
-      <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
-      <th>{{ sh.sort_link('Status', 'status', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
+      <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
+      <th class="status-icon-cell"></th>
       <th>Read</th>
       <th></th>
     </tr>
   </thead>
   <tbody>
     {% for u in updates %}
-    <tr class="{{ 'row-unread' if u.status != 'error' else '' }} {{ 'row-clickable' if u.id else '' }}" {% if u.id %}onclick="window.location='/updates/{{ u.id }}'"{% endif %}>
+    <tr class="{{ 'row-error' if u.status == 'error' else 'row-unread' }} {{ 'row-clickable' if u.id else '' }}" {% if u.id %}onclick="window.location='/updates/{{ u.id }}'"{% endif %}>
       <td class="mono truncate-cell" title="{{ u.container_name }}">{{ u.container_name }}</td>
       <td>
         {% if u.stack_name %}
@@ -45,11 +45,9 @@
         <span class="meta">—</span>
         {% endif %}
       </td>
-      <td>
+      <td class="status-icon-cell">
         {% if u.status == 'error' %}
-          <span class="badge badge-error">Needs manual check</span>
-        {% else %}
-          <span class="badge badge-unread">Update available</span>
+        <span class="status-warning-icon" title="Needs manual check">⚠</span>
         {% endif %}
       </td>
       <td>

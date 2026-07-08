@@ -237,7 +237,7 @@ def updates_running_state():
 
 
 @app.get("/updates/partial")
-def updates_partial(request: Request, sort: str = "container", dir: str = "asc",
+def updates_partial(request: Request, sort: str = "importance", dir: str = "asc",
                      csort: str = "container", cdir: str = "asc"):
     rows = db.list_tracked_containers_with_status()
     updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True)
@@ -248,7 +248,7 @@ def updates_partial(request: Request, sort: str = "container", dir: str = "asc",
 
 
 @app.get("/updates/partial/containers")
-def updates_partial_containers(request: Request, sort: str = "container", dir: str = "asc",
+def updates_partial_containers(request: Request, sort: str = "importance", dir: str = "asc",
                                 csort: str = "container", cdir: str = "asc"):
     rows = db.list_tracked_containers_with_status()
     containers = _sort_and_filter_rows(rows, csort, cdir, updates_only=False)
@@ -333,30 +333,21 @@ def _launch_check_if_not_running() -> None:
     threading.Thread(target=persist.run_claimed_updates_check, daemon=True).start()
 
 
-def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_only: bool) -> list[dict]:
-    """Filters the persisted per-container rows (db.list_tracked_containers_with_status()) down
-    to just the ones needing attention when updates_only is set, and applies simple sorting.
-    Only container/image sorting is meaningful yet — there's no real severity or history to
-    sort Importance/Detected/Status by until later stages, so those currently just fall back
-    to alphabetical-by-container."""
-    filtered = [r for r in rows if not updates_only or r["status"] in ("update_available", "error")]
-
-    if sort == "image":
-        filtered.sort(key=lambda r: r["image_repo"].lower(), reverse=(direction == "desc"))
-    else:
-        filtered.sort(key=lambda r: r["container_name"].lower(), reverse=(direction == "desc"))
-    return filtered
+# Lower number = more severe = sorts first under ascending Importance order (the page's
+# default). Rows with no severity at all (errors, or anything AI summarization hasn't reached
+# yet) are handled entirely separately in _sort_and_filter_rows below -- they're not "low
+# severity," they're unclassified, and always stay pinned to the top regardless of direction.
+_IMPORTANCE_RANK = {"breaking": 0, "action_needed": 1, "feature": 2, "bugfix": 3}
 
 
-def _annotate_with_stack(rows, name_key: str, sort: str, direction: str):
+def _attach_stack_info(rows: list[dict], name_key: str) -> list[dict]:
     """Attaches stack_id/stack_name to each row (container/update record) so the table can
-    show and optionally sort by which compose stack it belongs to. Ungrouped containers
-    (no resolvable compose file) get stack_name=None and always sort to the end regardless
-    of direction — they're a lower-priority bucket, not something to alphabetize normally.
+    show and sort by which compose stack it belongs to. Ungrouped containers (no resolvable
+    compose file) get stack_name=None.
 
-    Builds the compose index once for the whole batch of rows rather than once per row —
-    each row calling its own full compose-tree scan was the actual cause of slow page
-    loads on setups with many tracked containers."""
+    Builds the compose index once for the whole batch of rows rather than once per row — each
+    row calling its own full compose-tree scan was the actual cause of slow page loads on
+    setups with many tracked containers."""
     index = compose_lookup.build_stack_index()
     name_cache: dict[str, str] = {}
     annotated = []
@@ -374,18 +365,47 @@ def _annotate_with_stack(rows, name_key: str, sort: str, direction: str):
             d["stack_id"] = None
             d["stack_name"] = None
         annotated.append(d)
+    return annotated
 
-    if sort == "stack":
+
+def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_only: bool) -> list[dict]:
+    """Filters the persisted per-container rows (db.list_tracked_containers_with_status()) down
+    to just the ones needing attention when updates_only is set, attaches stack info to every
+    row (see _attach_stack_info), and sorts by whichever column was clicked.
+
+    Importance is the odd one out: unclassified rows (errors, or anything AI summarization
+    hasn't reached) are pinned to the very top regardless of direction -- they might be
+    critical issues the operator isn't aware of yet and can't be allowed to just scroll off
+    the bottom on a reverse sort the way a genuinely low-severity bugfix can."""
+    filtered = [r for r in rows if not updates_only or r["status"] in ("update_available", "error")]
+    annotated = _attach_stack_info(filtered, "container_name")
+    reverse = direction == "desc"
+
+    if sort == "image":
+        annotated.sort(key=lambda r: r["image_repo"].lower(), reverse=reverse)
+    elif sort == "detected":
+        annotated.sort(key=lambda r: r.get("created_at") or "", reverse=reverse)
+    elif sort == "lastchecked":
+        annotated.sort(key=lambda r: r.get("last_checked_at") or "", reverse=reverse)
+    elif sort == "stack":
         annotated.sort(
-            key=lambda d: (d["stack_name"] is None, (d["stack_name"] or "").lower(), d[name_key].lower()),
-            reverse=(direction == "desc"),
+            key=lambda r: (r["stack_name"] is None, (r["stack_name"] or "").lower(), r["container_name"].lower()),
+            reverse=reverse,
         )
-        if direction == "desc":
-            # Reversing for desc also flips "ungrouped last" to "ungrouped first" — undo
-            # that specifically, ungrouped always sorts last regardless of direction.
-            grouped = [d for d in annotated if d["stack_name"] is not None]
-            ungrouped = [d for d in annotated if d["stack_name"] is None]
+        if reverse:
+            # Reversing for desc also flips "ungrouped last" to "ungrouped first" -- undo that
+            # specifically, ungrouped always sorts last regardless of direction.
+            grouped = [r for r in annotated if r["stack_name"] is not None]
+            ungrouped = [r for r in annotated if r["stack_name"] is None]
             annotated = grouped + ungrouped
+    elif sort == "importance":
+        classified = [r for r in annotated if r.get("severity") in _IMPORTANCE_RANK]
+        unclassified = [r for r in annotated if r.get("severity") not in _IMPORTANCE_RANK]
+        classified.sort(key=lambda r: _IMPORTANCE_RANK[r["severity"]], reverse=reverse)
+        unclassified.sort(key=lambda r: r["container_name"].lower())
+        annotated = unclassified + classified
+    else:
+        annotated.sort(key=lambda r: r["container_name"].lower(), reverse=reverse)
 
     return annotated
 
@@ -500,6 +520,7 @@ def settings_page(request: Request):
             "request": request, "master": master, "features": features,
             "describe": describe_schedule, "notify": _build_notify_context(),
             "deep_analysis": deep_analysis, "update_severities": list(UPDATE_SEVERITIES),
+            "release_notes_web_search_enabled": db.get_release_notes_web_search_enabled(),
             "timezone": db.get_timezone(), "available_timezones": AVAILABLE_TIMEZONES,
             "active_tab": "settings",
         },
@@ -529,6 +550,13 @@ async def save_deep_analysis(feature: str, request: Request):
         raise HTTPException(status_code=404)
     form = await request.form()
     db.set_deep_analysis_enabled(feature, form.get("enabled") == "on")
+    return {"status": "ok"}
+
+
+@app.post("/settings/release-notes/web-search")
+async def save_release_notes_web_search(request: Request):
+    form = await request.form()
+    db.set_release_notes_web_search_enabled(form.get("enabled") == "on")
     return {"status": "ok"}
 
 
@@ -720,7 +748,7 @@ async def reset_and_recheck_stack_route(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/updates")
-def updates_page(request: Request, sort: str = "container", dir: str = "asc",
+def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
                   csort: str = "container", cdir: str = "asc"):
     rows = db.list_tracked_containers_with_status()
     updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True)

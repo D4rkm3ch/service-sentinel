@@ -103,6 +103,9 @@ td {
 }
 
 tr.row-unread { background: rgba(94, 201, 166, 0.04); }
+/* Error rows need to actually stand out -- these are things the operator can't just ignore,
+   unlike a routine pending update, hence a visibly stronger tint than row-unread's. */
+tr.row-error { background: rgba(217, 112, 94, 0.09); }
 
 tbody tr:hover {
   background: rgba(255, 255, 255, 0.03);
@@ -110,6 +113,14 @@ tbody tr:hover {
 
 tr.row-clickable {
   cursor: pointer;
+}
+
+.status-icon-cell {
+  text-align: center;
+}
+.status-warning-icon {
+  color: var(--error);
+  font-size: 15px;
 }
 
 .heading-count {

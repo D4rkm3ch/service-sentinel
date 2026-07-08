@@ -176,6 +176,7 @@ def init_db() -> None:
             "notify_severity_compose": DEFAULT_SEVERITY,
             "deep_analysis_logs_enabled": "false",
             "deep_analysis_compose_enabled": "false",
+            "release_notes_web_search_enabled": "false",
         }
         for key, value in default_settings.items():
             conn.execute(
@@ -961,6 +962,21 @@ def get_deep_analysis_enabled(feature: str) -> bool:
 
 def set_deep_analysis_enabled(feature: str, enabled: bool) -> None:
     _set_setting(f"deep_analysis_{feature}_enabled", "true" if enabled else "false")
+
+
+# ---------------------------------------------------------------------------
+# Release notes web search (Stage 8, brought forward) — off by default. When on, release_notes.py
+# falls back to asking Claude to search the web for release notes it couldn't find any other
+# way (naming-convention guesses, manual overrides). A real API call per lookup, though the
+# result is cached like every other discovered source, so it only ever runs once per image.
+# ---------------------------------------------------------------------------
+
+def get_release_notes_web_search_enabled() -> bool:
+    return _get_setting("release_notes_web_search_enabled", "false") == "true"
+
+
+def set_release_notes_web_search_enabled(enabled: bool) -> None:
+    _set_setting("release_notes_web_search_enabled", "true" if enabled else "false")
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,8 @@
-"""Stage 6: real release notes, no AI, no web search. get_release_notes() must never reach
-_web_search_release_notes() -- that's Stage 8's job, tested completely alone. Every test here
-mocks httpx directly rather than hitting real registries/GitHub, since the point is proving
-the priority order and caching behavior, not network connectivity (already covered by
+"""Stage 6: real release notes. Stage 8 (brought forward) adds an opt-in web search fallback
+(db.release_notes_web_search_enabled) -- off by default, so get_release_notes() must never
+reach _web_search_release_notes() unless a test explicitly turns the setting on. Every test
+here mocks httpx directly rather than hitting real registries/GitHub, since the point is
+proving the priority order and caching behavior, not network connectivity (already covered by
 test_image_ref_parsing.py / registry.py's own tests for the registry side)."""
 
 from unittest.mock import MagicMock, patch
@@ -79,10 +80,11 @@ def test_source_override_is_tried_before_naming_convention_guesses():
     assert "manual/override" in mock_client.get.call_args[0][0]
 
 
-def test_web_search_is_never_called_stage_6_scope():
-    """The whole point of this stage: even when every direct source fails, get_release_notes()
-    must fall straight to the Docker Hub last resort, never reaching the web search fallback."""
+def test_web_search_is_never_called_when_the_setting_is_off():
+    """Off by default: even when every direct source fails, get_release_notes() must fall
+    straight to the Docker Hub last resort, never reaching the web search fallback."""
     with patch("app.release_notes.db.get_release_notes_source", return_value=None), \
+         patch("app.release_notes.db.get_release_notes_web_search_enabled", return_value=False), \
          patch("app.release_notes.httpx.Client") as mock_client_cls, \
          patch("app.release_notes._guess_github_repos", return_value=[]), \
          patch("app.release_notes._web_search_release_notes") as mock_web_search:
@@ -91,6 +93,70 @@ def test_web_search_is_never_called_stage_6_scope():
         notes, url = release_notes.get_release_notes("somenamespace/someimage", "latest")
 
     mock_web_search.assert_not_called()
+    assert notes is None
+    assert url == "https://hub.docker.com/r/somenamespace/someimage/tags"
+
+
+def test_web_search_is_tried_when_enabled_and_everything_else_failed():
+    with patch("app.release_notes.db.get_release_notes_source", return_value=None), \
+         patch("app.release_notes.db.get_release_notes_web_search_enabled", return_value=True), \
+         patch("app.release_notes.httpx.Client") as mock_client_cls, \
+         patch("app.release_notes._guess_github_repos", return_value=[]), \
+         patch("app.release_notes._web_search_release_notes", return_value=("Found via search", "https://blog.example.com/v2")) as mock_web_search, \
+         patch("app.release_notes.db.set_release_notes_source") as mock_set_cache:
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = MagicMock(status_code=404)
+
+        notes, url = release_notes.get_release_notes("somenamespace/someimage", "latest")
+
+    mock_web_search.assert_called_once_with("somenamespace/someimage", "latest")
+    assert notes == "Found via search"
+    assert url == "https://blog.example.com/v2"
+    # Not a GitHub URL -- cached as a plain "url" source, not "github".
+    mock_set_cache.assert_called_once_with("somenamespace/someimage", "url", "https://blog.example.com/v2")
+
+
+def test_web_search_result_pointing_at_github_is_cached_as_a_github_source():
+    """A web search result that resolves to a real GitHub repo is cached as method="github"
+    rather than "url", so future lookups reuse the cheap, high-quality GitHub Releases API
+    path instead of paying for another search or raw-fetching the webpage."""
+    with patch("app.release_notes.db.get_release_notes_source", return_value=None), \
+         patch("app.release_notes.db.get_release_notes_web_search_enabled", return_value=True), \
+         patch("app.release_notes.httpx.Client") as mock_client_cls, \
+         patch("app.release_notes._guess_github_repos", return_value=[]), \
+         patch("app.release_notes._web_search_release_notes",
+               return_value=("Found via search", "https://github.com/owner/found-repo/releases/tag/v2")), \
+         patch("app.release_notes.db.set_release_notes_source") as mock_set_cache:
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = MagicMock(status_code=404)
+
+        release_notes.get_release_notes("somenamespace/someimage", "latest")
+
+    mock_set_cache.assert_called_once_with("somenamespace/someimage", "github", "owner/found-repo")
+
+
+def test_web_search_not_reached_if_a_naming_convention_guess_already_succeeded():
+    with patch("app.release_notes.db.get_release_notes_source", return_value=None), \
+         patch("app.release_notes.db.get_release_notes_web_search_enabled", return_value=True), \
+         patch("app.release_notes.db.set_release_notes_source"), \
+         patch("app.release_notes.httpx.Client") as mock_client_cls, \
+         patch("app.release_notes._guess_github_repos", return_value=["owner/repo"]), \
+         patch("app.release_notes._web_search_release_notes") as mock_web_search:
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = _github_response()
+
+        release_notes.get_release_notes("owner/repo", "latest")
+
+    mock_web_search.assert_not_called()
+
+
+def test_web_search_enabled_but_finding_nothing_still_falls_to_docker_hub_last_resort():
+    with patch("app.release_notes.db.get_release_notes_source", return_value=None), \
+         patch("app.release_notes.db.get_release_notes_web_search_enabled", return_value=True), \
+         patch("app.release_notes.httpx.Client") as mock_client_cls, \
+         patch("app.release_notes._guess_github_repos", return_value=[]), \
+         patch("app.release_notes._web_search_release_notes", return_value=(None, None)):
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = MagicMock(status_code=404)
+
+        notes, url = release_notes.get_release_notes("somenamespace/someimage", "latest")
+
     assert notes is None
     assert url == "https://hub.docker.com/r/somenamespace/someimage/tags"
 
@@ -128,6 +194,15 @@ def test_guess_github_repos_plain_dockerhub_two_part():
 def test_guess_github_repos_returns_nothing_for_unnamespaced_official_images():
     assert release_notes._guess_github_repos("postgres") == []
     assert release_notes._guess_github_repos("library/postgres") == []
+
+
+def test_extract_github_repo_from_url():
+    assert release_notes._extract_github_repo_from_url(
+        "https://github.com/owner/repo/releases/tag/v2"
+    ) == "owner/repo"
+    assert release_notes._extract_github_repo_from_url("https://github.com/owner/repo") == "owner/repo"
+    assert release_notes._extract_github_repo_from_url("https://blog.example.com/owner/repo") is None
+    assert release_notes._extract_github_repo_from_url("not a url at all") is None
 
 
 def test_successful_guess_caches_the_source():

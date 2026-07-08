@@ -130,7 +130,50 @@ This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
   </div>
 </section>
 
+<section class="panel">
+  <h2 class="settings-heading-lg">Release Notes Discovery</h2>
+  <p class="meta">When a container's release notes can't be found any other way (no matching GitHub repo by \
+naming convention, no manual override), let Claude search the web for them. A real API call per lookup, \
+but only ever once per image -- the result is cached and reused from then on, same as every other \
+discovered source.</p>
+
+  <div class="settings-subsection settings-subsection-first">
+    <div class="toggle-with-label">
+      <span class="toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="release_notes_web_search" {{ 'checked' if release_notes_web_search_enabled else '' }}
+                 onchange="handleWebSearchToggle(this)">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="saved-indicator-slot" id="saved-release_notes_web_search"></span>
+      </span>
+      <span class="toggle-label">Search the web for release notes as a last resort (uses more tokens)</span>
+    </div>
+  </div>
+</section>
+
 <script>
+function handleWebSearchToggle(el) {
+  if (el.checked) {
+    const ok = confirm(
+      'When release notes can\'t be found any other way, this lets Claude search the web for ' +
+      'them -- a real API call per image, though the result is cached so it only happens once ' +
+      'per image, not on every check.\n\nEnable web search for release notes?'
+    );
+    if (!ok) {
+      el.checked = false;
+      return;
+    }
+  }
+  fetch('/settings/release-notes/web-search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'enabled=' + (el.checked ? 'on' : ''),
+  }).then(() => {
+    const slot = document.getElementById('saved-release_notes_web_search');
+    if (slot) slot.innerHTML = '<span class="saved-indicator">Saved</span>';
+  });
+}
 function handleDeepAnalysisToggle(el, feature) {
   if (el.checked) {
     const ok = confirm(
