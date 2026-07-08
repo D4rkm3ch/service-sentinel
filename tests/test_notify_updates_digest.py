@@ -67,7 +67,7 @@ def test_a_single_qualifying_item_sends_one_call():
             notifications.notify_updates_digest([_item(severity="breaking")], [])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
-    assert title == "release-radar — Breaking Change (1)"
+    assert title == "Breaking Change (1)"
     assert "sonarr" in body
     assert "owner/repo:latest" in body
     assert notify_type == NotifyType.FAILURE
@@ -118,8 +118,9 @@ def test_multiple_items_of_the_same_severity_share_one_call():
             notifications.notify_updates_digest(items, [])
     mock_send.assert_called_once()
     title, body, _ = mock_send.call_args[0]
-    assert title == "release-radar — Breaking Change (2)"
+    assert title == "Breaking Change (2)"
     assert body.index("apple") < body.index("zebra")  # alphabetical within the group
+    assert "---" not in body  # a blank line separates items, not a horizontal rule
 
 
 def test_registry_errors_excluded_by_default():
@@ -137,7 +138,7 @@ def test_registry_errors_included_when_opted_in_as_their_own_call():
             notifications.notify_updates_digest([], [_error(name="qbittorrent", error="DNS lookup failed.")])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
-    assert title == "release-radar — Check errors (1)"
+    assert title == "Check errors (1)"
     assert "qbittorrent" in body
     assert "DNS lookup failed." in body
     assert notify_type == NotifyType.FAILURE
@@ -180,23 +181,52 @@ def test_body_has_no_per_item_link_only_the_footer_link():
     assert "[View all updates](/updates)" in body
 
 
-def test_title_is_prefixed_with_release_radar_branding():
+def test_title_is_just_the_severity_and_count_no_branding_prefix():
+    """The webhook's own name (set directly in Discord, e.g. "Spidey Bot") already identifies
+    the source -- repeating "release-radar" inside every message would just be noise."""
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest([_item(severity="breaking")], [])
     title, _, _ = mock_send.call_args[0]
-    assert title.startswith("release-radar — ")
+    assert title == "Breaking Change (1)"
 
 
-def test_send_uses_an_asset_that_replaces_apprises_own_branding():
+def test_send_uses_an_asset_that_strips_apprises_own_branding():
     with patch("app.notifications.db.get_apprise_urls", return_value=["discord://id/token/?format=markdown"]), \
          patch("app.notifications.apprise.Apprise") as mock_apprise_cls:
         notifications._send("Title", "Body", NotifyType.WARNING)
 
     mock_apprise_cls.assert_called_once_with(asset=notifications._ASSET)
-    assert notifications._ASSET.app_id == "release-radar"
-    assert notifications._ASSET.app_url == "https://github.com/D4rkm3ch/release-radar"
+    assert notifications._ASSET.app_id == ""
+    assert notifications._ASSET.image_url_mask == ""
+    assert notifications._ASSET.image_url_logo == ""
+
+
+def test_asset_suppresses_apprises_branded_avatar_from_the_real_payload():
+    """End-to-end proof (not just checking the asset's attributes): with this asset, Apprise's
+    Discord plugin must never put its own branded icon URL in the outbound payload at all, so
+    Discord falls back to the target webhook's own configured avatar."""
+    import json
+    from unittest.mock import MagicMock
+
+    captured = []
+
+    def fake_post(url, **kwargs):
+        captured.append(kwargs.get("data"))
+        resp = MagicMock()
+        resp.status_code = 204
+        resp.content = b""
+        return resp
+
+    with patch("requests.post", side_effect=fake_post), \
+         patch("app.notifications.db.get_apprise_urls", return_value=["discord://123/abc/?format=markdown"]):
+        notifications._send("Breaking Change (1)", "**sonarr**", NotifyType.FAILURE)
+
+    assert len(captured) == 1
+    payload = json.loads(captured[0])
+    assert "avatar_url" not in payload
+    assert payload["embeds"][0]["author"]["name"] == ""
 
 
 def test_send_is_called_with_markdown_body_format_and_notify_type():

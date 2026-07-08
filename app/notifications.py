@@ -22,8 +22,10 @@ Apprise's Discord plugin only builds a colored embed at all when the target webh
 includes `?format=markdown` (e.g. `discord://id/token/?format=markdown`); a bare discord://
 URL falls back to a flat plain-text message with no color. See settings.html's Apprise URL hint.
 
-Every title is prefixed "release-radar — " for quick recognition in a channel with other bots
-posting, and _ASSET below renames Apprise's own default embed branding ("Apprise") to match.
+_ASSET below strips Apprise's own default branding (the "Apprise" author line and its megaphone
+avatar) entirely rather than replacing it with our own -- the webhook's own name/icon (set
+directly in Discord, e.g. "Spidey Bot") already identifies the source, so repeating it inside
+every message would just be noise.
 """
 
 import logging
@@ -36,17 +38,13 @@ from app.config import settings
 
 logger = logging.getLogger("release_radar.notifications")
 
-# Apprise's own default branding ("Apprise", with its megaphone logo as the avatar) shows up
-# in every notification unless overridden -- this asset renames the small in-embed author line
-# to "release-radar" instead. It does NOT touch the avatar image or the bot display name shown
-# at the very top of a Discord message (separate from the embed) -- those come from the target
-# webhook itself. To change them: add `&avatar=no` to the Apprise URL in Settings so Apprise
-# stops sending its own branded avatar_url, then set the desired name/icon directly on the
-# webhook in Discord (Server Settings -> Integrations -> Webhooks -> Edit).
-_ASSET = apprise.AppriseAsset(
-    app_id="release-radar", app_desc="release-radar notifications",
-    app_url="https://github.com/D4rkm3ch/release-radar",
-)
+# app_id="" removes the small embed author line entirely (Apprise defaults it to "Apprise").
+# image_url_mask/image_url_logo="" makes Apprise's own asset.image_url() return None for every
+# notify_type, so the Discord plugin's `if self.avatar and (image_url or self.avatar_url):`
+# check never has anything to set avatar_url to -- the payload simply omits it, and Discord
+# falls back to the webhook's own configured avatar instead of Apprise's branded icon. No
+# webhook URL change needed for any of this (no `?avatar=no` required) -- it's all asset-level.
+_ASSET = apprise.AppriseAsset(app_id="", image_url_mask="", image_url_logo="")
 
 FINDING_SEVERITY_ORDER = {"suggestion": 0, "warning": 1, "critical": 2}
 UPDATE_SEVERITY_ORDER = {"bugfix": 0, "feature": 1, "action_needed": 2, "breaking": 3}
@@ -83,19 +81,19 @@ def _send(title: str, body: str, notify_type: str = NotifyType.INFO) -> None:
 def _send_severity_group(severity: str, group: list[dict]) -> None:
     label = UPDATE_SEVERITY_LABELS.get(severity, severity.capitalize())
     count = len(group)
-    title = f"release-radar — {label} ({count})"
+    title = f"{label} ({count})"
     sections = [
         f"**{item['container_name']}** — `{item['image_repo']}:{item['tag']}`"
         for item in sorted(group, key=lambda i: i["container_name"].lower())
     ]
-    body = "\n\n---\n\n".join(sections)
+    body = "\n\n".join(sections)
     body += f"\n\n[View all updates]({_dashboard_url('/updates')})"
     _send(title, body, _UPDATE_NOTIFY_TYPE.get(severity, NotifyType.INFO))
 
 
 def _send_error_group(group: list[dict]) -> None:
     count = len(group)
-    title = f"release-radar — Check errors ({count})"
+    title = f"Check errors ({count})"
     lines = [
         f"- **{err['container_name']}** — {err['error']}"
         for err in sorted(group, key=lambda e: e["container_name"].lower())

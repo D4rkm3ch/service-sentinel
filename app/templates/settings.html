@@ -51,10 +51,9 @@
     </div>
 
     <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated. See <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for supported services.</p>
-    <p class="meta">For Discord, add <code>?format=markdown</code> to the end of your webhook URL (e.g. <code>discord://id/token/?format=markdown</code>) — without it, Discord shows a flat plain-text message with no color coding.</p>
-    <p class="meta">Add <code>&amp;avatar=no</code> too if you don't want Apprise's own icon on every message — with it off, Discord shows whatever name/icon you've set on the webhook itself (Server Settings → Integrations → Webhooks → Edit).</p>
+    <p class="meta">For Discord, add <code>?format=markdown</code> to the end of your webhook URL (e.g. <code>discord://id/token/?format=markdown</code>) — without it, Discord shows a flat plain-text message with no color coding. Discord shows whatever name/icon you've set on the webhook itself (Server Settings → Integrations → Webhooks → Edit).</p>
     <textarea name="apprise_urls" id="apprise_urls_field" rows="2" class="mono apprise-textarea {{ '' if notify.enabled else 'dimmed' }}"
-              placeholder="discord://webhook_id/webhook_token/?format=markdown&amp;avatar=no" {{ 'disabled' if not notify.enabled else '' }}>{{ notify.apprise_urls }}</textarea>
+              placeholder="discord://webhook_id/webhook_token/?format=markdown" {{ 'disabled' if not notify.enabled else '' }}>{{ notify.apprise_urls }}</textarea>
     <p class="meta apprise-disclaimer">Click "Send test notification" to save this URL — typing alone doesn't save it, and a failed test won't be saved either.</p>
     <div>
       <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
