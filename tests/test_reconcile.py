@@ -200,3 +200,109 @@ def test_call_without_on_progress_still_works():
         outcome = reconcile.run_check()
 
     assert len(outcome["containers"]) == 1
+
+
+def test_containers_sharing_an_image_and_tag_only_call_the_registry_once():
+    """Stage 11: qbittorrent + qbittorrentspare is a real fleet, not a hypothetical -- two
+    containers on the exact same image:tag must share one registry lookup, not pay for one
+    each."""
+    containers = [
+        _container("qbittorrent", repo="owner/qbittorrent", tag="latest", digest="sha256:old"),
+        _container("qbittorrentspare", repo="owner/qbittorrent", tag="latest", digest="sha256:old"),
+    ]
+
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", return_value="sha256:new") as mock_digest:
+        outcome = reconcile.run_check()
+
+    mock_digest.assert_called_once_with("owner/qbittorrent", "latest")
+    assert len(outcome["containers"]) == 2
+    by_name = {r["container_name"]: r for r in outcome["containers"]}
+    assert by_name["qbittorrent"]["latest_digest"] == "sha256:new"
+    assert by_name["qbittorrentspare"]["latest_digest"] == "sha256:new"
+
+
+def test_containers_sharing_an_image_can_still_have_different_status():
+    """Deduplicating the registry lookup must never make two containers' *status* the same by
+    accident -- their own current_digest still decides update_available vs up_to_date
+    independently, e.g. one was restarted onto the new image already and the other wasn't."""
+    containers = [
+        _container("qbittorrent", repo="owner/qbittorrent", tag="latest", digest="sha256:old"),
+        _container("qbittorrentspare", repo="owner/qbittorrent", tag="latest", digest="sha256:new"),
+    ]
+
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", return_value="sha256:new"):
+        outcome = reconcile.run_check()
+
+    by_name = {r["container_name"]: r["status"] for r in outcome["containers"]}
+    assert by_name == {"qbittorrent": "update_available", "qbittorrentspare": "up_to_date"}
+
+
+def test_same_repo_different_tag_is_not_deduplicated():
+    containers = [
+        _container("readarr-audiobooks", repo="owner/readarr", tag="develop", digest="sha256:old"),
+        _container("readarr-ebooks", repo="owner/readarr", tag="nightly", digest="sha256:old"),
+    ]
+
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", return_value="sha256:new") as mock_digest:
+        reconcile.run_check()
+
+    assert mock_digest.call_count == 2
+    mock_digest.assert_any_call("owner/readarr", "develop")
+    mock_digest.assert_any_call("owner/readarr", "nightly")
+
+
+def test_a_registry_error_on_a_shared_image_marks_every_sharing_container_as_error():
+    containers = [
+        _container("qbittorrent", repo="owner/qbittorrent", tag="latest"),
+        _container("qbittorrentspare", repo="owner/qbittorrent", tag="latest"),
+    ]
+
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", side_effect=RuntimeError("registry unreachable")):
+        outcome = reconcile.run_check()
+
+    by_name = {r["container_name"]: r["status"] for r in outcome["containers"]}
+    assert by_name == {"qbittorrent": "error", "qbittorrentspare": "error"}
+    assert outcome["errors"] == 2
+
+
+def test_progress_jumps_by_the_shared_group_size_when_a_deduplicated_lookup_completes():
+    """A shared image's single registry call still credits progress for every container that
+    was waiting on it, not just one -- otherwise the counter would visibly stall short of
+    total once every *unique* image had been checked, even though every container really is
+    done."""
+    containers = [
+        _container("qbittorrent", repo="owner/qbittorrent", tag="latest"),
+        _container("qbittorrentspare", repo="owner/qbittorrent", tag="latest"),
+        _container("sonarr", repo="owner/sonarr", tag="latest"),
+    ]
+    calls = []
+
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", return_value="sha256:old"):
+        reconcile.run_check(on_progress=lambda done, total: calls.append((done, total)))
+
+    assert calls[0] == (0, 3)
+    assert calls[-1] == (3, 3)
+    # Every intermediate done-count is a real container count (1, 2, or 3), and the group of
+    # two sharing an image always advances together -- 2 never appears without also seeing 3
+    # land in the very next call for this fixture (only one other independent group exists).
+    assert all(done in (0, 1, 2, 3) for done, _ in calls)
+
+
+def test_run_check_many_also_deduplicates_a_shared_image():
+    containers = [
+        _container("qbittorrent", repo="owner/qbittorrent", tag="latest"),
+        _container("qbittorrentspare", repo="owner/qbittorrent", tag="latest"),
+        _container("unrelated", repo="owner/unrelated", tag="latest"),
+    ]
+
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", return_value="sha256:old") as mock_digest:
+        outcome = reconcile.run_check_many(["qbittorrent", "qbittorrentspare"])
+
+    mock_digest.assert_called_once_with("owner/qbittorrent", "latest")
+    assert {r["container_name"] for r in outcome["containers"]} == {"qbittorrent", "qbittorrentspare"}

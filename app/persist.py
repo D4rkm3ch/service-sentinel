@@ -8,7 +8,9 @@ optional (and separate, not yet wired up here) stack-level cross-service analysi
 wires up real notifications: every write that's genuinely new/changed (not a repeat of the
 exact same pending transition) is collected into a candidate list, and offered to
 notifications.notify_updates_digest() as a single batched call once the write transaction has
-committed — see persist_check_outcome()'s to_notify list.
+committed — see persist_check_outcome()'s to_notify list. Stage 11 deduplicates release notes
+fetching: containers sharing an image:tag (see reconcile.py's matching registry-check dedup)
+fetch notes once between them, not once each — see _fetch_release_notes_deduped().
 
 Wraps reconcile.run_check() and writes its outcome into SQLite, so the Tracked Containers
 table and per-update/per-stack detail pages survive restarts and get real database ids to
@@ -161,7 +163,7 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
         read_conn.close()
 
     to_fetch = [c for c in containers if _is_new_or_changed_update(c, existing_by_name[c["container_name"]])]
-    release_notes_by_name = _run_concurrent_phase("release_notes", to_fetch, _fetch_release_notes, on_progress)
+    release_notes_by_name = _fetch_release_notes_deduped(to_fetch, on_progress)
 
     # Only worth summarizing a container that actually has real notes text to work from --
     # either freshly fetched this round, or (see _needs_summary_retry) already on file from an
@@ -321,6 +323,69 @@ def _fetch_release_notes(container: dict) -> tuple[str | None, str | None]:
     except Exception:
         logger.exception("Release notes fetch failed for %s", container["container_name"])
         return None, None
+
+
+def _release_notes_dedup_key(container: dict) -> tuple:
+    return (
+        container["image_repo"], container["tag"],
+        container.get("source_override"), container.get("changelog_url_override"),
+    )
+
+
+def _fetch_release_notes_deduped(to_fetch: list[dict], on_progress: ProgressFunc | None) -> dict[str, object]:
+    """Stage 11: fetches release notes once per unique (image_repo, tag, source_override,
+    changelog_url_override) among to_fetch, not once per container -- containers sharing an
+    image (a real fleet, not a hypothetical: two instances of the same *arr app, a spare
+    container mirroring a primary one) get the exact same notes text back regardless of which
+    one is asking, since the notes describe what changed in the image itself, never anything
+    about the individual container. The label overrides are part of the key rather than
+    assumed identical across sharing containers -- rare, but two services on the same image
+    could genuinely point their releaseradar.source/changelog_url labels at different places,
+    and deduping past that would silently hand one of them the wrong container's notes.
+
+    This is deliberately scoped to fetching only -- AI summarization (see _summarize_container)
+    stays one call per container even when it shares this exact same notes text, because that
+    step is config-aware by design (Stage 7): two containers on the same image can have
+    genuinely different compose configs, and a summary that's correct for one could be
+    misleading for the other. Deduplicating a factual fetch is always safe; deduplicating an
+    analysis that's meant to vary per-service is not.
+
+    Progress still reports against len(to_fetch) (the number of containers actually waiting on
+    notes), not the smaller number of real fetches underneath -- see
+    reconcile._fetch_latest_digests()'s docstring for why, and this mirrors it exactly."""
+    results: dict[str, object] = {}
+    if not to_fetch:
+        return results
+
+    total = len(to_fetch)
+    if on_progress:
+        on_progress("release_notes", 0, total)
+
+    groups: dict[tuple, list[dict]] = {}
+    for c in to_fetch:
+        groups.setdefault(_release_notes_dedup_key(c), []).append(c)
+
+    progress_lock = threading.Lock()
+    done_count = 0
+
+    def _fetch_group(key: tuple) -> None:
+        nonlocal done_count
+        members = groups[key]
+        result = _fetch_release_notes(members[0])
+        for member in members:
+            results[member["container_name"]] = result
+
+        if on_progress:
+            with progress_lock:
+                done_count += len(members)
+                current = done_count
+            on_progress("release_notes", current, total)
+
+    max_workers = min(ai_provider.concurrency_limit(), len(groups))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        list(pool.map(_fetch_group, groups.keys()))
+
+    return results
 
 
 def _summarize_container(container: dict, release_notes_raw: str) -> tuple[str, str] | None:

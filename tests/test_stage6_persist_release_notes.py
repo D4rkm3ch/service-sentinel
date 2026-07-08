@@ -311,5 +311,111 @@ def test_run_and_persist_single_reset_and_check_is_a_noop_if_nothing_was_tracked
 
     monkeypatch.setattr("app.persist.reconcile.run_check_one", fake_run_check_one)
     persist.run_and_persist_single_reset_and_check("sonarr")
-
     assert db.list_tracked_containers_with_status()[0]["status"] == "up_to_date"
+
+
+# ---------------------------------------------------------------------------
+# Stage 11: containers sharing an image:tag fetch release notes once between them, not once
+# each -- qbittorrent + qbittorrentspare is a real fleet, not a hypothetical.
+# ---------------------------------------------------------------------------
+
+def test_containers_sharing_an_image_and_tag_fetch_release_notes_only_once():
+    with patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")) as mock_fetch:
+        persist.persist_check_outcome(_outcome(
+            _c("qbittorrent", "update_available", repo="owner/qbittorrent", tag="latest"),
+            _c("qbittorrentspare", "update_available", repo="owner/qbittorrent", tag="latest"),
+        ))
+
+    mock_fetch.assert_called_once_with(
+        "owner/qbittorrent", "latest", source_override=None, changelog_url_override=None,
+    )
+    rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}
+    for name in ("qbittorrent", "qbittorrentspare"):
+        update = db.get_update(rows[name]["id"])
+        assert update["release_notes_raw"] == "Fixed a bug"
+        assert update["source_url"] == "https://example.com"
+
+
+def test_same_image_different_tag_is_not_deduplicated():
+    def fetch_for(image_repo, tag, source_override=None, changelog_url_override=None):
+        return (f"notes for {tag}", "https://example.com")
+
+    with patch("app.persist.release_notes.get_release_notes", side_effect=fetch_for) as mock_fetch:
+        persist.persist_check_outcome(_outcome(
+            _c("readarr-audiobooks", "update_available", repo="owner/readarr", tag="develop"),
+            _c("readarr-ebooks", "update_available", repo="owner/readarr", tag="nightly"),
+        ))
+
+    assert mock_fetch.call_count == 2
+    rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}
+    assert db.get_update(rows["readarr-audiobooks"]["id"])["release_notes_raw"] == "notes for develop"
+    assert db.get_update(rows["readarr-ebooks"]["id"])["release_notes_raw"] == "notes for nightly"
+
+
+def test_same_image_different_label_overrides_is_not_deduplicated():
+    """Rare, but two services on the same image could genuinely point their
+    releaseradar.source label at different repos -- deduping past that would silently hand one
+    of them the wrong container's notes."""
+    def fetch_for(image_repo, tag, source_override=None, changelog_url_override=None):
+        return (f"notes from {source_override}", "https://example.com")
+
+    with patch("app.persist.release_notes.get_release_notes", side_effect=fetch_for) as mock_fetch:
+        persist.persist_check_outcome(_outcome(
+            _c("svc-a", "update_available", repo="owner/shared", tag="latest", source_override="owner/repo-a"),
+            _c("svc-b", "update_available", repo="owner/shared", tag="latest", source_override="owner/repo-b"),
+        ))
+
+    assert mock_fetch.call_count == 2
+    rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}
+    assert db.get_update(rows["svc-a"]["id"])["release_notes_raw"] == "notes from owner/repo-a"
+    assert db.get_update(rows["svc-b"]["id"])["release_notes_raw"] == "notes from owner/repo-b"
+
+
+def test_a_shared_fetch_failure_leaves_every_sharing_container_with_no_notes():
+    with patch("app.persist.release_notes.get_release_notes", side_effect=RuntimeError("network down")):
+        persist.persist_check_outcome(_outcome(
+            _c("qbittorrent", "update_available", repo="owner/qbittorrent", tag="latest"),
+            _c("qbittorrentspare", "update_available", repo="owner/qbittorrent", tag="latest"),
+        ))
+
+    rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}
+    for name in ("qbittorrent", "qbittorrentspare"):
+        update = db.get_update(rows[name]["id"])
+        assert update["release_notes_raw"] is None
+
+
+def test_summarization_still_runs_once_per_container_even_when_notes_are_shared():
+    """Deduplicating the fetch must never deduplicate the AI summary too -- summarization is
+    config-aware by design (Stage 7), so two containers on the same image can legitimately get
+    different summaries."""
+    with patch("app.persist.release_notes.get_release_notes", return_value=("Real notes.", "https://example.com")), \
+         patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist._summarize_container") as mock_summarize:
+        mock_summarize.side_effect = [("Summary A", "feature"), ("Summary B", "breaking")]
+        persist.persist_check_outcome(_outcome(
+            _c("qbittorrent", "update_available", repo="owner/qbittorrent", tag="latest"),
+            _c("qbittorrentspare", "update_available", repo="owner/qbittorrent", tag="latest"),
+        ))
+
+    assert mock_summarize.call_count == 2
+    rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}
+    severities = {db.get_update(rows[n]["id"])["severity"] for n in ("qbittorrent", "qbittorrentspare")}
+    assert severities == {"feature", "breaking"}
+
+
+def test_progress_jumps_by_the_shared_group_size_for_release_notes_stage():
+    calls = []
+
+    def on_progress(stage, done, total):
+        if stage == "release_notes":
+            calls.append((done, total))
+
+    with patch("app.persist.release_notes.get_release_notes", return_value=("notes", "https://example.com")):
+        persist.persist_check_outcome(_outcome(
+            _c("qbittorrent", "update_available", repo="owner/qbittorrent", tag="latest"),
+            _c("qbittorrentspare", "update_available", repo="owner/qbittorrent", tag="latest"),
+            _c("sonarr", "update_available", repo="owner/sonarr", tag="latest"),
+        ), on_progress=on_progress)
+
+    assert calls[0] == (0, 3)
+    assert calls[-1] == (3, 3)

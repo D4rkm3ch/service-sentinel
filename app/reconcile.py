@@ -1,13 +1,17 @@
-"""Stage 2 of the ground-up rebuild: concurrent registry checks.
+"""Stage 2 of the ground-up rebuild: concurrent registry checks. Stage 11 adds deduplication:
+containers sharing the exact same image:tag (a real, not hypothetical, case -- e.g. two
+instances of the same *arr app, a spare/backup container mirroring a primary one) get exactly
+one registry digest lookup between them instead of one each, since the registry has no idea
+which of your containers is asking and would just answer the identical question twice.
 
-Lists tracked Docker containers, then checks each one's registry digest in parallel via a
-thread pool (registry checks are almost pure network wait, so this is the one part of the
-pipeline worth parallelizing). No AI anywhere in this file, and still no persistence *here* —
-every call re-checks everything from scratch against the real Docker socket and real
+Lists tracked Docker containers, then checks each *unique* image:tag's registry digest in
+parallel via a thread pool (registry checks are almost pure network wait, so this is the one
+part of the pipeline worth parallelizing). No AI anywhere in this file, and still no persistence
+*here* — every call re-checks everything from scratch against the real Docker socket and real
 registries. This module stays a pure, database-free function on purpose (see app/persist.py,
 which wraps it for Stage 3) so it stays simple to test by mocking Docker/registry calls and
 asserting on the returned dict, with no DB side effects to also mock or reason about. Listing
-containers itself stays a single sequential call to the Docker socket; only the per-container
+containers itself stays a single sequential call to the Docker socket; only the per-unique-image
 registry lookups are fanned out.
 
 This file will grow one capability at a time in later stages (release notes, AI summarization,
@@ -28,13 +32,15 @@ from app.registry import get_latest_digest
 logger = logging.getLogger("release_radar.reconcile")
 
 
-def _check_one(container: TrackedContainer) -> dict:
-    try:
-        latest_digest = get_latest_digest(container.image_repo, container.tag)
-    except Exception:
-        logger.exception("Registry check failed for %s", container.name)
-        latest_digest = None
-
+def _check_one(container: TrackedContainer, latest_digest: str | None) -> dict:
+    """Turns one container plus its (already-fetched, possibly shared) latest_digest into a
+    result dict. Takes latest_digest as a parameter rather than fetching it itself -- see
+    _fetch_latest_digests below, which fetches it once per unique image:tag and hands the same
+    value to every container sharing it. status is still computed per-container: two
+    containers on the same image:tag can legitimately have different current_digest values
+    (e.g. one hasn't been restarted since the last update and the other has), so "is an update
+    available" is never something that can itself be deduplicated, only the registry lookup
+    that feeds it."""
     if latest_digest is None:
         status = "error"
     elif container.current_digest is not None and latest_digest != container.current_digest:
@@ -52,6 +58,76 @@ def _check_one(container: TrackedContainer) -> dict:
         "source_override": container.source_override,
         "changelog_url_override": container.changelog_url_override,
     }
+
+
+def _fetch_latest_digests(containers: list[TrackedContainer],
+                           on_progress: Callable[[int, int], None] | None) -> dict[str, dict]:
+    """Fetches the registry's latest digest once per unique (image_repo, tag) among the given
+    containers -- not once per container -- and returns every container's own result dict,
+    keyed by container name, in the same shape _check_one always has. Progress still reports
+    against len(containers) (the number everyone actually sees tracked), not the smaller number
+    of real registry calls underneath -- each completed lookup jumps the counter by however many
+    containers share that image:tag, so two containers sharing an image finishing together is
+    exactly as visible as either finishing alone, never a silent gap that looks like a hang."""
+    total = len(containers)
+    if on_progress:
+        on_progress(0, total)
+
+    groups: dict[tuple[str, str], list[TrackedContainer]] = {}
+    for c in containers:
+        groups.setdefault((c.image_repo, c.tag), []).append(c)
+
+    results: dict[str, dict] = {}
+    progress_lock = threading.Lock()
+    done_count = 0
+
+    def _fetch_group(key: tuple[str, str]) -> None:
+        nonlocal done_count
+        image_repo, tag = key
+        try:
+            latest_digest = get_latest_digest(image_repo, tag)
+        except Exception:
+            logger.exception("Registry check failed for %s:%s", image_repo, tag)
+            latest_digest = None
+
+        members = groups[key]
+        for member in members:
+            results[member.name] = _check_one(member, latest_digest)
+
+        if on_progress:
+            with progress_lock:
+                done_count += len(members)
+                current = done_count
+            on_progress(current, total)
+
+    max_workers = min(settings.registry_check_concurrency, len(groups))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        list(pool.map(_fetch_group, groups.keys()))
+
+    return results
+
+
+def _run_checks(containers: list[TrackedContainer], checked_at: str,
+                 on_progress: Callable[[int, int], None] | None) -> dict:
+    """Shared body for run_check()/run_check_many() below -- both just gather a different list
+    of TrackedContainer and hand it here. Preserves the input list's own order in the returned
+    "containers" list regardless of which unique-image group finishes its (deduplicated,
+    concurrent) registry lookup first."""
+    if not containers:
+        logger.info("Check complete: 0 containers checked, 0 errors")
+        if on_progress:
+            on_progress(0, 0)
+        return {"containers": [], "errors": 0, "checked_at": checked_at}
+
+    result_by_name = _fetch_latest_digests(containers, on_progress)
+    results = [result_by_name[c.name] for c in containers]
+    errors = sum(1 for r in results if r["status"] == "error")
+
+    logger.info(
+        "Check complete: %d containers checked, %d errors (%d unique image:tag)",
+        len(results), errors, len({(c.image_repo, c.tag) for c in containers}),
+    )
+    return {"containers": results, "errors": errors, "checked_at": checked_at}
 
 
 def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
@@ -80,48 +156,15 @@ def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
         logger.exception("Could not reach the Docker socket")
         return {"containers": [], "errors": 1, "checked_at": checked_at}
 
-    if not containers:
-        logger.info("Check complete: 0 containers checked, 0 errors")
-        if on_progress:
-            on_progress(0, 0)
-        return {"containers": [], "errors": 0, "checked_at": checked_at}
-
-    total = len(containers)
-    if on_progress:
-        on_progress(0, total)
-
-    progress_lock = threading.Lock()
-    done_count = 0
-
-    def _check_and_report(container: TrackedContainer) -> dict:
-        nonlocal done_count
-        result = _check_one(container)
-        if on_progress:
-            with progress_lock:
-                done_count += 1
-                current = done_count
-            on_progress(current, total)
-        return result
-
-    max_workers = min(settings.registry_check_concurrency, total)
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        results = list(pool.map(_check_and_report, containers))
-
-    errors = sum(1 for r in results if r["status"] == "error")
-
-    logger.info(
-        "Check complete: %d containers checked, %d errors (concurrency=%d)",
-        len(results), errors, max_workers,
-    )
-    return {"containers": results, "errors": errors, "checked_at": checked_at}
+    return _run_checks(containers, checked_at, on_progress)
 
 
 def run_check_one(container_name: str, on_progress: Callable[[int, int], None] | None = None) -> dict:
     """Same shape and semantics as run_check() above, scoped to a single already-tracked
     container by name — backs the per-update "Reset & re-check" button (Stage 6), which needs
-    to re-check just the one container a user clicked into rather than the whole fleet.
-    Deliberately its own function rather than run_check(container_names=[...]) so run_check
-    itself stays untouched and every existing test/caller of it is unaffected.
+    to re-check just the one container a user clicked into rather than the whole fleet. Nothing
+    to deduplicate against with only one container, so this stays its own simple path rather
+    than routing through _run_checks()'s grouping machinery.
 
     Returns {"containers": [], "errors": 1, ...} if the named container isn't found (removed
     since the page was loaded) — same "couldn't check anything" shape run_check() returns for
@@ -141,7 +184,12 @@ def run_check_one(container_name: str, on_progress: Callable[[int, int], None] |
 
     if on_progress:
         on_progress(0, 1)
-    result = _check_one(container)
+    try:
+        latest_digest = get_latest_digest(container.image_repo, container.tag)
+    except Exception:
+        logger.exception("Registry check failed for %s", container.name)
+        latest_digest = None
+    result = _check_one(container, latest_digest)
     if on_progress:
         on_progress(1, 1)
 
@@ -155,7 +203,9 @@ def run_check_many(container_names: list[str], on_progress: Callable[[int, int],
     re-check every service in one compose stack without touching the other tracked containers.
     Container names not currently tracked (removed since the page was loaded) are silently
     skipped rather than counted as errors, same as run_check_one's "not found" handling would
-    suggest, just without failing the whole batch over one missing member."""
+    suggest, just without failing the whole batch over one missing member. Goes through
+    _run_checks() same as run_check() -- a stack can itself contain two services on the same
+    image (rarer than the whole-fleet case, but not impossible), so the same dedup applies."""
     checked_at = datetime.now(timezone.utc).isoformat()
 
     try:
@@ -166,29 +216,4 @@ def run_check_many(container_names: list[str], on_progress: Callable[[int, int],
 
     name_set = set(container_names)
     containers = [c for c in all_containers if c.name in name_set]
-    if not containers:
-        return {"containers": [], "errors": 0, "checked_at": checked_at}
-
-    total = len(containers)
-    if on_progress:
-        on_progress(0, total)
-
-    progress_lock = threading.Lock()
-    done_count = 0
-
-    def _check_and_report(container: TrackedContainer) -> dict:
-        nonlocal done_count
-        result = _check_one(container)
-        if on_progress:
-            with progress_lock:
-                done_count += 1
-                current = done_count
-            on_progress(current, total)
-        return result
-
-    max_workers = min(settings.registry_check_concurrency, total)
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        results = list(pool.map(_check_and_report, containers))
-
-    errors = sum(1 for r in results if r["status"] == "error")
-    return {"containers": results, "errors": errors, "checked_at": checked_at}
+    return _run_checks(containers, checked_at, on_progress)
