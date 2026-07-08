@@ -26,12 +26,21 @@ logger = logging.getLogger("release_radar.persist")
 _REGISTRY_ERROR_TEXT = "Could not reach the registry to check for an update."
 
 
-def run_and_persist_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
+ProgressFunc = Callable[[str, int, int], None]
+
+
+def run_and_persist_check(on_progress: ProgressFunc | None = None) -> dict:
     """Runs one check and persists its outcome, unconditionally — no running-flag guard, no
     exception handling. This is the low-level building block; almost every real caller should
-    use run_updates_check_if_not_running() below instead, which adds both."""
-    outcome = reconcile.run_check(on_progress=on_progress)
-    persist_check_outcome(outcome)
+    use run_updates_check_if_not_running() below instead, which adds both.
+
+    on_progress(stage, done, total), if given, is called for both phases of the pipeline — the
+    registry check itself (stage="checking") and release notes fetching (stage="release_notes",
+    skipped entirely if nothing new needs notes) — see persist_check_outcome()'s docstring for
+    why a phase that doesn't report progress here looks exactly like a hang."""
+    reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
+    outcome = reconcile.run_check(on_progress=reconcile_progress)
+    persist_check_outcome(outcome, on_progress=on_progress)
     return outcome
 
 
@@ -61,7 +70,7 @@ def run_claimed_updates_check() -> None:
     reports itself as failed and lets the next trigger — scheduled or manual — try again."""
     try:
         outcome = run_and_persist_check(
-            on_progress=lambda done, total: check_state.set_progress("updates", done, total)
+            on_progress=lambda stage, done, total: check_state.set_progress("updates", stage, done, total)
         )
         result = {
             "checked": len(outcome["containers"]),
@@ -87,7 +96,7 @@ def run_updates_check_if_not_running() -> bool:
     return True
 
 
-def persist_check_outcome(outcome: dict) -> None:
+def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None, prune: bool = True) -> None:
     """Writes one check's results into container_state/updates. An empty container list is
     always treated as "the check itself didn't complete" (Docker socket unreachable, etc.)
     rather than "there are genuinely zero containers" — existing persisted state is left
@@ -99,6 +108,11 @@ def persist_check_outcome(outcome: dict) -> None:
     database transaction open — and only then does the actual write batch run. This keeps
     the "one transaction for the whole write batch" property described below while never
     holding a SQLite transaction open across however long a handful of GitHub API calls take.
+    on_progress(stage, done, total) is called with stage="release_notes" once per fetch during
+    that phase, exactly like reconcile.run_check() already does for stage="checking" — skipped
+    entirely (never called with this stage) if nothing needs notes this round, so the caller
+    never has to render a meaningless "0/0". A phase that fetches things but never reports
+    progress here is exactly the "hangs at N/N" bug this stage previously reintroduced.
 
     Holds a single connection/transaction for the whole write batch rather than letting each
     db.py call open and commit its own — with 59 containers and up to four db.py calls each,
@@ -107,7 +121,12 @@ def persist_check_outcome(outcome: dict) -> None:
     what a "hangs for several seconds after reaching N/N" report traced back to. One
     transaction also means a check that fails partway through leaves the database exactly as
     it was — readers never see a half-applied check, and there's nothing to reconcile after
-    the retry the Stage 4 safety net triggers."""
+    the retry the Stage 4 safety net triggers.
+
+    prune=False skips prune_removed_containers() — required for a scoped single-container
+    outcome (see run_and_persist_single_check below), since that outcome's container list
+    legitimately contains just the one container being re-checked, not every tracked
+    container; pruning against it would wrongly delete every other container's state."""
     containers = outcome["containers"]
     if not containers:
         return
@@ -121,14 +140,21 @@ def persist_check_outcome(outcome: dict) -> None:
     finally:
         read_conn.close()
 
+    to_fetch = [c for c in containers if _is_new_or_changed_update(c, existing_by_name[c["container_name"]])]
     release_notes_by_name = {}
-    for container in containers:
-        if _is_new_or_changed_update(container, existing_by_name[container["container_name"]]):
+    if to_fetch:
+        total = len(to_fetch)
+        if on_progress:
+            on_progress("release_notes", 0, total)
+        for i, container in enumerate(to_fetch, start=1):
             release_notes_by_name[container["container_name"]] = _fetch_release_notes(container)
+            if on_progress:
+                on_progress("release_notes", i, total)
 
     conn = db.open_conn()
     try:
-        db.prune_removed_containers([c["container_name"] for c in containers], conn=conn)
+        if prune:
+            db.prune_removed_containers([c["container_name"] for c in containers], conn=conn)
         for container in containers:
             name = container["container_name"]
             _persist_one(
@@ -207,3 +233,43 @@ def _persist_one(container: dict, existing, release_notes_result, conn) -> None:
         release_notes_raw=release_notes_raw,
         conn=conn,
     )
+
+
+# ---------------------------------------------------------------------------
+# Scoped single-container re-check — backs the per-update "Reset & re-check" button (Stage 6).
+# Shares the exact same "only one check at a time" mutex as the full check above (claimed via
+# try_start_updates_check()) so it can never run concurrently with a full check and race on
+# the same rows, but must NOT overwrite the full check's "Last checked: N checked, M found"
+# summary with its own single-container result — see check_state.release_running() vs
+# set_finished() for how that's kept separate.
+# ---------------------------------------------------------------------------
+
+def run_and_persist_single_check(container_name: str, on_progress: ProgressFunc | None = None) -> dict:
+    """Single-container equivalent of run_and_persist_check() — re-checks just container_name
+    against the registry and, if it's a genuinely new/changed update, fetches its release
+    notes fresh, exactly like a full check would for that one container. prune=False on the
+    persist call below is load-bearing: this outcome's container list is deliberately just the
+    one container, and pruning against a 1-item list would delete every other tracked
+    container's state."""
+    reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
+    outcome = reconcile.run_check_one(container_name, on_progress=reconcile_progress)
+    persist_check_outcome(outcome, on_progress=on_progress, prune=False)
+    return outcome
+
+
+def run_claimed_single_check(item_key: str, container_name: str) -> None:
+    """Does the actual scoped check + persist work, assuming the caller already claimed the
+    shared running slot via try_start_updates_check(). Mirrors run_claimed_updates_check()'s
+    Stage 4 safety net (a failed scoped check still releases the mutex, never wedges future
+    checks) but reports progress on the item's own channel and releases the shared mutex
+    without touching the feature-level last_result — see check_state.py."""
+    try:
+        run_and_persist_single_check(
+            container_name,
+            on_progress=lambda stage, done, total: check_state.set_item_progress(item_key, stage, done, total),
+        )
+    except Exception:
+        logger.exception("Scoped re-check failed unexpectedly for %s", container_name)
+    finally:
+        check_state.finish_item(item_key)
+        check_state.release_running("updates")

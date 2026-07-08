@@ -499,6 +499,7 @@ def list_tracked_containers_with_status() -> list[dict]:
                 u.severity AS severity,
                 u.summary_markdown AS summary_markdown,
                 u.source_url AS source_url,
+                u.status AS read_status,
                 u.created_at AS update_created_at
             FROM container_state cs
             LEFT JOIN updates u ON u.container_name = cs.container_name
@@ -520,6 +521,9 @@ def list_tracked_containers_with_status() -> list[dict]:
             "error": r["error"],
             "summary_markdown": r["summary_markdown"],
             "source_url": r["source_url"],
+            # "unread"/"read" -- only meaningful when an update row exists (id is not None);
+            # None for an up_to_date container with no row at all.
+            "read_status": r["read_status"],
             "last_checked_at": r["last_checked_at"],
             "created_at": r["update_created_at"] or r["last_checked_at"],
         })

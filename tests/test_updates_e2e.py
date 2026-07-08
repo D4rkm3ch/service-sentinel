@@ -114,7 +114,10 @@ def test_global_reset_and_recheck_wipes_then_repopulates(client):
     assert len(rows) == 3  # repopulated fresh, not left empty
 
 
-def test_retry_and_reset_routes_on_detail_page_redirect_back_to_same_page(client):
+def test_retry_route_is_still_a_disabled_placeholder(client):
+    """The button itself is disabled in the UI (Stage 7 hasn't shipped an AI summary to
+    regenerate yet) -- this just proves the route it would have posted to is still a harmless
+    no-op if ever hit directly."""
     _run_check_and_wait(client)
     sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
 
@@ -122,6 +125,36 @@ def test_retry_and_reset_routes_on_detail_page_redirect_back_to_same_page(client
     assert resp.status_code == 303
     assert resp.headers["location"] == f"/updates/{sonarr['id']}"
 
-    resp = client.post(f"/updates/{sonarr['id']}/reset-and-recheck", follow_redirects=False)
-    assert resp.status_code == 303
-    assert resp.headers["location"] == f"/updates/{sonarr['id']}"
+
+def test_scoped_reset_and_recheck_reruns_just_that_container(client):
+    """Stage 6: per-item Reset & re-check is real now -- posts an htmx fragment (spinner, not
+    a redirect) immediately, does a real scoped re-check of just that one container in the
+    background, and the poller ends with an HX-Redirect once done. Also proves it shares the
+    same "only one check at a time" mutex as a full check (released cleanly afterwards) and
+    doesn't prune every other tracked container the way a full check's outcome would."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+
+    with patch("app.reconcile.list_tracked_containers", return_value=_fake_containers()), \
+         patch("app.reconcile.get_latest_digest", side_effect=_fake_digest):
+        resp = client.post(f"/updates/{sonarr_id}/reset-and-recheck")
+        assert resp.status_code == 200
+        assert 'id="item-recheck-status"' in resp.text
+        assert "spinner" in resp.text
+
+        for _ in range(50):
+            item = check_state.get_item_state(f"update:{sonarr_id}")
+            if item is None or not item["running"]:
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("scoped recheck never finished")
+
+        poll = client.get(f"/updates/{sonarr_id}/recheck-status-poll")
+        # Same digest transition as before (_fake_digest is unchanged) -> same row, same id.
+        assert poll.headers.get("hx-redirect") == f"/updates/{sonarr_id}"
+
+    assert check_state.get_state("updates")["running"] is False
+    # Not pruned down to just the one container the scoped outcome actually contained.
+    assert len(db.list_tracked_containers_with_status()) == 3

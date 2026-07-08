@@ -21,9 +21,9 @@ def _slow_run_check(on_progress=None):
 
 def _slow_run_check_with_progress(on_progress=None):
     if on_progress:
-        on_progress(0, 10)
+        on_progress("checking", 0, 10)
         time.sleep(0.2)
-        on_progress(3, 10)
+        on_progress("checking", 3, 10)
     time.sleep(0.3)
     return {"containers": [], "errors": 0, "checked_at": "2026-01-01T00:00:00+00:00"}
 
@@ -63,10 +63,31 @@ def test_status_poll_shows_live_progress_and_polls_faster_for_updates(client):
         resp = client.post("/updates/check-now")
         assert "Checking" in resp.text
 
-        time.sleep(0.25)  # let the worker thread call on_progress(3, 10)
+        time.sleep(0.25)  # let the worker thread call on_progress("checking", 3, 10)
         poll_resp = client.get("/updates/status-poll")
-        assert "3/10" in poll_resp.text
+        assert "Checking for updates (3/10)" in poll_resp.text
         assert "delay:500ms" in poll_resp.text
+
+        _wait_until_not_running("updates")
+
+
+def test_status_poll_does_not_re_render_the_spinner_node(client):
+    """Regression test for the spinner glitch report: every poll used to replace the whole
+    status badge -- spinner included -- via an oob swap, which destroyed and recreated the
+    spinner's DOM node every 500ms and restarted its CSS animation before a single rotation
+    (700ms) could finish. The initial "Check now" response legitimately renders a fresh
+    spinner once; the fix is that subsequent polls only swap the text span next to it, never
+    the spinner itself, so its animation runs uninterrupted while a check is in flight."""
+    check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
+
+    with patch("app.main.persist.run_and_persist_check", side_effect=_slow_run_check_with_progress):
+        resp = client.post("/updates/check-now")
+        assert 'class="spinner"' in resp.text  # the one-time initial render does include it
+
+        time.sleep(0.25)
+        poll_resp = client.get("/updates/status-poll")
+        assert 'class="spinner"' not in poll_resp.text  # but repeated polls must never re-render it
+        assert 'id="check-status-text" hx-swap-oob="true"' in poll_resp.text
 
         _wait_until_not_running("updates")
 

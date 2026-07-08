@@ -114,6 +114,60 @@ def test_release_notes_fetch_failure_does_not_break_persistence():
     assert update["release_notes_raw"] is None
 
 
+def test_progress_reports_release_notes_stage_only_when_something_needs_fetching():
+    """Regression test for the "hangs at 59/59" bug reappearing once notes-fetching was added:
+    persist_check_outcome must call on_progress(stage="release_notes", ...) once per fetch, so
+    the UI has something to show for however long that phase takes -- and must never announce
+    that stage at all when nothing needs fetching (an up_to_date-only check), rather than
+    showing a meaningless "0/0"."""
+    calls = []
+
+    with patch("app.persist.release_notes.get_release_notes", return_value=("notes", "https://example.com")):
+        persist.persist_check_outcome(
+            _outcome(_c("sonarr", "update_available"), _c("plex", "up_to_date", latest_digest="sha256:old")),
+            on_progress=lambda stage, done, total: calls.append((stage, done, total)),
+        )
+
+    release_notes_calls = [c for c in calls if c[0] == "release_notes"]
+    assert release_notes_calls == [("release_notes", 0, 1), ("release_notes", 1, 1)]
+
+
+def test_progress_never_reports_release_notes_stage_when_nothing_is_new():
+    calls = []
+
+    with patch("app.persist.release_notes.get_release_notes") as mock_fetch:
+        persist.persist_check_outcome(
+            _outcome(_c("plex", "up_to_date", latest_digest="sha256:old")),
+            on_progress=lambda stage, done, total: calls.append((stage, done, total)),
+        )
+
+    mock_fetch.assert_not_called()
+    assert calls == []
+
+
+def test_run_and_persist_check_reports_both_stages_in_order(monkeypatch):
+    """End-to-end through run_and_persist_check() (what persist.run_claimed_updates_check()
+    actually calls): proves the "checking" stage from reconcile.run_check() and the
+    "release_notes" stage from persist_check_outcome() both reach the same on_progress
+    callback, in order, with the stage name that lets the UI tell them apart."""
+    def fake_run_check(on_progress=None):
+        if on_progress:
+            on_progress(0, 1)
+            on_progress(1, 1)
+        return _outcome(_c("sonarr", "update_available"))
+
+    monkeypatch.setattr("app.persist.reconcile.run_check", fake_run_check)
+    calls = []
+
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)):
+        persist.run_and_persist_check(on_progress=lambda stage, done, total: calls.append((stage, done, total)))
+
+    assert calls == [
+        ("checking", 0, 1), ("checking", 1, 1),
+        ("release_notes", 0, 1), ("release_notes", 1, 1),
+    ]
+
+
 def test_fetch_happens_before_the_write_transaction_opens():
     """Proves the network call genuinely happens outside the write transaction rather than
     merely being sequenced correctly by accident -- while get_release_notes is "running", the

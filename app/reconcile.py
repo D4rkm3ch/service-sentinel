@@ -114,3 +114,36 @@ def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
         len(results), errors, max_workers,
     )
     return {"containers": results, "errors": errors, "checked_at": checked_at}
+
+
+def run_check_one(container_name: str, on_progress: Callable[[int, int], None] | None = None) -> dict:
+    """Same shape and semantics as run_check() above, scoped to a single already-tracked
+    container by name — backs the per-update "Reset & re-check" button (Stage 6), which needs
+    to re-check just the one container a user clicked into rather than the whole fleet.
+    Deliberately its own function rather than run_check(container_names=[...]) so run_check
+    itself stays untouched and every existing test/caller of it is unaffected.
+
+    Returns {"containers": [], "errors": 1, ...} if the named container isn't found (removed
+    since the page was loaded) — same "couldn't check anything" shape run_check() returns for
+    an unreachable Docker socket, so callers can treat both the same way."""
+    checked_at = datetime.now(timezone.utc).isoformat()
+
+    try:
+        containers = list_tracked_containers()
+    except Exception:
+        logger.exception("Could not reach the Docker socket")
+        return {"containers": [], "errors": 1, "checked_at": checked_at}
+
+    container = next((c for c in containers if c.name == container_name), None)
+    if container is None:
+        logger.warning("Scoped re-check requested for %s but it's no longer tracked", container_name)
+        return {"containers": [], "errors": 1, "checked_at": checked_at}
+
+    if on_progress:
+        on_progress(0, 1)
+    result = _check_one(container)
+    if on_progress:
+        on_progress(1, 1)
+
+    errors = 1 if result["status"] == "error" else 0
+    return {"containers": [result], "errors": errors, "checked_at": checked_at}

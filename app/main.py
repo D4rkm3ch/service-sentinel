@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import compose_lookup, db, persist, stacks
+from app import check_state, compose_lookup, db, persist, stacks
 from app.check_state import format_summary, get_progress, get_state, set_running
 from app.config import settings
 from app.notifications import send_test_notification
@@ -143,11 +143,29 @@ def toggle_feature(feature: str, request: Request):
 # Shared check-now / status handlers
 # ---------------------------------------------------------------------------
 
-# Live progress text (e.g. "Checking (23/59)") only makes sense for a feature that reports
-# progress — currently just "updates" (Stage 2). Polling faster while it's running gives
-# meaningfully live-feeling updates now that a full check finishes in seconds rather than
-# up to a minute; logs/compose keep their original 2s cadence untouched.
+# Live progress text (e.g. "Checking for updates (23/59)") only makes sense for a feature that
+# reports progress — currently just "updates" (Stage 2, staged Stage 6). Polling faster while
+# it's running gives meaningfully live-feeling updates now that a full check finishes in
+# seconds rather than up to a minute; logs/compose keep their original 2s cadence untouched.
 _FAST_POLL_FEATURES = {"updates"}
+
+# Human label per pipeline stage (check_state.py's progress "stage" field) — every stage that
+# reports progress needs an entry here, or it silently falls back to the generic "Checking…"
+# below. Add the new stage's name here whenever a stage is added to the pipeline (see
+# persist.py's docstrings for why a stage that reports progress but isn't named here, or
+# doesn't report progress at all, both look exactly like a hang to the user).
+_STAGE_LABELS = {
+    "checking": "Checking for updates",
+    "release_notes": "Grabbing release notes",
+}
+
+
+def _progress_text(progress: dict) -> str:
+    total = progress.get("total") or 0
+    if not total:
+        return "Checking…"
+    label = _STAGE_LABELS.get(progress.get("stage"), "Checking")
+    return f"{label} ({progress['done']}/{total})…"
 
 
 def _status_context(request: Request, feature: str) -> dict:
@@ -159,6 +177,7 @@ def _status_context(request: Request, feature: str) -> dict:
         "feature": feature,
         "state": state,
         "progress": progress,
+        "progress_text": _progress_text(progress),
         "poll_delay_ms": poll_delay_ms,
         "status_summary_text": format_summary(feature, state),
     }
@@ -807,18 +826,84 @@ def mark_read(update_id: int):
 
 @app.post("/updates/{update_id}/retry")
 def retry_update_route(update_id: int):
-    # The detail page is real as of Stage 3, so this button is genuinely reachable now — but
-    # Retry means "regenerate the AI summary in place," and there's no AI summary to
-    # regenerate until Stage 7. Safe no-op: redirect back to the same update rather than away
-    # to the list, so at least it doesn't yank the user off the page they were looking at.
+    # Retry means "regenerate the AI summary in place" — there's no AI summary to regenerate
+    # until Stage 7, so the button itself is disabled with an explanatory tooltip in
+    # detail.html rather than being wired here. This route is unreachable from the UI as a
+    # result; kept as a safe no-op (redirect back to the same update) in case anything still
+    # posts to it directly, and IS the one to wire up for real once Stage 7 lands.
     return RedirectResponse(url=f"/updates/{update_id}", status_code=303)
+
+
+def _item_key(update_id: int) -> str:
+    return f"update:{update_id}"
+
+
+def _render_item_status(request: Request, update_id: int, item_key: str, busy_message: str | None = None):
+    item = check_state.get_item_state(item_key)
+    return templates.TemplateResponse(
+        "_item_status.html",
+        {
+            "request": request, "update_id": update_id, "item": item,
+            "progress_text": _progress_text(item) if item else "",
+            "busy_message": busy_message,
+        },
+    )
 
 
 @app.post("/updates/{update_id}/reset-and-recheck")
-def reset_and_recheck_update_route(update_id: int):
-    # Same reasoning as retry above — scoped per-item reset is intentionally deferred to a
-    # later stage (see the "scoped Check now" discussion) rather than folded into Stage 3.
-    return RedirectResponse(url=f"/updates/{update_id}", status_code=303)
+def reset_and_recheck_update_route(request: Request, update_id: int):
+    """Real as of Stage 6: wipes just this container's history and re-checks it (digest +
+    release notes) on its own, sharing the same "only one check at a time" mutex a full check
+    uses (see persist.run_claimed_single_check) without disturbing the full check's own status
+    display. Renders the live spinner/progress fragment next to the button; the poller it
+    kicks off (see the recheck-status-poll route below) follows up with an HX-Redirect once
+    the container's update row has possibly moved to a new id, changed, or disappeared."""
+    update = db.get_update(update_id)
+    if update is None:
+        raise HTTPException(status_code=404, detail="Update not found")
+
+    item_key = _item_key(update_id)
+    if not persist.try_start_updates_check():
+        return _render_item_status(
+            request, update_id, item_key,
+            busy_message="A check is already running — try again shortly.",
+        )
+
+    check_state.start_item(item_key, update["container_name"])
+    threading.Thread(
+        target=persist.run_claimed_single_check, args=(item_key, update["container_name"]), daemon=True,
+    ).start()
+    return _render_item_status(request, update_id, item_key)
+
+
+@app.get("/updates/{update_id}/recheck-status-poll")
+def update_recheck_status_poll(request: Request, update_id: int):
+    item_key = _item_key(update_id)
+    item = check_state.get_item_state(item_key)
+
+    if item is not None and item["running"]:
+        return templates.TemplateResponse(
+            "_item_status_poll.html",
+            {"request": request, "update_id": update_id, "item": item, "progress_text": _progress_text(item)},
+        )
+
+    # Finished (or the item vanished, e.g. after a restart) -- figure out where this
+    # container's update actually landed: the digest transition it was tracking may have been
+    # superseded (a new row, different id), resolved (no row at all), or unchanged (same id).
+    container_name = item["container_name"] if item else None
+    check_state.clear_item(item_key)
+    redirect_url = "/updates"
+    if container_name:
+        latest = db.get_latest_update_for_container(container_name)
+        if latest is not None:
+            redirect_url = f"/updates/{latest['id']}"
+
+    resp = templates.TemplateResponse(
+        "_item_status_poll.html",
+        {"request": request, "update_id": update_id, "item": None, "progress_text": ""},
+    )
+    resp.headers["HX-Redirect"] = redirect_url
+    return resp
 
 
 # ---------------------------------------------------------------------------

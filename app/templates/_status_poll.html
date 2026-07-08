@@ -1,14 +1,9 @@
 {% if state.running %}
-<div id="check-status-inner" hx-swap-oob="true">
-  <div class="status-badge status-running">
-    <span class="spinner" aria-hidden="true"></span>
-    {% if progress.total %}Checking ({{ progress.done }}/{{ progress.total }})…{% else %}Checking…{% endif %}
-  </div>
-</div>
+<span id="check-status-text" hx-swap-oob="true">{{ progress_text }}</span>
 <span class="status-poller" hx-get="/{{ feature }}/status-poll" hx-trigger="load delay:{{ poll_delay_ms }}ms" hx-target="this" hx-swap="outerHTML"></span>
 {% else %}
 <div id="check-status-inner" hx-swap-oob="true">
-  <div class="status-badge status-idle">
+  <div class="status-badge status-idle" id="check-status-text">
     {{ status_summary_text }}
   </div>
 </div>

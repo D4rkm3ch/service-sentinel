@@ -8,21 +8,47 @@ FEATURES = ("updates", "logs", "compose")
 
 _lock = threading.Lock()
 _state = {name: {"running": False, "last_result": None, "last_run_at": None} for name in FEATURES}
-# Only "updates" wires this up so far (Stage 2) — logs/compose never call set_progress, so
-# their progress stays {"done": 0, "total": 0} and the status template's "if progress.total"
-# guard means their rendered "Checking…" text is unaffected.
-_progress = {name: {"done": 0, "total": 0} for name in FEATURES}
+# Only "updates" wires this up so far (Stage 2, extended Stage 6) — logs/compose never call
+# set_progress, so their progress stays {"stage": None, "done": 0, "total": 0} and the status
+# template's "if progress.total" guard means their rendered "Checking…" text is unaffected.
+#
+# "stage" names which phase of a multi-step check is running (e.g. "checking" vs
+# "release_notes" as of Stage 6) so the status text can say what's actually happening instead
+# of a single generic "Checking (N/M)" that silently freezes once a later phase with its own
+# item count starts. Any future stage that adds another phase (Stage 7's AI summarization,
+# most likely) MUST call set_progress with its own stage name and report its own progress the
+# same way — a phase that never calls set_progress looks exactly like a hang, which is the
+# bug this fixes.
+_progress = {name: {"stage": None, "done": 0, "total": 0} for name in FEATURES}
+
+# Item-scoped state for a single update's own "Reset & re-check" button (Stage 6) — separate
+# from the feature-level state above on purpose: a scoped one-container recheck must not
+# stomp the Updates page's "Last checked: N checked, M found" summary with "1 checked", and
+# each update's button needs its own independent running/progress/done signal rather than
+# sharing the single global one. Entries are transient (created when a recheck starts, removed
+# once its poller has read the final "done" state) rather than tied to the fixed FEATURES list.
+_item_state: dict[str, dict] = {}
 
 
 def set_running(feature: str) -> None:
     with _lock:
         _state[feature]["running"] = True
-        _progress[feature] = {"done": 0, "total": 0}
+        _progress[feature] = {"stage": None, "done": 0, "total": 0}
 
 
-def set_progress(feature: str, done: int, total: int) -> None:
+def release_running(feature: str) -> None:
+    """Clears the running flag without touching last_result/last_run_at — for a caller (a
+    scoped item-level recheck) that shares the same "only one check at a time" mutex as a
+    full check but must not overwrite the full check's last summary with its own partial
+    result. See set_finished() below for the full-check equivalent that does update it."""
     with _lock:
-        _progress[feature] = {"done": done, "total": total}
+        _state[feature]["running"] = False
+        _progress[feature] = {"stage": None, "done": 0, "total": 0}
+
+
+def set_progress(feature: str, stage: str, done: int, total: int) -> None:
+    with _lock:
+        _progress[feature] = {"stage": stage, "done": done, "total": total}
 
 
 def get_progress(feature: str) -> dict:
@@ -36,11 +62,41 @@ def set_finished(feature: str, result: dict) -> None:
         _state[feature]["running"] = False
         _state[feature]["last_result"] = result
         _state[feature]["last_run_at"] = now_iso
-        _progress[feature] = {"done": 0, "total": 0}
+        _progress[feature] = {"stage": None, "done": 0, "total": 0}
     # Persisted separately from the in-memory dict above so "last checked" survives a
     # container restart — the in-memory value is just a faster path while the process
     # is still alive.
     db.set_last_check_result(feature, result, now_iso)
+
+
+def start_item(item_key: str, container_name: str) -> None:
+    with _lock:
+        _item_state[item_key] = {
+            "running": True, "stage": None, "done": 0, "total": 0, "container_name": container_name,
+        }
+
+
+def set_item_progress(item_key: str, stage: str, done: int, total: int) -> None:
+    with _lock:
+        if item_key in _item_state:
+            _item_state[item_key].update(stage=stage, done=done, total=total)
+
+
+def finish_item(item_key: str) -> None:
+    with _lock:
+        if item_key in _item_state:
+            _item_state[item_key]["running"] = False
+
+
+def get_item_state(item_key: str) -> dict | None:
+    with _lock:
+        state = _item_state.get(item_key)
+        return dict(state) if state else None
+
+
+def clear_item(item_key: str) -> None:
+    with _lock:
+        _item_state.pop(item_key, None)
 
 
 def get_state(feature: str) -> dict:

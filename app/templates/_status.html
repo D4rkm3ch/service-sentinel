@@ -2,10 +2,10 @@
 {% if state.running %}
   <div class="status-badge status-running">
     <span class="spinner" aria-hidden="true"></span>
-    {% if progress.total %}Checking ({{ progress.done }}/{{ progress.total }})…{% else %}Checking…{% endif %}
+    <span id="check-status-text">{{ progress_text }}</span>
   </div>
 {% else %}
-  <div class="status-badge status-idle">
+  <div class="status-badge status-idle" id="check-status-text">
     {{ status_summary_text }}
   </div>
 {% endif %}

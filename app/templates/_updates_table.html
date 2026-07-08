@@ -6,10 +6,11 @@
   <colgroup>
     <col style="width: 12%">
     <col style="width: 12%">
-    <col style="width: 27%">
-    <col style="width: 13%">
-    <col style="width: 16%">
-    <col style="width: 16%">
+    <col style="width: 21%">
+    <col style="width: 12%">
+    <col style="width: 15%">
+    <col style="width: 15%">
+    <col style="width: 9%">
     <col style="width: 4%">
   </colgroup>
   <thead>
@@ -20,6 +21,7 @@
       <th>{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
       <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'desc', extra_qs=preserve_other) }}</th>
       <th>{{ sh.sort_link('Status', 'status', sort, dir, '/updates', 'asc', extra_qs=preserve_other) }}</th>
+      <th>Read</th>
       <th></th>
     </tr>
   </thead>
@@ -48,6 +50,15 @@
           <span class="badge badge-error">Needs manual check</span>
         {% else %}
           <span class="badge badge-unread">Update available</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if u.status == 'error' %}
+          <span class="meta">—</span>
+        {% elif u.read_status == 'unread' %}
+          <span class="badge badge-unread">Unread</span>
+        {% else %}
+          <span class="badge badge-read">Read</span>
         {% endif %}
       </td>
       <td>
