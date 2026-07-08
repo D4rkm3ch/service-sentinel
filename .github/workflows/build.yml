@@ -2,7 +2,7 @@ name: build-and-push
 
 on:
   push:
-    branches: [main]
+    branches: [main, model-providers]
   workflow_dispatch: {}
 
 permissions:
@@ -28,13 +28,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Set image tags
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "TAGS=${{ env.IMAGE_NAME }}:latest,${{ env.IMAGE_NAME }}:${{ github.sha }}" >> $GITHUB_ENV
+          else
+            echo "TAGS=${{ env.IMAGE_NAME }}:${{ github.ref_name }},${{ env.IMAGE_NAME }}:${{ github.sha }}" >> $GITHUB_ENV
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: ${{ env.TAGS }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
