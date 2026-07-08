@@ -66,14 +66,30 @@ def _gemini_quota_info(exc: "genai_errors.ClientError") -> tuple[bool, float]:
     return is_daily_quota, retry_after
 
 
+# A 503 ("This model is currently experiencing high demand") is Google's own infrastructure
+# being momentarily overloaded -- nothing to do with quota or anything this app controls, and
+# in practice clears within a few seconds. Worth a short, fixed retry rather than immediately
+# giving up and waiting for the next check's auto-retry (see _needs_summary_retry in
+# persist.py) to paper over it a day later.
+_GEMINI_SERVER_ERROR_DELAY = 3.0
+
+
 def _call_gemini(fn):
     """Runs a single Gemini API call through the daily-vs-per-minute-aware retry described
-    above. Any non-429 error, or a 429 that isn't a rate limit at all (shouldn't happen, but
-    the check is cheap), is raised immediately -- only a genuine transient rate limit gets
-    retried, capped at _GEMINI_MAX_ATTEMPTS."""
+    above, plus a short retry for transient server-side overload (503). Any other error --
+    including a 429 that isn't a rate limit at all, which shouldn't happen but the check is
+    cheap -- is raised immediately. Retries of either kind are capped at _GEMINI_MAX_ATTEMPTS."""
     for attempt in range(_GEMINI_MAX_ATTEMPTS):
         try:
             return fn()
+        except genai_errors.ServerError:
+            if attempt == _GEMINI_MAX_ATTEMPTS - 1:
+                raise
+            logger.info(
+                "Gemini returned a transient server error, retrying in %.1fs (attempt %d/%d)",
+                _GEMINI_SERVER_ERROR_DELAY, attempt + 1, _GEMINI_MAX_ATTEMPTS,
+            )
+            time.sleep(_GEMINI_SERVER_ERROR_DELAY)
         except genai_errors.ClientError as exc:
             if exc.code != 429:
                 raise

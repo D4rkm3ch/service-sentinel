@@ -216,6 +216,39 @@ def test_call_gemini_never_retries_a_non_rate_limit_error():
     mock_sleep.assert_not_called()
 
 
+def test_call_gemini_retries_a_transient_server_overload_and_succeeds():
+    """A 503 ('experiencing high demand') is Google's infrastructure, not quota -- worth a
+    short retry rather than failing outright and waiting for the next check's auto-retry."""
+    calls = [genai_errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE"}}), "ok"]
+
+    def fn():
+        result = calls.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    with patch("app.ai_provider.time.sleep") as mock_sleep:
+        result = ai_provider._call_gemini(fn)
+
+    assert result == "ok"
+    mock_sleep.assert_called_once_with(ai_provider._GEMINI_SERVER_ERROR_DELAY)
+
+
+def test_call_gemini_gives_up_after_max_attempts_for_persistent_server_overload():
+    call_count = 0
+
+    def fn():
+        nonlocal call_count
+        call_count += 1
+        raise genai_errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE"}})
+
+    with patch("app.ai_provider.time.sleep"):
+        with pytest.raises(genai_errors.ServerError):
+            ai_provider._call_gemini(fn)
+
+    assert call_count == ai_provider._GEMINI_MAX_ATTEMPTS
+
+
 # ---------------------------------------------------------------------------
 # concurrency_limit()
 # ---------------------------------------------------------------------------
