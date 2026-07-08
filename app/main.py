@@ -522,6 +522,7 @@ def _build_notify_context() -> dict:
         "enabled": db.get_notifications_enabled(),
         "apprise_urls": ", ".join(db.get_apprise_urls()),
         "severity_master": db.get_severity_master(),
+        "updates_include_errors": db.get_notify_updates_include_errors(),
         "features": {
             feature: {
                 "enabled": db.get_feature_notify_enabled(feature),
@@ -709,6 +710,13 @@ async def save_notify_use_master_severity(feature: str, request: Request):
         raise HTTPException(status_code=404)
     form = await request.form()
     db.set_feature_uses_master_severity(feature, form.get("enabled") == "on")
+    return _saved(request)
+
+
+@app.post("/settings/notify/updates-include-errors")
+async def save_notify_updates_include_errors(request: Request):
+    form = await request.form()
+    db.set_notify_updates_include_errors(form.get("enabled") == "on")
     return _saved(request)
 
 

@@ -79,6 +79,10 @@
     <div style="margin-top:8px">
       {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
     </div>
+    <div class="toggle-with-label" style="margin-top:8px">
+      {{ ts.toggle_switch('notify_updates_include_errors', notify.updates_include_errors, '/settings/notify/updates-include-errors') }}
+      <span class="toggle-label">Also notify when a container's registry can't be reached</span>
+    </div>
     {% else %}
     <div class="toggle-with-label" style="margin-top:8px">
       {{ ts.toggle_switch('notify_' ~ feature ~ '_use_master_sev', notify.features[feature].use_master_severity, '/settings/notify/use-master-severity/' ~ feature, "toggleSeverityOverride('" ~ feature ~ "', this.checked)") }}

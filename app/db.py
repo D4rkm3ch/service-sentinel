@@ -406,6 +406,17 @@ def set_feature_notify_enabled(feature: str, enabled: bool) -> None:
     _set_setting(f"notify_{feature}_enabled", "true" if enabled else "false")
 
 
+def get_notify_updates_include_errors() -> bool:
+    # Defaults to off: a registry check failure (network blip, temporary rate limit) is a
+    # different, noisier kind of event than a real update, and Updates' own severity
+    # threshold doesn't apply to it -- opt-in only, unlike the feature-level toggle above.
+    return _get_setting("notify_updates_include_errors", "false") == "true"
+
+
+def set_notify_updates_include_errors(enabled: bool) -> None:
+    _set_setting("notify_updates_include_errors", "true" if enabled else "false")
+
+
 def get_severity_master() -> str:
     return _get_setting("notify_severity_master", DEFAULT_SEVERITY)
 

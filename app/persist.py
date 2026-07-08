@@ -4,7 +4,10 @@ Stage 7 adds AI summarization: a per-service summary_markdown + severity classif
 generated from Stage 6's fetched release notes plus the operator's own compose config for
 that service, for the exact same set of genuinely-new/changed updates that get fresh release
 notes. Deliberately no toggle for this one — it's the "single path" base tier, unlike the
-optional (and separate, not yet wired up here) stack-level cross-service analysis.
+optional (and separate, not yet wired up here) stack-level cross-service analysis. Stage 10
+wires up real notifications: every write that's genuinely new/changed (not a repeat of the
+exact same pending transition) gets offered to notifications.notify_update() once the write
+transaction has committed — see persist_check_outcome()'s to_notify list.
 
 Wraps reconcile.run_check() and writes its outcome into SQLite, so the Tracked Containers
 table and per-update/per-stack detail pages survive restarts and get real database ids to
@@ -26,7 +29,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
-from app import ai_provider, check_state, compose_lookup, db, reconcile, release_notes
+from app import ai_provider, check_state, compose_lookup, db, notifications, reconcile, release_notes
 from app.summarizer import summarize_update
 
 logger = logging.getLogger("release_radar.persist")
@@ -186,21 +189,40 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
     )
 
     conn = db.open_conn()
+    to_notify = []
     try:
         if prune:
             db.prune_removed_containers([c["container_name"] for c in containers], conn=conn)
         for container in containers:
             name = container["container_name"]
-            _persist_one(
+            notify_args = _persist_one(
                 container, existing_by_name[name], release_notes_by_name.get(name),
                 summaries_by_name.get(name), conn,
             )
+            if notify_args is not None:
+                to_notify.append(notify_args)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
+
+    # Fired only after the transaction above has committed, and only ever outside of it --
+    # notify_update() can make a real outbound HTTP call (Apprise), the same reason release
+    # notes fetching and AI summarization above are never done while a SQLite transaction is
+    # open (see this function's own docstring). The enabled/feature-toggle check is repeated
+    # here as a batch-level short-circuit purely so a check with many new updates and
+    # notifications off (the default) doesn't open one extra connection per container just to
+    # ask notify_update() to immediately no-op each time -- matches ai_provider.is_configured()
+    # being checked once above before to_summarize is even built, even though summarize_update()
+    # also checks it again itself per-item.
+    if to_notify and db.get_notifications_enabled() and db.get_feature_notify_enabled("updates"):
+        for notify_args in to_notify:
+            try:
+                notifications.notify_update(**notify_args)
+            except Exception:
+                logger.exception("Notification failed for %s", notify_args.get("container_name"))
 
 
 def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[dict], object],
@@ -323,7 +345,12 @@ def _summarize_container(container: dict, release_notes_raw: str) -> tuple[str, 
         return None
 
 
-def _persist_one(container: dict, existing, release_notes_result, summary_result, conn) -> None:
+def _persist_one(container: dict, existing, release_notes_result, summary_result, conn) -> dict | None:
+    """Returns a dict of kwargs for notifications.notify_update() if this write is worth
+    notifying about (a genuinely new/changed pending update or check error -- see the
+    `unchanged` check below), or None if there's nothing new to say (nothing was written, or
+    the container resolved back to up_to_date). Never calls notify_update() itself -- see
+    persist_check_outcome(), which fires these only after its write transaction commits."""
     name = container["container_name"]
     image_repo = container["image_repo"]
     tag = container["tag"]
@@ -336,7 +363,7 @@ def _persist_one(container: dict, existing, release_notes_result, summary_result
     if status == "up_to_date":
         if existing is not None:
             db.delete_update(existing["id"], conn=conn)
-        return
+        return None
 
     error_text = _REGISTRY_ERROR_TEXT if status == "error" else None
     # Whether this round's container is the exact same pending transition existing already
@@ -372,11 +399,11 @@ def _persist_one(container: dict, existing, release_notes_result, summary_result
         and existing["severity"] == severity
     )
     if unchanged:
-        return
+        return None
 
     if existing is not None:
         db.delete_update(existing["id"], conn=conn)
-    db.record_update(
+    update_id = db.record_update(
         container_name=name, image_repo=image_repo, tag=tag,
         old_digest=current_digest, new_digest=latest_digest,
         summary_markdown=summary_markdown, source_url=source_url,
@@ -384,6 +411,10 @@ def _persist_one(container: dict, existing, release_notes_result, summary_result
         release_notes_raw=release_notes_raw,
         conn=conn,
     )
+    return {
+        "container_name": name, "image_repo": image_repo, "tag": tag,
+        "update_id": update_id, "severity": severity, "error": error_text,
+    }
 
 
 # ---------------------------------------------------------------------------

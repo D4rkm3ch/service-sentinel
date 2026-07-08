@@ -32,20 +32,38 @@ def _send(title: str, body: str) -> None:
         logger.exception("Apprise notification failed")
 
 
-def notify_update(container_name: str, image_repo: str, tag: str, update_id: int, severity: str = "feature", error: str | None = None) -> None:
+def notify_update(container_name: str, image_repo: str, tag: str, update_id: int, severity: str = "", error: str | None = None) -> None:
+    """Called once per genuinely new/changed pending update row (see persist.py) -- never for
+    an unchanged repeat of the same row, so a persistent registry error notifies once, not on
+    every check. A registry-check error (error is truthy) is a distinct, noisier kind of event
+    than a real update -- it bypasses the severity threshold entirely and is gated by its own
+    opt-in toggle instead, since "can't reach the registry" doesn't have a severity to compare.
+
+    severity="" (real severity not known yet, e.g. an AI provider that hasn't summarized this
+    update -- quota-blocked, still pending) never notifies -- there's nothing meaningful to
+    compare against a threshold yet. Once a later check backfills the real severity, that
+    write is not "unchanged" (see persist.py's _persist_one), so this fires then instead --
+    the only point a severity threshold could ever have been evaluated correctly."""
     if not db.get_notifications_enabled() or not db.get_feature_notify_enabled("updates"):
         return
 
+    url = _dashboard_url(f"/updates/{update_id}")
+    if error:
+        if not db.get_notify_updates_include_errors():
+            return
+        title = f"Check failed: {container_name}"
+        body = f"{image_repo}:{tag}\n{error}\n{url}"
+        _send(title, body)
+        return
+
+    if not severity:
+        return
     threshold = db.get_effective_severity("updates")
     if UPDATE_SEVERITY_ORDER.get(severity, 0) < UPDATE_SEVERITY_ORDER.get(threshold, 0):
         return
 
-    url = _dashboard_url(f"/updates/{update_id}")
     title = f"Update available: {container_name}"
-    if error:
-        body = f"{image_repo}:{tag}\nCouldn't generate a summary automatically: {error}"
-    else:
-        body = f"{image_repo}:{tag}\nAI summary ready.\n{url}"
+    body = f"{image_repo}:{tag}\nAI summary ready.\n{url}"
     _send(title, body)
 
 
