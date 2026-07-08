@@ -160,20 +160,29 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
     to_fetch = [c for c in containers if _is_new_or_changed_update(c, existing_by_name[c["container_name"]])]
     release_notes_by_name = _run_concurrent_phase("release_notes", to_fetch, _fetch_release_notes, on_progress)
 
-    # Only worth summarizing a container that actually got real notes text back -- nothing to
-    # summarize otherwise, and asking the model to work from an empty release-notes block
-    # would just be a wasted call. Skipped entirely (not just per-container) when the API key
-    # isn't configured, matching every other AI call site's own early-out, so this never logs
-    # a stream of "not configured" exceptions once per new update.
+    # Only worth summarizing a container that actually has real notes text to work from --
+    # either freshly fetched this round, or (see _needs_summary_retry) already on file from an
+    # earlier check whose summarization attempt never landed (e.g. a rate-limited/quota-
+    # exhausted provider) and hasn't been retried since. Skipped entirely (not just
+    # per-container) when no provider is configured, matching every other AI call site's own
+    # early-out, so this never logs a stream of "not configured" exceptions once per update.
     to_summarize = []
     if ai_provider.is_configured():
         to_summarize = [
             c for c in to_fetch
             if (release_notes_by_name.get(c["container_name"]) or (None, None))[0]
         ]
+        already_summarizing = {c["container_name"] for c in to_summarize}
+        to_summarize += [
+            c for c in containers
+            if c["container_name"] not in already_summarizing
+            and _needs_summary_retry(c, existing_by_name[c["container_name"]])
+        ]
     summaries_by_name = _run_concurrent_phase(
         "summarizing", to_summarize,
-        lambda c: _summarize_container(c, release_notes_by_name[c["container_name"]][0]),
+        lambda c: _summarize_container(
+            c, _release_notes_for_summary(c, release_notes_by_name, existing_by_name),
+        ),
         on_progress,
     )
 
@@ -253,6 +262,36 @@ def _is_new_or_changed_update(container: dict, existing) -> bool:
     return not existing_unchanged
 
 
+def _needs_summary_retry(container: dict, existing) -> bool:
+    """True for a pending update that already has real release_notes_raw on file but never got
+    a successful summary/severity out of it -- a prior summarization attempt failed (most
+    commonly a rate-limited or quota-exhausted AI provider, see ai_provider.py's Gemini
+    handling) and nothing has retried it since, because _is_new_or_changed_update() only
+    re-triggers the release-notes fetch phase, not summarization on its own. Digest must be
+    unchanged (a genuinely new transition already goes through the normal to_fetch path)."""
+    if container["status"] != "update_available" or existing is None:
+        return False
+    return bool(
+        existing["release_notes_raw"]
+        and not existing["severity"]
+        and existing["old_digest"] == container.get("current_digest")
+        and existing["new_digest"] == container.get("latest_digest")
+        and existing["error"] is None
+    )
+
+
+def _release_notes_for_summary(container: dict, release_notes_by_name: dict, existing_by_name: dict) -> str | None:
+    """Notes text to summarize from: freshly fetched this round if there is one, otherwise
+    whatever's already on file (the _needs_summary_retry path -- notes were fine, only the
+    summarization attempt needs another try)."""
+    name = container["container_name"]
+    fetched = release_notes_by_name.get(name)
+    if fetched:
+        return fetched[0]
+    existing = existing_by_name.get(name)
+    return existing["release_notes_raw"] if existing else None
+
+
 def _fetch_release_notes(container: dict) -> tuple[str | None, str | None]:
     try:
         return release_notes.get_release_notes(
@@ -301,18 +340,37 @@ def _persist_one(container: dict, existing, release_notes_result, summary_result
         return
 
     error_text = _REGISTRY_ERROR_TEXT if status == "error" else None
-    release_notes_raw, source_url = release_notes_result if release_notes_result else (None, None)
-    summary_markdown, severity = summary_result if summary_result else (None, "")
-
-    unchanged = (
+    # Whether this round's container is the exact same pending transition existing already
+    # represents -- only then does it make sense to fall back to existing's own
+    # notes/summary/severity for whichever piece wasn't (re-)computed this round (an
+    # untouched value, or a retried fetch/summarize that came up empty again). A genuinely new
+    # or changed transition never carries over stale content from the old one.
+    same_transition = (
         existing is not None
         and existing["old_digest"] == current_digest
         and existing["new_digest"] == latest_digest
         and (existing["error"] is not None) == (error_text is not None)
-        # A retried fetch (see _is_new_or_changed_update) that still comes up empty isn't a
-        # real change -- only force a fresh row, losing the existing id/read status, when this
-        # round actually found something new that the existing row didn't already have.
-        and not (release_notes_raw and not existing["release_notes_raw"])
+    )
+
+    if release_notes_result:
+        release_notes_raw, source_url = release_notes_result
+    elif same_transition:
+        release_notes_raw, source_url = existing["release_notes_raw"], existing["source_url"]
+    else:
+        release_notes_raw, source_url = None, None
+
+    if summary_result:
+        summary_markdown, severity = summary_result
+    elif same_transition:
+        summary_markdown, severity = existing["summary_markdown"], existing["severity"]
+    else:
+        summary_markdown, severity = None, ""
+
+    unchanged = (
+        same_transition
+        and existing["release_notes_raw"] == release_notes_raw
+        and existing["summary_markdown"] == summary_markdown
+        and existing["severity"] == severity
     )
     if unchanged:
         return

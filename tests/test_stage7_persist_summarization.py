@@ -167,5 +167,70 @@ def test_fetch_happens_before_the_write_transaction_opens():
          patch("app.persist.summarize_update", side_effect=summarize_and_check):
         persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
 
+
+def test_stuck_summary_with_notes_already_on_file_retries_on_the_next_check_and_succeeds():
+    """A prior check fetched real notes but summarization itself failed (e.g. a rate-limited
+    or quota-exhausted provider) -- the row is left with release_notes_raw but no severity.
+    The next check, even with an unchanged digest, must retry summarization from the notes
+    already on file rather than leaving it stuck forever (the same "retry on next check" idea
+    Check now already applies to missing release notes, extended to a missing summary)."""
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")), \
+         patch("app.persist.summarize_update", return_value=None):
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    first_id = db.list_tracked_containers_with_status()[0]["id"]
+    stuck = db.get_update(first_id)
+    assert stuck["release_notes_raw"] == "Fixed a bug"
+    assert stuck["severity"] == ""
+
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist.release_notes.get_release_notes") as mock_fetch, \
+         patch("app.persist.summarize_update", return_value=("## Bug Fixes\nFixed a bug.", "bugfix")) as mock_summarize:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    mock_fetch.assert_not_called()  # notes were already on file -- no need to refetch them
+    mock_summarize.assert_called_once()
+    row = db.list_tracked_containers_with_status()[0]
+    update = db.get_update(row["id"])
+    assert update["severity"] == "bugfix"
+    assert update["summary_markdown"] == "## Bug Fixes\nFixed a bug."
+    assert update["release_notes_raw"] == "Fixed a bug"  # preserved, not wiped
+
+
+def test_stuck_summary_retry_that_fails_again_leaves_the_row_untouched():
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")), \
+         patch("app.persist.summarize_update", return_value=None):
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    first_id = db.list_tracked_containers_with_status()[0]["id"]
+
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist.summarize_update", return_value=None) as mock_summarize:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    mock_summarize.assert_called_once()  # retried...
+    row = db.list_tracked_containers_with_status()[0]
+    assert row["id"] == first_id  # ...but still failed, so nothing about the row changed
+    update = db.get_update(first_id)
+    assert update["release_notes_raw"] == "Fixed a bug"
+    assert update["severity"] == ""
+
+
+def test_a_container_with_a_real_severity_already_is_never_resummarized():
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")), \
+         patch("app.persist.summarize_update", return_value=("summary", "bugfix")):
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist.release_notes.get_release_notes") as mock_fetch, \
+         patch("app.persist.summarize_update") as mock_summarize:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    mock_fetch.assert_not_called()
+    mock_summarize.assert_not_called()
+
     row = db.list_tracked_containers_with_status()[0]
     assert row["id"] is not None
