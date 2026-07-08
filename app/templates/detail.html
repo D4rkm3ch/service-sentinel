@@ -35,30 +35,30 @@
 
   <div class="action-row" style="display:flex; align-items:center; gap:10px;">
     <span id="read-toggle-btn">
-      {% if update.status == 'unread' and (update.summary_markdown or update.release_notes_raw) %}
+      {% if update.status == 'unread' %}
       <button type="button" hx-post="/updates/{{ update.id }}/read" hx-target="#read-toggle-btn" hx-swap="outerHTML">
-        Mark as read
+        Mark as Read
       </button>
       {% elif update.status == 'read' %}
       <button type="button" hx-post="/updates/{{ update.id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML">
-        Mark as unread
+        Mark as Unread
       </button>
       {% endif %}
     </span>
-    <button type="button" disabled
-            title="Regenerates the AI-written response for this update in place -- arriving in a later stage, once AI summarization is built">
-      Regenerate AI Response
-    </button>
     <button type="button" class="updates-action-btn"
             hx-post="/updates/{{ update.id }}/check-now"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
-      Check now
+      Check Now
+    </button>
+    <button type="button" class="button-warn" disabled
+            title="Regenerates the AI-written response for this update in place -- arriving in a later stage, once AI summarization is built">
+      Regenerate AI Response
     </button>
     <button type="button" class="button-danger updates-action-btn"
             hx-post="/updates/{{ update.id }}/reset-and-recheck"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
             hx-confirm="This wipes this update's history and re-checks it fresh. Continue?">
-      Reset &amp; re-check
+      Reset &amp; Re-check
     </button>
     <span id="item-recheck-status"></span>
   </div>

@@ -42,12 +42,12 @@ def test_stack_detail_retry_and_reset_carry_the_class():
     assert text.count("updates-action-btn") == 2  # Retry and Reset & re-check
 
 
-def test_detail_page_check_now_and_reset_carry_the_class_but_disabled_retry_does_not():
+def test_detail_page_check_now_and_reset_carry_the_class_but_disabled_regen_does_not():
     text = (TEMPLATES / "detail.html").read_text()
-    assert text.count("updates-action-btn") == 2  # Check now and Reset & re-check
-    # The permanently-disabled Retry button must never gain this class -- base.html's poller
-    # unconditionally sets .disabled = running, which would wrongly re-enable a
-    # not-yet-implemented button the instant any check elsewhere finishes.
-    start = text.index("<button type=\"button\" disabled")
+    assert text.count("updates-action-btn") == 2  # Check Now and Reset & Re-check
+    # The permanently-disabled Regenerate AI Response button must never gain this class --
+    # base.html's poller unconditionally sets .disabled = running, which would wrongly
+    # re-enable a not-yet-implemented button the instant any check elsewhere finishes.
+    start = text.index('class="button-warn" disabled')
     end = text.index("</button>", start)
     assert "updates-action-btn" not in text[start:end]

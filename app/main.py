@@ -826,7 +826,15 @@ def update_detail(request: Request, update_id: int):
     # practice, so this is deliberately unconditional server-side state instead of a
     # best-effort client-side one. The Mark as read/unread toggle still works exactly as
     # before for whenever the user wants to flip it back either way.
-    if update["status"] == "unread" and not update["error"] and (update["summary_markdown"] or update["release_notes_raw"]):
+    #
+    # Deliberately NOT gated on summary_markdown/release_notes_raw existing (an earlier
+    # version was, matching the old "Mark as read" button's own gate) -- when release notes
+    # genuinely can't be found for an image, that gate meant this never fired and the toggle
+    # button never rendered at all (see detail.html), permanently stranding that update as
+    # Unread with no way to ever change it, client or server. Viewing the page counts as
+    # "seen it" even when the content is "no notes found" -- only an error row is exempt,
+    # since those aren't a read/unread concept at all (see the badge/toggle's own guard).
+    if update["status"] == "unread" and not update["error"]:
         db.mark_update_status(update_id, "read")
         update = db.get_update(update_id)
 

@@ -101,24 +101,30 @@ def test_update_detail_page_renders_real_content(client):
 
 
 def test_detail_page_has_check_now_and_reset_and_recheck_with_only_the_latter_confirmed(client):
-    """Stage 6 polish: two distinct scoped actions now -- Check now (only replaces the row if
-    the digest actually changed, no confirmation) and Reset & re-check (wipes this update's
+    """Stage 6 polish: two distinct scoped actions now -- Check Now (only replaces the row if
+    the digest actually changed, no confirmation) and Reset & Re-check (wipes this update's
     row first, forcing a fresh notes fetch even if nothing changed, confirmed like the
     destructive global button)."""
     _run_check_and_wait(client)
     sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
 
     detail = client.get(f"/updates/{sonarr['id']}")
-    assert "Check now" in detail.text
-    assert "Reset &amp; re-check" in detail.text
+    assert "Check Now" in detail.text
+    assert "Reset &amp; Re-check" in detail.text
     assert f'hx-post="/updates/{sonarr["id"]}/check-now"' in detail.text
     assert f'hx-post="/updates/{sonarr["id"]}/reset-and-recheck"' in detail.text
 
     check_now_pos = detail.text.index(f'/updates/{sonarr["id"]}/check-now')
     reset_pos = detail.text.index(f'/updates/{sonarr["id"]}/reset-and-recheck')
-    # hx-confirm sits between the two hx-post attributes on the Reset & re-check button only.
+    # hx-confirm sits between the two hx-post attributes on the Reset & Re-check button only.
     assert "hx-confirm" not in detail.text[check_now_pos:reset_pos]
     assert "hx-confirm" in detail.text[reset_pos:]
+
+    # Buttons appear left to right in this order: read toggle, Check Now, Regenerate AI
+    # Response, Reset & Re-check.
+    toggle_pos = detail.text.index('id="read-toggle-btn"')
+    regen_pos = detail.text.index("Regenerate AI Response")
+    assert toggle_pos < check_now_pos < regen_pos < reset_pos
 
 
 def test_regenerate_ai_response_button_is_disabled_and_no_longer_called_retry(client):
@@ -193,6 +199,29 @@ def test_manual_unread_toggle_works_but_revisiting_marks_it_read_again(client):
 
     client.get(f"/updates/{sonarr_id}")
     assert db.get_update(sonarr_id)["status"] == "read"
+
+
+def test_toggle_and_auto_mark_work_even_when_no_release_notes_were_found(client):
+    """Regression test: an earlier version gated both the auto-mark-as-read logic and the
+    manual toggle button's visibility on summary_markdown/release_notes_raw existing -- when
+    release notes genuinely couldn't be found for an image (a real, common case -- see
+    release_notes.py's Docker Hub last-resort/None fallback), that meant the update was
+    permanently stuck Unread, with no button ever rendered to change it either way, and the
+    Updates list's Read column never updating for it."""
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)):
+        _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+    assert db.get_update(sonarr_id)["release_notes_raw"] is None
+
+    detail = client.get(f"/updates/{sonarr_id}")
+    assert detail.status_code == 200
+    assert db.get_update(sonarr_id)["status"] == "read"  # auto-marked despite no notes found
+    assert f'hx-post="/updates/{sonarr_id}/unread"' in detail.text  # toggle button is present
+
+    resp = client.post(f"/updates/{sonarr_id}/unread")
+    assert resp.status_code == 200
+    assert f'hx-post="/updates/{sonarr_id}/read"' in resp.text  # and can be toggled back too
 
 
 def test_mark_read_route_still_works_directly(client):

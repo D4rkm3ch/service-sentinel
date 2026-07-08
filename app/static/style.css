@@ -336,6 +336,20 @@ button:disabled, button:disabled:hover {
   color: #1a0e0e;
 }
 
+/* Same outlined shape as .button-danger, amber instead of red -- for an action that isn't
+   destructive (nothing gets wiped) but also isn't a plain safe action either, e.g.
+   "Regenerate AI Response." Reuses the existing --warn color the severity badges already use
+   rather than introducing a new one-off color. */
+.button-warn {
+  background: transparent;
+  border: 1px solid var(--warn);
+  color: var(--warn);
+}
+.button-warn:hover {
+  background: var(--warn);
+  color: #1a1508;
+}
+
 .row-chevron {
   font-size: 20px;
   line-height: 1;
