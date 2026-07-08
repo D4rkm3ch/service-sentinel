@@ -1,9 +1,9 @@
-"""Direct unit tests for notifications.notify_updates_digest() -- the single batched Apprise
-call persist.py fires once per check run (see tests/test_persist_notifications.py for *when*
-persist.py calls it; this file is about what the digest itself decides to do with a given
-candidate list). Mocks app.notifications.db and app.notifications._send directly, per the
-established per-module mocking pattern -- see tests/test_stage7_persist_summarization.py etc.
-for prior art."""
+"""Direct unit tests for notifications.notify_updates_digest() -- fires one Apprise call per
+severity level present in a check run (plus one more for check errors, if opted in), never one
+call per update and never one call mixing severities together. See
+tests/test_persist_notifications.py for *when* persist.py calls this; this file is about what
+the digest itself decides to send for a given candidate list. Mocks app.notifications.db and
+app.notifications._send directly, per the established per-module mocking pattern."""
 
 from unittest.mock import patch
 
@@ -60,17 +60,19 @@ def test_feature_toggle_off_suppresses_everything():
     mock_send.assert_not_called()
 
 
-def test_a_single_qualifying_item_sends_once():
+def test_a_single_qualifying_item_sends_one_call():
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest([_item(severity="breaking")], [])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
+    assert "Breaking Change" in title
     assert "1 update" in title
     assert "sonarr" in body
     assert "owner/repo:latest" in body
     assert "/updates/1" in body
+    assert notify_type == NotifyType.FAILURE
 
 
 def test_items_below_threshold_are_excluded_and_nothing_sends_if_none_qualify():
@@ -81,21 +83,45 @@ def test_items_below_threshold_are_excluded_and_nothing_sends_if_none_qualify():
     mock_send.assert_not_called()
 
 
-def test_mixed_severities_only_qualifying_ones_appear_sorted_worst_first():
+def test_mixed_severities_send_one_call_each_lowest_severity_first():
     patches = _patched(_settings(effective_severity="feature"))
     items = [
-        _item(name="metube", severity="bugfix", update_id=1),  # below threshold, excluded
+        _item(name="metube", severity="bugfix", update_id=1),  # below threshold, excluded entirely
         _item(name="sonarr", severity="breaking", update_id=2),
         _item(name="bambuddy", severity="feature", update_id=3),
     ]
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest(items, [])
-    title, body, notify_type = mock_send.call_args[0]
+
+    assert mock_send.call_count == 2  # one for feature, one for breaking -- bugfix excluded
+    calls = mock_send.call_args_list
+    # feature (lowest of the two qualifying severities) sent first, breaking last/most recent.
+    assert "New Features" in calls[0][0][0]
+    assert "bambuddy" in calls[0][0][1]
+    assert calls[0][0][2] == NotifyType.SUCCESS
+    assert "Breaking Change" in calls[1][0][0]
+    assert "sonarr" in calls[1][0][1]
+    assert calls[1][0][2] == NotifyType.FAILURE
+    # Neither message mixes the other severity's container in.
+    assert "sonarr" not in calls[0][0][1]
+    assert "bambuddy" not in calls[1][0][1]
+    assert "metube" not in calls[0][0][1] and "metube" not in calls[1][0][1]
+
+
+def test_multiple_items_of_the_same_severity_share_one_call():
+    patches = _patched(_settings())
+    items = [
+        _item(name="zebra", severity="breaking", update_id=1),
+        _item(name="apple", severity="breaking", update_id=2),
+    ]
+    with patch("app.notifications._send") as mock_send:
+        with patches[0], patches[1], patches[2], patches[3]:
+            notifications.notify_updates_digest(items, [])
+    mock_send.assert_called_once()
+    title, body, _ = mock_send.call_args[0]
     assert "2 update" in title
-    assert "metube" not in body
-    assert body.index("sonarr") < body.index("bambuddy")  # worst severity first
-    assert notify_type == NotifyType.FAILURE  # breaking present -> reddest available color
+    assert body.index("apple") < body.index("zebra")  # alphabetical within the group
 
 
 def test_registry_errors_excluded_by_default():
@@ -106,43 +132,40 @@ def test_registry_errors_excluded_by_default():
     mock_send.assert_not_called()
 
 
-def test_registry_errors_included_when_opted_in_with_their_own_section():
+def test_registry_errors_included_when_opted_in_as_their_own_call():
     patches = _patched(_settings(notify_updates_include_errors=True))
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest([], [_error(name="qbittorrent", error="DNS lookup failed.")])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
-    assert "1 check error" in title
-    assert "couldn't be checked" in body
+    assert "1 container" in title
     assert "qbittorrent" in body
     assert "DNS lookup failed." in body
-    assert notify_type == NotifyType.FAILURE  # a check failure is treated as worth flagging
+    assert notify_type == NotifyType.FAILURE
 
 
-def test_errors_and_items_combine_into_one_digest_with_both_sections():
+def test_errors_and_a_severity_group_are_two_separate_calls_errors_first():
     patches = _patched(_settings(notify_updates_include_errors=True, effective_severity="bugfix"))
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest([_item(severity="feature")], [_error()])
-    mock_send.assert_called_once()
-    title, body, notify_type = mock_send.call_args[0]
-    assert "1 update" in title
-    assert "1 check error" in title
-    assert "sonarr" in body
-    assert "couldn't be checked" in body
+
+    assert mock_send.call_count == 2
+    calls = mock_send.call_args_list
+    assert "Check errors" in calls[0][0][0]
+    assert "New Features" in calls[1][0][0]
+    assert "sonarr" not in calls[0][0][1]
+    assert "qbittorrent" not in calls[1][0][1]
 
 
-def test_body_includes_ansi_colored_severity_and_no_emoji():
+def test_no_emoji_anywhere():
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest([_item(severity="breaking")], [])
-    _, body, _ = mock_send.call_args[0]
-    assert "```ansi" in body
-    assert "\x1b[1;31m" in body  # red, matching badge-sev-breaking
-    assert "Breaking Change" in body
-    for ch in body:
+    title, body, _ = mock_send.call_args[0]
+    for ch in title + body:
         assert not (0x1F300 <= ord(ch) <= 0x1FAFF), "no emoji anywhere, ever"
 
 

@@ -95,6 +95,46 @@ def test_status_column_has_no_text_badge_and_error_rows_get_the_warning_icon_and
     assert "row-error" not in page.text[ok_row_start:ok_row_end]
 
 
+def test_read_column_sorts_needs_manual_check_then_unread_then_read_alphabetically(client):
+    _seed("zebra-unread", severity="bugfix")
+    _seed("apple-unread", severity="feature")
+    _seed("zebra-read", severity="bugfix")
+    _seed("apple-read", severity="feature")
+    _seed("zebra-broken", error="registry unreachable")
+    _seed("apple-broken", error="registry unreachable")
+
+    rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}
+    db.mark_update_status(rows["zebra-read"]["id"], "read")
+    db.mark_update_status(rows["apple-read"]["id"], "read")
+
+    page = client.get("/updates", params={"sort": "status", "dir": "asc"})
+    names = ["apple-broken", "zebra-broken", "apple-unread", "zebra-unread", "apple-read", "zebra-read"]
+    positions = {n: page.text.index(n) for n in names}
+    # Needs-manual-check first, then Unread, then Read -- alphabetical within each group.
+    assert positions["apple-broken"] < positions["zebra-broken"] < positions["apple-unread"]
+    assert positions["apple-unread"] < positions["zebra-unread"] < positions["apple-read"]
+    assert positions["apple-read"] < positions["zebra-read"]
+
+
+def test_read_column_reverse_flips_group_order_but_not_the_alphabetical_tiebreak(client):
+    _seed("zebra-unread", severity="bugfix")
+    _seed("apple-unread", severity="feature")
+    _seed("zebra-read", severity="bugfix")
+    _seed("apple-read", severity="feature")
+
+    rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}
+    db.mark_update_status(rows["zebra-read"]["id"], "read")
+    db.mark_update_status(rows["apple-read"]["id"], "read")
+
+    page = client.get("/updates", params={"sort": "status", "dir": "desc"})
+    positions = {n: page.text.index(n) for n in ["apple-read", "zebra-read", "apple-unread", "zebra-unread"]}
+    # Read now comes before Unread (the group order flipped)...
+    assert positions["apple-read"] < positions["zebra-read"] < positions["apple-unread"]
+    # ...but "apple" still comes before "zebra" within each group either way.
+    assert positions["apple-read"] < positions["zebra-read"]
+    assert positions["apple-unread"] < positions["zebra-unread"]
+
+
 def test_stack_column_actually_populates_and_sorts(client):
     compose_file = Path(settings.compose_root) / "sortstack.yml"
     compose_file.write_text("services:\n  sonarr:\n    image: linuxserver/sonarr\n  plex:\n    image: linuxserver/plex\n")

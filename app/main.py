@@ -421,6 +421,14 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
         ranked.sort(key=lambda r: _IMPORTANCE_RANK.get(r["severity"], _NOTES_NOT_FOUND_RANK), reverse=reverse)
         unclassified.sort(key=lambda r: r["container_name"].lower())
         annotated = unclassified + ranked
+    elif sort == "status":
+        # Needs-manual-check (error) ranks above Unread, which ranks above Read -- same tiering
+        # the (currently unused by this route) SQL-level UPDATE_SORT_COLUMNS["status"] already
+        # encodes. Sorted alphabetically first, then stably by rank second, so the alphabetical
+        # order within each read-status group always stays A-Z regardless of which direction
+        # was clicked -- only the rank grouping itself flips, matching every other column here.
+        annotated.sort(key=lambda r: r["container_name"].lower())
+        annotated.sort(key=lambda r: 0 if r.get("error") else (1 if r.get("read_status") == "unread" else 2), reverse=reverse)
     else:
         annotated.sort(key=lambda r: r["container_name"].lower(), reverse=reverse)
 
