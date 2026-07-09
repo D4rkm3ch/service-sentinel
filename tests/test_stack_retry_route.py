@@ -1,9 +1,15 @@
-"""POST /updates/stack/retry was a Stage-1-era no-op placeholder -- a plain 303 redirect that
-never called anything, left over from before stacks existed and never updated once Stage 12
-landed. This covers its real behavior: force-regenerates the stack's cross-service analysis
-bypassing the content-hash cache, respects the shared "one check at a time" mutex, and is a
-safe no-op when there's nothing to regenerate."""
+"""POST /updates/stack/retry was a Stage-1-era no-op placeholder, then briefly a synchronous
+form post with no client-side "already running" guard and no visual feedback -- a real-world
+report showed clicking it while the shared mutex happened to be held (a background check in
+flight) was completely silent: no error, no log line beyond the request itself, nothing. It now
+runs on a background thread with the same claim/launch/spinner/poll shape as every per-item
+action (see main.py's _launch_scoped_stack_check), which both plugs it into base.html's existing
+"disable while running" JS (it only fires on htmx requests) and renders a real busy message
+instead of silently no-op'ing. Force-regenerates the stack's cross-service analysis bypassing
+the content-hash cache, respects the shared "one check at a time" mutex, and is a safe no-op
+when there's nothing to regenerate."""
 
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -40,6 +46,13 @@ def _stack_id_for(container_name):
     return compose_lookup.match_container_to_stack(container_name, compose_lookup.build_stack_index())["stack_id"]
 
 
+def _wait_until_not_running(feature: str = "updates"):
+    for _ in range(30):
+        if not check_state.get_state(feature)["running"]:
+            return
+        time.sleep(0.1)
+
+
 def test_retry_force_regenerates_bypassing_the_cache(client):
     compose_file = _compose_file("retry-stack.yml", "sonarr", "radarr")
     try:
@@ -49,8 +62,10 @@ def test_retry_force_regenerates_bypassing_the_cache(client):
 
         with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
              patch("app.stacks.analyze_stack_impact", return_value="First analysis.") as mock_analyze:
-            resp = client.post("/updates/stack/retry", data={"stack_id": stack_id}, follow_redirects=False)
-        assert resp.status_code == 303
+            resp = client.post("/updates/stack/retry", params={"stack_id": stack_id})
+            assert resp.status_code == 200
+            assert 'class="spinner"' in resp.text
+            _wait_until_not_running()
         mock_analyze.assert_called_once()
         assert db.get_stack_analysis(stack_id)["analysis_markdown"] == "First analysis."
 
@@ -58,14 +73,15 @@ def test_retry_force_regenerates_bypassing_the_cache(client):
         # that's the whole point of a manual Retry button versus the automatic cached pass.
         with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
              patch("app.stacks.analyze_stack_impact", return_value="Second analysis.") as mock_analyze:
-            client.post("/updates/stack/retry", data={"stack_id": stack_id}, follow_redirects=False)
+            client.post("/updates/stack/retry", params={"stack_id": stack_id})
+            _wait_until_not_running()
         mock_analyze.assert_called_once()
         assert db.get_stack_analysis(stack_id)["analysis_markdown"] == "Second analysis."
     finally:
         compose_file.unlink()
 
 
-def test_retry_is_a_silent_noop_when_the_check_mutex_is_already_held(client):
+def test_retry_shows_a_busy_message_instead_of_silently_doing_nothing_when_the_mutex_is_held(client):
     compose_file = _compose_file("retry-busy.yml", "sonarr", "radarr")
     try:
         db.upsert_container_state("sonarr", "owner/sonarr", "latest", "sha256:old")
@@ -75,8 +91,9 @@ def test_retry_is_a_silent_noop_when_the_check_mutex_is_already_held(client):
         check_state.set_running("updates")
         try:
             with patch("app.stacks.analyze_stack_impact") as mock_analyze:
-                resp = client.post("/updates/stack/retry", data={"stack_id": stack_id}, follow_redirects=False)
-            assert resp.status_code == 303
+                resp = client.post("/updates/stack/retry", params={"stack_id": stack_id})
+            assert resp.status_code == 200
+            assert "started elsewhere" in resp.text
             mock_analyze.assert_not_called()
         finally:
             check_state.release_running("updates")
@@ -84,10 +101,10 @@ def test_retry_is_a_silent_noop_when_the_check_mutex_is_already_held(client):
         compose_file.unlink()
 
 
-def test_retry_with_no_stack_id_is_a_noop(client):
+def test_retry_with_no_stack_id_is_rejected(client):
     with patch("app.stacks.analyze_stack_impact") as mock_analyze:
-        resp = client.post("/updates/stack/retry", data={"stack_id": ""}, follow_redirects=False)
-    assert resp.status_code == 303
+        resp = client.post("/updates/stack/retry")
+    assert resp.status_code == 400
     mock_analyze.assert_not_called()
 
 
@@ -114,7 +131,8 @@ def test_retry_uses_the_latest_persisted_digest_when_a_real_update_is_pending(cl
 
         with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
              patch("app.stacks.analyze_stack_impact", side_effect=fake_analyze):
-            client.post("/updates/stack/retry", data={"stack_id": stack_id}, follow_redirects=False)
+            client.post("/updates/stack/retry", params={"stack_id": stack_id})
+            _wait_until_not_running()
 
         assert set(captured["service_names"]) == {"sonarr", "radarr"}
         assert db.get_stack_analysis(stack_id) is not None

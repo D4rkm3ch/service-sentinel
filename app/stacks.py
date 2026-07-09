@@ -40,6 +40,39 @@ def reset_stack_name(stack_id: str) -> None:
     db.reset_stack_name(stack_id)
 
 
+def stack_member_names(stack_id: str) -> list[str]:
+    """Every currently-tracked container name belonging to this compose stack, alphabetical --
+    shared by the stack detail page, the rename routes, and the Retry/Reset & re-check actions
+    below, all of which need the same "who's actually in this stack right now" answer."""
+    index = compose_lookup.build_stack_index()
+    return sorted(
+        c["container_name"] for c in db.all_container_states()
+        if (match := compose_lookup.match_container_to_stack(c["container_name"], index)) and match["stack_id"] == stack_id
+    )
+
+
+def members_for_analysis(stack_id: str) -> list[dict]:
+    """Builds the same check-outcome-shaped member dicts regenerate_stack_analysis() expects
+    (container_name, image_repo, tag, current_digest, latest_digest), from whatever's currently
+    persisted -- used by the stack page's Retry button and the forced post-recheck regeneration
+    below, neither of which has a fresh reconcile.py outcome of its own to draw from."""
+    members = []
+    for name in stack_member_names(stack_id):
+        container_row = db.get_container_state(name)
+        if container_row is None:
+            continue
+        latest_update = db.get_latest_update_for_container(name)
+        latest_digest = latest_update["new_digest"] if latest_update else container_row["last_seen_digest"]
+        members.append({
+            "container_name": name,
+            "image_repo": container_row["image_repo"],
+            "tag": container_row["tag"],
+            "current_digest": container_row["last_seen_digest"],
+            "latest_digest": latest_digest,
+        })
+    return members
+
+
 def _group_containers_by_stack(containers: list[dict]) -> dict[str, list[dict]]:
     """Groups check-outcome container dicts (container_name, image_repo, tag, current_digest,
     latest_digest, ...) by which compose stack they belong to, keeping only stacks where 2+ of
@@ -56,15 +89,21 @@ def _group_containers_by_stack(containers: list[dict]) -> dict[str, list[dict]]:
     return {stack_id: members for stack_id, members in groups.items() if len(members) >= 2}
 
 
-def run_stack_analysis_pass(containers: list[dict]) -> None:
+def run_stack_analysis_pass(containers: list[dict], force: bool = False) -> None:
     """Called once per persisted check outcome (see persist.persist_check_outcome) — a full
     check naturally covers every stack, a stack-scoped Reset & re-check covers exactly one, and
     a single-container scoped check never has 2+ members of the same stack present so this is
     always a no-op there, with no special-casing needed to make that true (see
     _group_containers_by_stack above). Only runs at all if the Deep Analysis toggle is on —
-    this is the automatic, scheduled path. Manual retries (see regenerate_stack_analysis)
-    bypass this toggle entirely, since clicking Retry is an explicit request regardless of the
-    automatic setting.
+    this is the automatic, scheduled path.
+
+    force=True (the stack page's own Reset & re-check button, via persist.run_claimed_stack_
+    reset_and_recheck) always regenerates regardless of whether the digest fingerprint actually
+    moved, same "an explicit click always gets a fresh take" semantics as the Retry button
+    (regenerate_stack_analysis) uses directly. Still gated behind the Deep Analysis toggle like
+    everything else here -- force only means "skip the content-hash cache," not "ignore the
+    opt-in setting entirely" (Retry itself bypasses the toggle by calling
+    regenerate_stack_analysis directly rather than going through this function).
 
     Stacks are processed concurrently with each other too — with many multi-service stacks,
     processing them one at a time would just recreate the same sequential bottleneck that
@@ -78,7 +117,7 @@ def run_stack_analysis_pass(containers: list[dict]) -> None:
 
     with ThreadPoolExecutor(max_workers=settings.ai_summarize_concurrency) as pool:
         futures = [
-            pool.submit(regenerate_stack_analysis, stack_id, members)
+            pool.submit(regenerate_stack_analysis, stack_id, members, force)
             for stack_id, members in groups.items()
         ]
         for future in as_completed(futures):

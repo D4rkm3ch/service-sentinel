@@ -22,16 +22,19 @@
 
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
 
-  <div class="action-row" style="display:flex; gap:10px; margin-bottom:20px;">
-    <form method="post" action="/updates/stack/retry">
-      <input type="hidden" name="stack_id" value="{{ stack_id }}">
-      <button type="submit" class="updates-action-btn">Retry</button>
-    </form>
-    <form method="post" action="/updates/stack/reset-and-recheck"
-          onsubmit="return confirm('This wipes update history for every service in this stack and re-checks them all fresh. Continue?')">
-      <input type="hidden" name="stack_id" value="{{ stack_id }}">
-      <button type="submit" class="button-danger updates-action-btn">Reset &amp; re-check</button>
-    </form>
+  <div class="action-row" style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+    <button type="button" class="updates-action-btn"
+            hx-post="/updates/stack/retry?stack_id={{ stack_id|urlencode }}"
+            hx-target="#item-recheck-status" hx-swap="outerHTML">
+      Regenerate AI Response
+    </button>
+    <button type="button" class="button-danger updates-action-btn"
+            hx-post="/updates/stack/reset-and-recheck?stack_id={{ stack_id|urlencode }}"
+            hx-target="#item-recheck-status" hx-swap="outerHTML"
+            hx-confirm="This wipes update history for every service in this stack and re-checks them all fresh. Continue?">
+      Reset &amp; re-check
+    </button>
+    <span id="item-recheck-status"></span>
   </div>
 
   {% if analysis_html %}

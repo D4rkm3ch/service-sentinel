@@ -112,7 +112,8 @@ def run_updates_check_if_not_running() -> bool:
     return True
 
 
-def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None, prune: bool = True) -> None:
+def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None, prune: bool = True,
+                           force_stack_analysis: bool = False) -> None:
     """Writes one check's results into container_state/updates. An empty container list is
     always treated as "the check itself didn't complete" (Docker socket unreachable, etc.)
     rather than "there are genuinely zero containers" — existing persisted state is left
@@ -149,7 +150,13 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
     prune=False skips prune_removed_containers() — required for a scoped single-container
     outcome (see run_and_persist_single_check below), since that outcome's container list
     legitimately contains just the one container being re-checked, not every tracked
-    container; pruning against it would wrongly delete every other container's state."""
+    container; pruning against it would wrongly delete every other container's state.
+
+    force_stack_analysis=True threads straight through to stacks.run_stack_analysis_pass() —
+    used by the stack page's own Reset & re-check button (see run_and_persist_many_reset_and_
+    check and run_claimed_stack_reset_and_recheck below) so an explicit "start over" click
+    always gets a fresh cross-service blurb, not just whenever a member's digest happens to
+    have moved since the last one."""
     containers = outcome["containers"]
     if not containers:
         return
@@ -232,7 +239,7 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
     # stacks.run_stack_analysis_pass()'s own docstring for exactly why no special-casing per
     # caller is needed here.
     try:
-        stacks.run_stack_analysis_pass(containers)
+        stacks.run_stack_analysis_pass(containers, force=force_stack_analysis)
     except Exception:
         logger.exception("Stack analysis pass failed for this check")
 
@@ -539,12 +546,14 @@ def run_and_persist_single_reset_and_check(container_name: str, on_progress: Pro
     return run_and_persist_single_check(container_name, on_progress=on_progress)
 
 
-def run_and_persist_many_reset_and_check(container_names: list[str], on_progress: ProgressFunc | None = None) -> dict:
+def run_and_persist_many_reset_and_check(container_names: list[str], on_progress: ProgressFunc | None = None,
+                                          force_stack_analysis: bool = False) -> dict:
     """Stack-level counterpart to run_and_persist_single_reset_and_check() -- wipes the
     existing update row (if any) for every named container first, then re-checks all of them
     in one pass via reconcile.run_check_many(). prune=False for the same reason the single-item
     version uses it: this outcome's container list is deliberately just the stack's members,
-    not every tracked container."""
+    not every tracked container. force_stack_analysis is just threaded through to
+    persist_check_outcome -- see its own docstring."""
     for name in container_names:
         existing = db.get_latest_update_for_container(name)
         if existing is not None:
@@ -552,7 +561,7 @@ def run_and_persist_many_reset_and_check(container_names: list[str], on_progress
 
     reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
     outcome = reconcile.run_check_many(container_names, on_progress=reconcile_progress)
-    persist_check_outcome(outcome, on_progress=on_progress, prune=False)
+    persist_check_outcome(outcome, on_progress=on_progress, prune=False, force_stack_analysis=force_stack_analysis)
     return outcome
 
 
@@ -635,5 +644,63 @@ def run_claimed_regenerate_summary(item_key: str, container_name: str) -> None:
         logger.exception("Regenerate AI Response failed unexpectedly for %s", container_name)
     finally:
         check_state.set_item_progress(item_key, "regenerating", 1, 1)
+        check_state.finish_item(item_key)
+        check_state.release_running("updates")
+
+
+# ---------------------------------------------------------------------------
+# Stack-level Retry / Reset & re-check (Stage 12 follow-up) -- originally plain synchronous
+# form posts with no spinner and no client-side "already running" guard, which made hitting
+# the shared mutex while a background check was in flight look like a dead button: the click
+# went through, the route silently no-op'd, and nothing on screen ever said why. Routed through
+# the exact same claimed-mutex + background-thread + spinner/poll machinery as the per-item
+# actions above, both so the existing base.html "disable while running" JS now actually covers
+# these buttons (it only fires on htmx requests) and so a busy mutex renders a real message
+# instead of a silent redirect.
+# ---------------------------------------------------------------------------
+
+def run_claimed_stack_retry(item_key: str, stack_id: str) -> None:
+    """Force-regenerates this stack's cross-service analysis blurb, bypassing the content-hash
+    cache regardless of whether anything's actually changed since the last one -- same
+    "an explicit click always regenerates" semantics as the per-update Regenerate AI Response
+    button above, just against a stack's members instead of one update."""
+    check_state.set_item_progress(item_key, "stack_analysis", 0, 1)
+    try:
+        members = stacks.members_for_analysis(stack_id)
+        stacks.regenerate_stack_analysis(stack_id, members, force=True)
+    except Exception:
+        logger.exception("Stack Retry failed unexpectedly for %s", stack_id)
+    finally:
+        check_state.set_item_progress(item_key, "stack_analysis", 1, 1)
+        check_state.finish_item(item_key)
+        check_state.release_running("updates")
+
+
+def run_claimed_stack_reset_and_recheck(item_key: str, stack_id: str) -> None:
+    """Wipes and re-checks every current member of this stack, force-regenerating the stack's
+    cross-service blurb as part of the very same persisted outcome (force_stack_analysis=True,
+    still gated behind the Deep Analysis toggle -- see stacks.run_stack_analysis_pass's
+    docstring) rather than as a separate follow-up AI call. Without that forced regeneration an
+    explicit "start over" click could leave the exact same blurb on screen even though every
+    member underneath it was just re-checked from scratch (e.g. every member's registry digest
+    happens to come back unchanged this round even though their release-note text or AI summary
+    was just refreshed) -- which reads as broken to someone who clicked expecting a fresh take,
+    not as "correctly nothing changed." A separate explicit force=True call after the fact would
+    just double the AI cost for the exact same fingerprint, since nothing changes between the
+    automatic pass and a follow-up call microseconds later.
+
+    Member names are re-resolved fresh right before the recheck (not whatever the page had
+    loaded) so a member added to or removed from the compose file between page load and click
+    is reflected too."""
+    try:
+        member_names = stacks.stack_member_names(stack_id)
+        run_and_persist_many_reset_and_check(
+            member_names,
+            on_progress=lambda stage, done, total: check_state.set_item_progress(item_key, stage, done, total),
+            force_stack_analysis=True,
+        )
+    except Exception:
+        logger.exception("Stack Reset & re-check failed unexpectedly for %s", stack_id)
+    finally:
         check_state.finish_item(item_key)
         check_state.release_running("updates")

@@ -171,6 +171,7 @@ _STAGE_LABELS = {
     "release_notes": "Grabbing release notes",
     "summarizing": "Summarizing with AI",
     "regenerating": "Regenerating AI response",
+    "stack_analysis": "Analyzing cross-service impact",
 }
 
 
@@ -771,40 +772,10 @@ def _emphasize_stack_mentions(text: str, service_names: list[str]) -> str:
     return pattern.sub(lambda m: f'<strong>{m.group(1)}</strong>', text)
 
 
-def _stack_member_names(stack_id: str) -> list[str]:
-    index = compose_lookup.build_stack_index()
-    return sorted(
-        c["container_name"] for c in db.all_container_states()
-        if (match := compose_lookup.match_container_to_stack(c["container_name"], index)) and match["stack_id"] == stack_id
-    )
-
-
-def _stack_members_for_analysis(stack_id: str) -> list[dict]:
-    """Builds the same check-outcome-shaped member dicts stacks.regenerate_stack_analysis()
-    expects (container_name, image_repo, tag, current_digest, latest_digest), from whatever's
-    currently persisted -- used by the stack page's Retry button, which (unlike a real check)
-    has no fresh reconcile.py outcome of its own to draw from."""
-    members = []
-    for name in _stack_member_names(stack_id):
-        container_row = db.get_container_state(name)
-        if container_row is None:
-            continue
-        latest_update = db.get_latest_update_for_container(name)
-        latest_digest = latest_update["new_digest"] if latest_update else container_row["last_seen_digest"]
-        members.append({
-            "container_name": name,
-            "image_repo": container_row["image_repo"],
-            "tag": container_row["tag"],
-            "current_digest": container_row["last_seen_digest"],
-            "latest_digest": latest_digest,
-        })
-    return members
-
-
 @app.get("/updates/stack")
 def stack_detail(request: Request, id: str):
     stack_row = db.get_stack(id)
-    member_names = _stack_member_names(id)
+    member_names = stacks.stack_member_names(id)
     display_name = stack_row["display_name"] if stack_row else (member_names[0] if member_names else "Unknown stack")
     analysis_row = db.get_stack_analysis(id)
     analysis_html = None
@@ -859,48 +830,59 @@ async def reset_stack_name_route(request: Request):
 
 
 @app.post("/updates/stack/retry")
-async def retry_stack_route(request: Request):
+def retry_stack_route(request: Request, stack_id: str = ""):
     """Force-regenerates this stack's cross-service analysis blurb, bypassing the content-hash
     cache regardless of whether anything's actually changed since the last one -- same
     "an explicit click always regenerates" semantics as the per-update Regenerate AI Response
-    button. Runs synchronously in the request, same as Reset & re-check just below (a stack is
-    a handful of services at most, not worth a background-thread+spinner setup for). Shares the
-    same "only one check at a time" mutex as every other check, so this can't race a full
-    check's own automatic regeneration of the same stack's analysis row."""
-    form = await request.form()
-    stack_id = form.get("stack_id", "")
-    if stack_id and persist.try_start_updates_check():
-        try:
-            members = _stack_members_for_analysis(stack_id)
-            stacks.regenerate_stack_analysis(stack_id, members, force=True)
-        finally:
-            check_state.release_running("updates")
-    return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
+    button. Runs on a background thread with a live spinner via _launch_scoped_stack_check,
+    same shape as every per-item action -- a real AI call here can take several seconds, and
+    routing through the shared mutex means this can't race a full check's own automatic
+    regeneration of the same stack's analysis row."""
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    return _launch_scoped_stack_check(
+        request, stack_id,
+        lambda item_key: persist.run_claimed_stack_retry(item_key, stack_id),
+    )
 
 
 @app.post("/updates/stack/reset-and-recheck")
-async def reset_and_recheck_stack_route(request: Request):
+def reset_and_recheck_stack_route(request: Request, stack_id: str = ""):
     """Stack-scoped equivalent of the per-item Reset & re-check: wipes and re-checks every
-    service belonging to this stack, and no others. Runs synchronously in the request (the
-    button is a plain form post, not htmx, matching how it's always been wired) since a stack
-    is a handful of services at most -- nowhere near the size where a background thread +
-    spinner/poll setup like the per-item buttons use would earn its keep.
+    service belonging to this stack, and no others, then force-regenerates the stack's
+    cross-service analysis on top if Deep Analysis is on (see
+    persist.run_claimed_stack_reset_and_recheck). Runs on a background thread with a live
+    spinner via _launch_scoped_stack_check, same shape as every per-item action."""
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    return _launch_scoped_stack_check(
+        request, stack_id,
+        lambda item_key: persist.run_claimed_stack_reset_and_recheck(item_key, stack_id),
+    )
 
-    Shares the same "only one check at a time" mutex as every other check. If it's already
-    held (a full check or another scoped action mid-flight), this is a silent no-op and just
-    redirects back -- the button is already disabled client-side the moment
-    /updates/running-state reports anything running, so this is only a defensive fallback for
-    the brief window before that poll catches up, same as _launch_scoped_check's busy_message
-    branch for the per-item buttons."""
-    form = await request.form()
-    stack_id = form.get("stack_id", "")
-    member_names = _stack_member_names(stack_id) if stack_id else []
-    if member_names and persist.try_start_updates_check():
-        try:
-            persist.run_and_persist_many_reset_and_check(member_names)
-        finally:
-            check_state.release_running("updates")
-    return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
+
+@app.get("/updates/stack/status-poll")
+def stack_status_poll(request: Request, stack_id: str):
+    """Polling counterpart to update_recheck_status_poll below, for a stack-scoped action --
+    same "still running -> re-arm the poller, finished -> redirect" shape, just always
+    redirecting back to this same stack (a stack's own URL never moves the way a per-update
+    action's id can)."""
+    item_key = _stack_item_key(stack_id)
+    item = check_state.get_item_state(item_key)
+
+    if item is not None and item["running"]:
+        return templates.TemplateResponse(
+            "_stack_item_status_poll.html",
+            {"request": request, "stack_id": stack_id, "item": item, "progress_text": _progress_text(item)},
+        )
+
+    check_state.clear_item(item_key)
+    resp = templates.TemplateResponse(
+        "_stack_item_status_poll.html",
+        {"request": request, "stack_id": stack_id, "item": None, "progress_text": ""},
+    )
+    resp.headers["HX-Redirect"] = f"/updates/stack?id={quote(stack_id)}"
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -1114,6 +1096,39 @@ def _launch_scoped_check(request: Request, update_id: int, target) -> object:
     check_state.start_item(item_key, update["container_name"])
     threading.Thread(target=target, args=(item_key, update["container_name"]), daemon=True).start()
     return _render_item_status(request, update_id, item_key)
+
+
+def _stack_item_key(stack_id: str) -> str:
+    return f"stack:{stack_id}"
+
+
+def _render_stack_item_status(request: Request, stack_id: str, item_key: str, busy_message: str | None = None):
+    item = check_state.get_item_state(item_key)
+    return templates.TemplateResponse(
+        "_stack_item_status.html",
+        {
+            "request": request, "stack_id": stack_id, "item": item,
+            "progress_text": _progress_text(item) if item else "",
+            "busy_message": busy_message,
+        },
+    )
+
+
+def _launch_scoped_stack_check(request: Request, stack_id: str, target) -> object:
+    """Stack-level counterpart to _launch_scoped_check above — identical claim/launch/render
+    shape, keyed by stack_id rather than an update id since a stack action's own URL never
+    changes underneath it the way a per-update action's id can (a digest transition can get
+    superseded mid-recheck; a stack's compose file path can't)."""
+    item_key = _stack_item_key(stack_id)
+    if not persist.try_start_updates_check():
+        return _render_stack_item_status(
+            request, stack_id, item_key,
+            busy_message="A check just started elsewhere — try again shortly.",
+        )
+
+    check_state.start_item(item_key, stack_id)
+    threading.Thread(target=target, args=(item_key,), daemon=True).start()
+    return _render_stack_item_status(request, stack_id, item_key)
 
 
 @app.post("/updates/{update_id}/check-now")
