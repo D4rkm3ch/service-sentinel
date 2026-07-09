@@ -31,15 +31,22 @@ def test_subject_page_shows_real_severity_badge_and_plain_silenced_wording(clien
     fid, _ = db.upsert_finding("compose", _COMPOSE_PATH, "Missing restart policy", "reliability", "critical", "desc")
     db.set_finding_status(fid, "active")  # ensure a clean starting state regardless of leftovers
     db.set_finding_status(fid, "silenced")
+    # A second finding so this subject has 2+ findings and actually renders subject_findings.html
+    # -- a subject with exactly one finding redirects straight to that finding's own detail page.
+    fid2, _ = db.upsert_finding("compose", _COMPOSE_PATH, "Another finding", "reliability", "warning", "desc2")
+    db.set_finding_status(fid2, "silenced")
 
-    # show_silenced=1 -- otherwise a subject with exactly one (silenced) finding redirects
-    # straight to that finding's own detail page instead of rendering subject_findings.html.
     resp = client.get(f"/compose/file?path={_COMPOSE_PATH}&show_silenced=1")
     assert resp.status_code == 200
     assert 'badge-lg badge-sev-critical' in resp.text
-    assert '<span class="badge badge-lg badge-silenced">Silenced</span>' in resp.text
+    # The title-row "Silenced" badge was removed as a redundant duplicate of the Silenced
+    # column now shown on the bottom "All containers"/"All compose files" tables -- the "0
+    # active, 2 silenced" wording in the meta line right below is the only indicator left here.
+    assert '<span class="badge badge-lg badge-silenced">Silenced</span>' not in resp.text
     assert "Silenced only" not in resp.text
+    assert "2 silenced" in resp.text
 
+    db.set_finding_status(fid2, "active")
     db.set_finding_status(fid, "active")
 
 

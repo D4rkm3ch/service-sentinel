@@ -45,7 +45,10 @@ def test_silencing_a_container_hides_it_from_the_updates_list_by_default(client)
     resp = client.get("/updates?show_silenced=1")
     updates_section = resp.text[:resp.text.index("Tracked containers")]
     assert "silence-test-eol" in updates_section
-    assert "badge-silenced\">Silenced</span>" in updates_section
+    # No inline badge in the pending-updates list itself -- that's what caused the two-line
+    # rows the user didn't want. The badge only lives in the Tracked containers column now
+    # (see test_silenced_container_still_shows_in_tracked_containers_regardless).
+    assert "badge-silenced" not in updates_section
 
     _cleanup("silence-test-eol")
 
@@ -60,6 +63,29 @@ def test_silenced_container_still_shows_in_tracked_containers_regardless(client)
     assert "badge-silenced\">Silenced</span>" in tracked_section
 
     _cleanup("silence-test-tracked")
+
+
+def test_tracked_containers_table_has_a_dedicated_silenced_column(client):
+    """Replaces the old inline per-row badge (which made rows two lines tall) with a real
+    column at the end of the Tracked containers table -- a dash for anything not silenced."""
+    _seed_container_with_update("silence-test-column")
+
+    resp = client.get("/updates")
+    assert "<th>Silenced</th>" in resp.text
+    tracked_section = resp.text[resp.text.index("Tracked containers"):]
+    row = tracked_section[tracked_section.index("silence-test-column"):]
+    row = row[:row.index("</tr>")]
+    assert "badge-silenced" not in row
+    assert "—" in row
+
+    db.set_container_silenced("silence-test-column", True)
+    resp = client.get("/updates")
+    tracked_section = resp.text[resp.text.index("Tracked containers"):]
+    row = tracked_section[tracked_section.index("silence-test-column"):]
+    row = row[:row.index("</tr>")]
+    assert "badge-silenced\">Silenced</span>" in row
+
+    _cleanup("silence-test-column")
 
 
 def test_silence_toggle_on_the_detail_page_is_in_place_not_a_redirect(client):

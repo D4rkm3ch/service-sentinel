@@ -2,6 +2,7 @@ import hashlib
 import logging
 import re
 import threading
+from pathlib import Path
 from urllib.parse import quote, urlencode
 from zoneinfo import available_timezones
 
@@ -42,11 +43,23 @@ class NoStoreMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def _static_asset_version() -> str:
+    """A content hash of style.css, appended as a cache-busting query string on its <link> tag
+    (see base.html) -- StaticFiles is deliberately excluded from NoStoreMiddleware below so
+    browsers can cache CSS/JS long-term, but that means a plain unversioned /static/style.css
+    URL keeps serving an old cached copy after a deploy changes it. Hashing the file instead of
+    just using RELEASE_RADAR_VERSION means this bumps automatically on every CSS change, not
+    only on releases that remembered to bump the version string."""
+    css_path = Path(__file__).parent / "static" / "style.css"
+    return hashlib.sha256(css_path.read_bytes()).hexdigest()[:10]
+
+
 app = FastAPI(title="release-radar")
 app.add_middleware(NoStoreMiddleware)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["app_version"] = RELEASE_RADAR_VERSION
+templates.env.globals["static_asset_version"] = _static_asset_version()
 templates.env.globals["github_url"] = "https://github.com/D4rkm3ch/release-radar"
 templates.env.globals["app_timezone"] = db.get_timezone  # a callable, not a value -- Stage 5c
 templates.env.globals["get_uptime_str"] = get_uptime_str
@@ -1023,6 +1036,20 @@ async def reset_stack_name_route(request: Request):
                 stacks.get_or_generate_stack_name(stack_id, entry["service_names"])
                 break
     return RedirectResponse(url=_stack_return_url(form, stack_id), status_code=303)
+
+
+@app.post("/updates/stack/check-now")
+def check_now_stack_route(request: Request, stack_id: str = ""):
+    """Non-destructive scoped re-check for every member of this stack: re-checks each one
+    (digest + release notes if something changed), only touching a member's row if its digest
+    actually moved -- exactly like every other "Check now" in the app, hence no confirmation
+    dialog on the button. Mirrors retry_stack_route/reset_and_recheck_stack_route below."""
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    return _launch_scoped_stack_check(
+        request, stack_id,
+        lambda item_key: persist.run_claimed_stack_check_now(item_key, stack_id),
+    )
 
 
 @app.post("/updates/stack/retry")

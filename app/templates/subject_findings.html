@@ -12,9 +12,6 @@
     {% if top_severity %}
     <span class="badge badge-lg badge-sev-{{ top_severity }}">{{ severity_label(source, top_severity) }}</span>
     {% endif %}
-    {% if findings and not active_count %}
-    <span class="badge badge-lg badge-silenced">Silenced</span>
-    {% endif %}
   </div>
   <p class="meta">
     {{ active_count }} active finding{{ 's' if active_count != 1 else '' }}{% if silenced_count %}, {{ silenced_count }} silenced{% endif %}

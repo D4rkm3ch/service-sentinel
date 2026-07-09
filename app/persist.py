@@ -546,6 +546,19 @@ def run_and_persist_single_reset_and_check(container_name: str, on_progress: Pro
     return run_and_persist_single_check(container_name, on_progress=on_progress)
 
 
+def run_and_persist_many_check(container_names: list[str], on_progress: ProgressFunc | None = None,
+                                force_stack_analysis: bool = False) -> dict:
+    """Stack-level counterpart to run_and_persist_single_check() above -- non-destructive: a
+    member's row is only touched if its digest actually moved, exactly like every other
+    Check now in the app (no wipe, unlike run_and_persist_many_reset_and_check below).
+    prune=False and force_stack_analysis are threaded through for the same reasons as that
+    function's own docstring explains."""
+    reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
+    outcome = reconcile.run_check_many(container_names, on_progress=reconcile_progress)
+    persist_check_outcome(outcome, on_progress=on_progress, prune=False, force_stack_analysis=force_stack_analysis)
+    return outcome
+
+
 def run_and_persist_many_reset_and_check(container_names: list[str], on_progress: ProgressFunc | None = None,
                                           force_stack_analysis: bool = False) -> dict:
     """Stack-level counterpart to run_and_persist_single_reset_and_check() -- wipes the
@@ -690,6 +703,28 @@ def run_claimed_bulk_regenerate() -> None:
 # these buttons (it only fires on htmx requests) and so a busy mutex renders a real message
 # instead of a silent redirect.
 # ---------------------------------------------------------------------------
+
+def run_claimed_stack_check_now(item_key: str, stack_id: str) -> None:
+    """Stack-scoped equivalent of the per-item Check now: re-checks every current member of
+    this stack via run_and_persist_many_check, only touching a member's row if its digest
+    actually moved -- no wipe, no forced AI regeneration, exactly like every other Check now
+    button in the app, hence no confirmation dialog on the button that reaches this.
+
+    Member names are re-resolved fresh right before the check (not whatever the page had
+    loaded) so a member added to or removed from the compose file between page load and click
+    is reflected too -- same reasoning as run_claimed_stack_reset_and_recheck below."""
+    try:
+        member_names = stacks.stack_member_names(stack_id)
+        run_and_persist_many_check(
+            member_names,
+            on_progress=lambda stage, done, total: check_state.set_item_progress(item_key, stage, done, total),
+        )
+    except Exception:
+        logger.exception("Scoped stack check failed unexpectedly for %s", stack_id)
+    finally:
+        check_state.finish_item(item_key)
+        check_state.release_running("updates")
+
 
 def run_claimed_stack_retry(item_key: str, stack_id: str) -> None:
     """Force-regenerates this stack's cross-service analysis blurb, bypassing the content-hash

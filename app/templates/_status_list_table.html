@@ -6,15 +6,17 @@
 <table class="containers-table">
   <colgroup>
     {% if show_stack_column %}
-    <col style="width: 30%">
-    <col style="width: 24%">
-    <col style="width: 22%">
-    <col style="width: 18%">
+    <col style="width: 26%">
+    <col style="width: 20%">
+    <col style="width: 20%">
+    <col style="width: 16%">
+    <col style="width: 12%">
     <col style="width: 6%">
     {% else %}
-    <col style="width: 44%">
-    <col style="width: 28%">
-    <col style="width: 22%">
+    <col style="width: 38%">
+    <col style="width: 24%">
+    <col style="width: 20%">
+    <col style="width: 12%">
     <col style="width: 6%">
     {% endif %}
   </colgroup>
@@ -24,6 +26,7 @@
       {% if show_stack_column %}<th>{{ sh.sort_link('Stack', 'stack', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>{% endif %}
       <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, base_url, 'desc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
       <th>{{ sh.sort_link('Status', 'status', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
+      <th>Silenced</th>
       <th></th>
     </tr>
   </thead>
@@ -54,6 +57,7 @@
         <span class="badge badge-healthy">healthy</span>
         {% endif %}
       </td>
+      <td>{% if item.silenced %}<span class="badge badge-silenced">Silenced</span>{% else %}<span class="meta">—</span>{% endif %}</td>
       <td><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
     </tr>
     {% endfor %}

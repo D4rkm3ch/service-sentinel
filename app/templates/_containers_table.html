@@ -6,10 +6,11 @@
 {% if containers %}
 <table class="containers-table">
   <colgroup>
-    <col style="width: 22%">
-    <col style="width: 22%">
-    <col style="width: 38%">
-    <col style="width: 18%">
+    <col style="width: 20%">
+    <col style="width: 20%">
+    <col style="width: 32%">
+    <col style="width: 16%">
+    <col style="width: 12%">
   </colgroup>
   <thead>
     <tr>
@@ -17,15 +18,13 @@
       <th>{{ sh.sort_link('Stack', 'stack', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
       <th>{{ sh.sort_link('Image', 'image', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
       <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, '/updates', 'desc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
+      <th>Silenced</th>
     </tr>
   </thead>
   <tbody>
     {% for c in containers %}
     <tr>
-      <td class="mono">
-        <span class="truncate-cell" title="{{ c.container_name }}">{{ c.container_name }}</span>
-        {%- if c.silenced %} <span class="badge badge-silenced">Silenced</span>{% endif %}
-      </td>
+      <td class="mono"><span class="truncate-cell" title="{{ c.container_name }}">{{ c.container_name }}</span></td>
       <td>
         {% if c.stack_name %}
         <a href="/updates/stack?id={{ c.stack_id|urlencode }}" class="stack-cell" title="{{ c.stack_name }}">{{ c.stack_name }}</a>
@@ -35,6 +34,7 @@
       </td>
       <td class="mono"><span class="truncate-cell" title="{{ c.image_repo }}:{{ c.tag }}">{{ c.image_repo }}:{{ c.tag }}</span></td>
       <td class="nowrap">{{ c.last_checked_at[:16].replace('T', ' ') if c.last_checked_at else '—' }}</td>
+      <td>{% if c.silenced %}<span class="badge badge-silenced">Silenced</span>{% else %}<span class="meta">—</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>

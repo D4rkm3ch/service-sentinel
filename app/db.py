@@ -888,42 +888,55 @@ def list_subjects_with_findings(source: str, include_silenced: bool = False) -> 
 
 def all_log_watch_states_with_status() -> list[dict]:
     """Every container the log watcher has ever checked, with a healthy/issue status —
-    used for the 'All containers' list at the bottom of the Logs tab."""
+    used for the 'All containers' list at the bottom of the Logs tab. "silenced" is derived
+    (has findings, but every one of them is currently silenced) rather than an explicit
+    per-container toggle like Updates has -- Logs/Compose only silence at the finding level."""
     with get_conn() as conn:
         cur = conn.execute("SELECT container_name, last_checked_at FROM log_watch_state ORDER BY container_name")
         rows = cur.fetchall()
         result = []
         for r in rows:
             cur2 = conn.execute(
-                "SELECT COUNT(*) AS n FROM findings WHERE source = 'logs' AND subject = ? AND status = 'active'",
+                "SELECT "
+                "SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active, "
+                "COUNT(*) AS total "
+                "FROM findings WHERE source = 'logs' AND subject = ?",
                 (r["container_name"],),
             )
-            active = cur2.fetchone()["n"]
+            counts = cur2.fetchone()
+            active, total = counts["active"] or 0, counts["total"] or 0
             result.append({
                 "name": r["container_name"],
                 "last_at": r["last_checked_at"],
                 "status": "issue" if active else "healthy",
+                "silenced": total > 0 and active == 0,
             })
         return result
 
 
 def all_compose_file_states_with_status() -> list[dict]:
     """Every compose file the reviewer has ever checked, with a healthy/issue status —
-    used for the 'All files' list at the bottom of the Compose tab."""
+    used for the 'All files' list at the bottom of the Compose tab. See all_log_watch_states_
+    with_status above for why "silenced" is derived rather than an explicit toggle."""
     with get_conn() as conn:
         cur = conn.execute("SELECT file_path, last_reviewed_at FROM compose_file_state ORDER BY file_path")
         rows = cur.fetchall()
         result = []
         for r in rows:
             cur2 = conn.execute(
-                "SELECT COUNT(*) AS n FROM findings WHERE source = 'compose' AND subject = ? AND status = 'active'",
+                "SELECT "
+                "SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active, "
+                "COUNT(*) AS total "
+                "FROM findings WHERE source = 'compose' AND subject = ?",
                 (r["file_path"],),
             )
-            active = cur2.fetchone()["n"]
+            counts = cur2.fetchone()
+            active, total = counts["active"] or 0, counts["total"] or 0
             result.append({
                 "name": r["file_path"],
                 "last_at": r["last_reviewed_at"],
                 "status": "issue" if active else "healthy",
+                "silenced": total > 0 and active == 0,
             })
         return result
 

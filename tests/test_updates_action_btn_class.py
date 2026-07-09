@@ -40,7 +40,7 @@ def test_base_html_polls_running_state_per_feature_and_disables_instantly_on_bef
 
 def test_stack_detail_retry_and_reset_carry_the_class():
     text = (TEMPLATES / "stack_detail.html").read_text()
-    assert text.count("updates-action-btn") == 2  # Retry and Reset & re-check
+    assert text.count("updates-action-btn") == 3  # Check Now, Regenerate, and Reset & re-check
 
 
 def test_detail_page_check_now_and_reset_always_carry_the_class():
