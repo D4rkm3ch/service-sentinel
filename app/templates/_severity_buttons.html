@@ -2,7 +2,7 @@
 <span class="severity-group-row">
   <div class="severity-group" data-scope="{{ scope }}">
     {% for s in severities %}
-    <input type="radio" id="{{ scope }}_sev_{{ s }}" name="severity" value="{{ s }}"
+    <input type="radio" id="{{ scope }}_sev_{{ s }}" name="{{ scope }}_severity" value="{{ s }}"
            {{ 'checked' if current == s else '' }} {{ 'disabled' if disabled else '' }}
            hx-post="{{ save_url }}" hx-trigger="change" hx-target="#saved-{{ scope }}-sev" hx-swap="innerHTML">
     <label for="{{ scope }}_sev_{{ s }}" class="severity-btn severity-btn-{{ s }}">{{ severity_label(scope, s) }}</label>

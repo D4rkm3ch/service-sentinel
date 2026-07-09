@@ -266,14 +266,21 @@ def generate_stack_name(service_names: list[str]) -> str:
 
 STACK_ANALYSIS_SYSTEM_PROMPT = """You are looking at one docker-compose stack for a homelab \
 operator — several services that run together and can affect each other, defined in the same \
-file. You'll be given the full list of services in the stack and which one(s) just had an \
-update detected.
+file. You'll be given the full list of services in the stack, and for each one that has a \
+pending update, its actual release notes or summary.
 
-In AT MOST 2 short sentences: is there a real, concrete cross-service risk here, or not? If \
-yes, name the specific risk and which services it affects — nothing else, no background \
-explanation, no "here's why this matters" framing. If no, say so in one short sentence and \
-stop. Do not restate the update itself, do not list out how each service works, do not \
-speculate broadly — only state a conclusion.
+Read the release notes for anything that names a concrete requirement or effect on another \
+service in the same stack — a minimum version of another service/database it now needs, a \
+required migration or config/env var change, a changed port or API contract another service \
+in this stack calls, breaking changes to a shared volume or data format. Only real, specific \
+findings from the text you were given — never guess or speculate about services just because \
+they happen to be in the same stack, and never comment on networking, "they share a network," \
+or anything else that's true of every compose stack by definition.
+
+In AT MOST 2 short sentences: if you found something concrete, name the specific requirement \
+and which service(s) it affects. If nothing in the notes points to a real cross-service effect, \
+respond with exactly: "No cross-service issues found." Do not restate the update itself, do not \
+describe how each service works, do not explain your reasoning — only state the conclusion.
 
 No markdown, no headers, no bullet list."""
 
@@ -282,7 +289,10 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
     """Cross-service analysis for a compose stack — only meaningful for stacks with 2+
     services. Deliberately separate from the per-service summary: this is about whether a
     change in one service could ripple into its stack-mates, not a restatement of the change
-    itself."""
+    itself. changed_summary_text should carry the actual release notes/summary text for each
+    member with a pending update (see stacks._build_changed_summary) -- without real notes text
+    to read, the model has nothing to reason about beyond service names and reliably falls back
+    to generic, useless observations like "they share a network"."""
     if not ai_provider.is_configured() or len(all_service_names) < 2:
         return ""
 

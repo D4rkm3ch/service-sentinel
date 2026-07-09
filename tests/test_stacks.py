@@ -109,6 +109,26 @@ def test_a_genuinely_new_stack_calls_the_ai_and_persists_the_result():
     assert saved["analysis_markdown"] == "They share a downloads volume."
 
 
+def test_the_ai_call_receives_real_release_notes_not_just_image_and_tag():
+    """Regression test for a real-world report: passing only "sonarr (repo:tag)" with no actual
+    notes text gave the model nothing to reason about, so it fell back to generic, useless
+    answers ("yes, there is a network") true of every compose stack. The prompt must carry each
+    pending member's actual summary/notes text."""
+    db.record_update(
+        container_name="sonarr", image_repo="linuxserver/sonarr", tag="latest",
+        old_digest="sha256:old", new_digest="sha256:new",
+        summary_markdown="Requires postgres >= 15.", source_url=None, release_notes_raw="raw notes",
+    )
+    members = [_c("sonarr", repo="linuxserver/sonarr"), _c("radarr", repo="linuxserver/radarr")]
+    with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
+         patch("app.stacks.analyze_stack_impact", return_value="Analysis.") as mock_analyze:
+        stacks.regenerate_stack_analysis("stack1", members)
+
+    changed_summary = mock_analyze.call_args[0][2]
+    assert "Requires postgres >= 15." in changed_summary
+    assert "radarr: no pending update." in changed_summary
+
+
 def test_an_unchanged_fingerprint_skips_the_ai_call_on_the_next_pass():
     members = [_c("sonarr", latest_digest="sha256:v2"), _c("radarr", latest_digest="sha256:v2")]
     with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \

@@ -31,8 +31,8 @@
   <div class="settings-subsection">
     <h4>{{ title }}</h4>
     <div class="toggle-with-label">
-      {{ ts.toggle_switch(feature ~ '_use_master_sched', features[feature].use_master, '/settings/schedule/use-master/' ~ feature, "toggleScheduleOverride('" ~ feature ~ "', this.checked)") }}
-      <span class="toggle-label">Use general schedule</span>
+      {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature, "toggleScheduleOverride('" ~ feature ~ "', this.checked)") }}
+      <span class="toggle-label" id="{{ feature }}_schedule_toggle_label">{{ 'Using own schedule' if not features[feature].use_master else 'Using general schedule' }}</span>
     </div>
     <div id="{{ feature }}_schedule_wrapper" class="schedule-wrapper {{ 'faded' if features[feature].use_master else '' }}">
       {{ sf.schedule_fields(feature, features[feature].spec, '/settings/schedule/' ~ feature, features[feature].use_master) }}
@@ -63,11 +63,6 @@
     </div>
   </div>
 
-  <div class="settings-subsection">
-    <h4>General minimum severity</h4>
-    {{ sb.severity_buttons('master', notify.severity_master, '/settings/notify/severity/master', false) }}
-  </div>
-
   {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
   <div class="settings-subsection">
     <h4>{{ title }}</h4>
@@ -75,9 +70,9 @@
       {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature) }}
       <span class="toggle-label">Enable notifications</span>
     </div>
+    <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
     {% if feature == 'updates' %}
-    <p class="meta" style="margin-top:8px">Updates uses its own importance scale, so it always sets its own threshold directly rather than following the general severity above.</p>
-    <div style="margin-top:8px">
+    <div>
       {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
     </div>
     <div class="toggle-with-label" style="margin-top:8px">
@@ -85,12 +80,8 @@
       <span class="toggle-label">Also notify when a container's registry can't be reached</span>
     </div>
     {% else %}
-    <div class="toggle-with-label" style="margin-top:8px">
-      {{ ts.toggle_switch('notify_' ~ feature ~ '_use_master_sev', notify.features[feature].use_master_severity, '/settings/notify/use-master-severity/' ~ feature, "toggleSeverityOverride('" ~ feature ~ "', this.checked)") }}
-      <span class="toggle-label">Use general severity</span>
-    </div>
-    <div style="margin-top:8px">
-      {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, notify.features[feature].use_master_severity) }}
+    <div>
+      {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
     </div>
     {% endif %}
   </div>
@@ -98,8 +89,65 @@
 </section>
 
 <section class="panel">
+  <h2 class="settings-heading-lg">AI Provider</h2>
+  <p class="meta">Powers release note summaries, severity classification, log/compose analysis, and the
+release notes web search fallback. Only one provider is active at a time -- switching here takes effect
+on the next check, no restart needed.</p>
+
+  <div class="settings-subsection settings-subsection-first">
+    <h4>Active provider</h4>
+    <select name="ai_provider" class="mono field-input" onchange="toggleAiProvider(this.value)"
+            hx-post="/settings/ai/provider" hx-trigger="change" hx-target="#saved-ai-provider">
+      <option value="anthropic" {{ 'selected' if ai_provider == 'anthropic' else '' }}>Anthropic (Claude)</option>
+      <option value="gemini" {{ 'selected' if ai_provider == 'gemini' else '' }}>Google Gemini</option>
+    </select>
+    <span class="saved-indicator-slot" id="saved-ai-provider"></span>
+  </div>
+
+  <div class="settings-subsection {{ '' if ai_provider == 'anthropic' else 'faded' }}" id="anthropic-provider-section">
+    <h4>Anthropic</h4>
+    <p class="meta">{{ 'API key configured.' if anthropic_key_configured else 'No API key configured yet.' }} Get one from
+<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
+    <div class="api-key-row">
+      <input type="password" id="anthropic_api_key_field" class="mono field-input" autocomplete="off"
+             placeholder="{{ 'Leave blank to keep the current key' if anthropic_key_configured else 'sk-ant-...' }}">
+      <button type="button" onclick="saveApiKey('anthropic')">Save key</button>
+      <span class="saved-indicator-slot" id="saved-anthropic_api_key"></span>
+    </div>
+    <div style="margin-top:10px">
+      <select name="anthropic_model" class="mono field-input" hx-post="/settings/ai/anthropic-model" hx-trigger="change" hx-target="#saved-anthropic_model">
+        {% for value, label in anthropic_models %}
+        <option value="{{ value }}" {{ 'selected' if value == anthropic_model else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
+    </div>
+  </div>
+
+  <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'faded' }}" id="gemini-provider-section">
+    <h4>Gemini</h4>
+    <p class="meta">{{ 'API key configured.' if gemini_key_configured else 'No API key configured yet.' }} Get one
+(no card required for the free tier) from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</p>
+    <div class="api-key-row">
+      <input type="password" id="gemini_api_key_field" class="mono field-input" autocomplete="off"
+             placeholder="{{ 'Leave blank to keep the current key' if gemini_key_configured else 'AIza...' }}">
+      <button type="button" onclick="saveApiKey('gemini')">Save key</button>
+      <span class="saved-indicator-slot" id="saved-gemini_api_key"></span>
+    </div>
+    <div style="margin-top:10px">
+      <select name="gemini_model" class="mono field-input" hx-post="/settings/ai/gemini-model" hx-trigger="change" hx-target="#saved-gemini_model">
+        {% for value, label in gemini_models %}
+        <option value="{{ value }}" {{ 'selected' if value == gemini_model else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="saved-indicator-slot" id="saved-gemini_model"></span>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
   <h2 class="settings-heading-lg">Deep Analysis</h2>
-  <p class="meta">Adds an AI-suggested fix alongside each finding, not just the problem report. \
+  <p class="meta">Adds an AI-suggested fix alongside each finding, not just the problem report.
 This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
 
   {% for feature, title in [('logs', 'Log health'), ('compose', 'Compose health')] %}
@@ -135,85 +183,6 @@ This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
   </div>
 </section>
 
-<section class="panel">
-  <h2 class="settings-heading-lg">AI Provider</h2>
-  <p class="meta">Powers release note summaries, severity classification, log/compose analysis, and (if \
-enabled below) the release notes web search fallback. Only one provider is active at a time -- switching \
-here takes effect on the next check, no restart needed.</p>
-
-  <div class="settings-subsection settings-subsection-first">
-    <h4>Active provider</h4>
-    <select name="ai_provider" class="mono field-input" onchange="toggleAiProvider(this.value)"
-            hx-post="/settings/ai/provider" hx-trigger="change" hx-target="#saved-ai-provider">
-      <option value="anthropic" {{ 'selected' if ai_provider == 'anthropic' else '' }}>Anthropic (Claude)</option>
-      <option value="gemini" {{ 'selected' if ai_provider == 'gemini' else '' }}>Google Gemini</option>
-    </select>
-    <span class="saved-indicator-slot" id="saved-ai-provider"></span>
-  </div>
-
-  <div class="settings-subsection {{ '' if ai_provider == 'anthropic' else 'faded' }}" id="anthropic-provider-section">
-    <h4>Anthropic</h4>
-    <p class="meta">{{ 'API key configured.' if anthropic_key_configured else 'No API key configured yet.' }} Get one from \
-<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
-    <div class="api-key-row">
-      <input type="password" id="anthropic_api_key_field" class="mono field-input" autocomplete="off"
-             placeholder="{{ 'Leave blank to keep the current key' if anthropic_key_configured else 'sk-ant-...' }}">
-      <button type="button" onclick="saveApiKey('anthropic')">Save key</button>
-      <span class="saved-indicator-slot" id="saved-anthropic_api_key"></span>
-    </div>
-    <div style="margin-top:10px">
-      <select name="anthropic_model" class="mono field-input" hx-post="/settings/ai/anthropic-model" hx-trigger="change" hx-target="#saved-anthropic_model">
-        {% for value, label in anthropic_models %}
-        <option value="{{ value }}" {{ 'selected' if value == anthropic_model else '' }}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
-    </div>
-  </div>
-
-  <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'faded' }}" id="gemini-provider-section">
-    <h4>Gemini</h4>
-    <p class="meta">{{ 'API key configured.' if gemini_key_configured else 'No API key configured yet.' }} Get one \
-(no card required for the free tier) from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</p>
-    <div class="api-key-row">
-      <input type="password" id="gemini_api_key_field" class="mono field-input" autocomplete="off"
-             placeholder="{{ 'Leave blank to keep the current key' if gemini_key_configured else 'AIza...' }}">
-      <button type="button" onclick="saveApiKey('gemini')">Save key</button>
-      <span class="saved-indicator-slot" id="saved-gemini_api_key"></span>
-    </div>
-    <div style="margin-top:10px">
-      <select name="gemini_model" class="mono field-input" hx-post="/settings/ai/gemini-model" hx-trigger="change" hx-target="#saved-gemini_model">
-        {% for value, label in gemini_models %}
-        <option value="{{ value }}" {{ 'selected' if value == gemini_model else '' }}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <span class="saved-indicator-slot" id="saved-gemini_model"></span>
-    </div>
-  </div>
-</section>
-
-<section class="panel">
-  <h2 class="settings-heading-lg">Release Notes Discovery</h2>
-  <p class="meta">When a container's release notes can't be found any other way (no matching GitHub repo by \
-naming convention, no manual override), let the configured AI provider search the web for them. A real API \
-call per lookup, but only ever once per image -- the result is cached and reused from then on, same as \
-every other discovered source.</p>
-
-  <div class="settings-subsection settings-subsection-first">
-    <div class="toggle-with-label">
-      <span class="toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="release_notes_web_search" {{ 'checked' if release_notes_web_search_enabled else '' }}
-                 onchange="handleWebSearchToggle(this)">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="saved-indicator-slot" id="saved-release_notes_web_search"></span>
-      </span>
-      <span class="toggle-label">Search the web for release notes as a last resort (uses more tokens)</span>
-    </div>
-  </div>
-</section>
-
 <script>
 function toggleAiProvider(active) {
   document.getElementById('anthropic-provider-section').classList.toggle('faded', active !== 'anthropic');
@@ -236,27 +205,6 @@ function saveApiKey(provider) {
   });
 }
 
-function handleWebSearchToggle(el) {
-  if (el.checked) {
-    const ok = confirm(
-      'When release notes can\'t be found any other way, this lets the configured AI provider ' +
-      'search the web for them -- a real API call per image, though the result is cached so it ' +
-      'only happens once per image, not on every check.\n\nEnable web search for release notes?'
-    );
-    if (!ok) {
-      el.checked = false;
-      return;
-    }
-  }
-  fetch('/settings/release-notes/web-search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'enabled=' + (el.checked ? 'on' : ''),
-  }).then(() => {
-    const slot = document.getElementById('saved-release_notes_web_search');
-    if (slot) slot.innerHTML = '<span class="saved-indicator">Saved</span>';
-  });
-}
 function handleDeepAnalysisToggle(el, feature) {
   if (el.checked) {
     const ok = confirm(
@@ -301,21 +249,18 @@ document.querySelectorAll('.schedule-fields').forEach(form => {
   updateScheduleVisibility(form.dataset.scope);
 });
 
-// ---- Feature-level "use general schedule" gating ----
-function toggleScheduleOverride(feature, useGeneral) {
+// ---- Feature-level "use own schedule" gating -- checked means "using my own schedule", the
+// opposite of the underlying use_master flag the server stores, so useGeneral is derived here
+// rather than passed in directly. ----
+function toggleScheduleOverride(feature, usingOwnSchedule) {
+  const useGeneral = !usingOwnSchedule;
   const wrapper = document.getElementById(`${feature}_schedule_wrapper`);
   wrapper.classList.toggle('faded', useGeneral);
   const modeSelect = wrapper.querySelector('.schedule-mode-select');
   modeSelect.disabled = useGeneral;
   updateScheduleVisibility(feature);
-}
-
-// ---- Feature-level "use general severity" gating ----
-function toggleSeverityOverride(feature, useGeneral) {
-  const group = document.querySelector(`.severity-group[data-scope="${feature}"]`);
-  if (!group) return;
-  group.classList.toggle('faded', useGeneral);
-  group.querySelectorAll('input').forEach(el => { el.disabled = useGeneral; });
+  const label = document.getElementById(`${feature}_schedule_toggle_label`);
+  if (label) label.textContent = usingOwnSchedule ? 'Using own schedule' : 'Using general schedule';
 }
 
 // ---- Apprise URL field gating ----

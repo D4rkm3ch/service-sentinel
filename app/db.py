@@ -171,13 +171,11 @@ def init_db() -> None:
         # Updates uses its own 4-tier scale (bugfix/feature/action_needed/breaking), separate
         # from the 3-tier scale (suggestion/warning/critical) Logs and Compose still use.
         default_settings = {
-            "notify_severity_master": DEFAULT_SEVERITY,
             "notify_severity_updates": "bugfix",
             "notify_severity_logs": DEFAULT_SEVERITY,
             "notify_severity_compose": DEFAULT_SEVERITY,
             "deep_analysis_logs_enabled": "false",
             "deep_analysis_compose_enabled": "false",
-            "release_notes_web_search_enabled": "false",
             "ai_provider": "anthropic",
             "anthropic_model": "claude-sonnet-5",
             "gemini_model": "gemini-2.5-flash",
@@ -372,10 +370,11 @@ def get_effective_schedule(feature: str) -> dict:
 
 # ---------------------------------------------------------------------------
 # Notifications — Apprise only. A master on/off, a single set of Apprise URLs,
-# a per-feature on/off, and a severity threshold that follows the same
-# master/override pattern as scheduling (a general severity, with an optional
-# per-feature override for Logs and Compose — Updates notifications aren't
-# severity-graded, so there's no severity setting for that one).
+# a per-feature on/off, and each feature's own severity threshold (no shared/general severity
+# to fall back to — every feature always uses its own value directly, same as Updates already
+# did; a general severity with per-feature overrides used to exist here but added a layer of
+# indirection that mostly just meant "the button that looks selected right now is the wrong
+# one" whenever a feature was quietly still following the general value).
 # ---------------------------------------------------------------------------
 
 
@@ -417,24 +416,14 @@ def set_notify_updates_include_errors(enabled: bool) -> None:
     _set_setting("notify_updates_include_errors", "true" if enabled else "false")
 
 
-def get_severity_master() -> str:
-    return _get_setting("notify_severity_master", DEFAULT_SEVERITY)
-
-
-def set_severity_master(value: str) -> None:
-    _set_setting("notify_severity_master", value)
-
-
-def get_feature_uses_master_severity(feature: str) -> bool:
-    return _get_setting(f"notify_severity_{feature}_use_master", "true") == "true"
-
-
-def set_feature_uses_master_severity(feature: str, use_master: bool) -> None:
-    _set_setting(f"notify_severity_{feature}_use_master", "true" if use_master else "false")
-
-
 def get_feature_severity(feature: str) -> str:
-    return _get_setting(f"notify_severity_{feature}", DEFAULT_SEVERITY)
+    # Updates uses its own 4-tier scale (bugfix/feature/action_needed/breaking); Logs and
+    # Compose share a 3-tier scale (suggestion/warning/critical) — each feature's default is
+    # its own scale's lowest tier, so a fresh install always has a real, valid value selected
+    # rather than falling back to a default from the wrong scale (which would match none of
+    # that feature's buttons and look like nothing was ever chosen).
+    default = "bugfix" if feature == "updates" else DEFAULT_SEVERITY
+    return _get_setting(f"notify_severity_{feature}", default)
 
 
 def set_feature_severity(feature: str, value: str) -> None:
@@ -442,13 +431,6 @@ def set_feature_severity(feature: str, value: str) -> None:
 
 
 def get_effective_severity(feature: str) -> str:
-    if feature == "updates":
-        # Updates uses its own 4-tier scale (bugfix/feature/action_needed/breaking), which
-        # has no meaningful correspondence to the shared 3-tier scale General/Logs/Compose
-        # use — it always uses its own value directly, never the master toggle.
-        return get_feature_severity(feature)
-    if get_feature_uses_master_severity(feature):
-        return get_severity_master()
     return get_feature_severity(feature)
 
 
@@ -997,21 +979,6 @@ def get_deep_analysis_enabled(feature: str) -> bool:
 
 def set_deep_analysis_enabled(feature: str, enabled: bool) -> None:
     _set_setting(f"deep_analysis_{feature}_enabled", "true" if enabled else "false")
-
-
-# ---------------------------------------------------------------------------
-# Release notes web search (Stage 8, brought forward) — off by default. When on, release_notes.py
-# falls back to asking Claude to search the web for release notes it couldn't find any other
-# way (naming-convention guesses, manual overrides). A real API call per lookup, though the
-# result is cached like every other discovered source, so it only ever runs once per image.
-# ---------------------------------------------------------------------------
-
-def get_release_notes_web_search_enabled() -> bool:
-    return _get_setting("release_notes_web_search_enabled", "false") == "true"
-
-
-def set_release_notes_web_search_enabled(enabled: bool) -> None:
-    _set_setting("release_notes_web_search_enabled", "true" if enabled else "false")
 
 
 # ---------------------------------------------------------------------------

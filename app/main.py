@@ -529,12 +529,10 @@ def _build_notify_context() -> dict:
     return {
         "enabled": db.get_notifications_enabled(),
         "apprise_urls": ", ".join(db.get_apprise_urls()),
-        "severity_master": db.get_severity_master(),
         "updates_include_errors": db.get_notify_updates_include_errors(),
         "features": {
             feature: {
                 "enabled": db.get_feature_notify_enabled(feature),
-                "use_master_severity": db.get_feature_uses_master_severity(feature),
                 "severity": db.get_feature_severity(feature),
             }
             for feature in ("updates", "logs", "compose")
@@ -561,7 +559,6 @@ def settings_page(request: Request):
             "request": request, "master": master, "features": features,
             "describe": describe_schedule, "notify": _build_notify_context(),
             "deep_analysis": deep_analysis, "update_severities": list(UPDATE_SEVERITIES),
-            "release_notes_web_search_enabled": db.get_release_notes_web_search_enabled(),
             "timezone": db.get_timezone(), "available_timezones": AVAILABLE_TIMEZONES,
             "ai_provider": db.get_ai_provider(),
             "anthropic_key_configured": bool(db.get_anthropic_api_key()),
@@ -598,13 +595,6 @@ async def save_deep_analysis(feature: str, request: Request):
         raise HTTPException(status_code=404)
     form = await request.form()
     db.set_deep_analysis_enabled(feature, form.get("enabled") == "on")
-    return {"status": "ok"}
-
-
-@app.post("/settings/release-notes/web-search")
-async def save_release_notes_web_search(request: Request):
-    form = await request.form()
-    db.set_release_notes_web_search_enabled(form.get("enabled") == "on")
     return {"status": "ok"}
 
 
@@ -674,10 +664,14 @@ async def save_schedule(scope: str, request: Request):
 
 @app.post("/settings/schedule/use-master/{feature}")
 async def save_schedule_use_master(feature: str, request: Request):
+    """The checkbox this saves means "use my own schedule" (checked = own) -- the opposite of
+    the stored use_master flag (True = defers to the general schedule), so what's submitted is
+    inverted before it's written. See settings.html's toggleScheduleOverride for the matching
+    client-side inversion."""
     if feature not in VALID_FEATURES:
         raise HTTPException(status_code=404)
     form = await request.form()
-    db.set_feature_uses_master_schedule(feature, form.get("enabled") == "on")
+    db.set_feature_uses_master_schedule(feature, form.get("enabled") != "on")
     apply_schedules()
     return _saved(request)
 
@@ -695,29 +689,22 @@ async def save_notify_enabled(scope: str, request: Request):
     return _saved(request)
 
 
-@app.post("/settings/notify/severity/{scope}")
-async def save_notify_severity(scope: str, request: Request):
-    if scope not in VALID_SCOPES:
-        raise HTTPException(status_code=404)
-    form = await request.form()
-    valid_values = UPDATE_SEVERITIES if scope == "updates" else FINDING_SEVERITIES
-    default_value = "bugfix" if scope == "updates" else "suggestion"
-    severity = form.get("severity", default_value)
-    if severity not in valid_values:
-        severity = default_value
-    if scope == "master":
-        db.set_severity_master(severity)
-    else:
-        db.set_feature_severity(scope, severity)
-    return _saved(request)
-
-
-@app.post("/settings/notify/use-master-severity/{feature}")
-async def save_notify_use_master_severity(feature: str, request: Request):
+@app.post("/settings/notify/severity/{feature}")
+async def save_notify_severity(feature: str, request: Request):
+    """The posted field is named "{feature}_severity", not a shared "severity" -- when Updates,
+    Logs, and Compose's radio groups all shared the literal name "severity" (a real-world report
+    traced back to this), the browser enforced radio exclusivity across ALL of them together,
+    silently unchecking every group but whichever rendered last. Scoping the name per feature
+    (see _severity_buttons.html) fixes that; this reads the matching scoped field."""
     if feature not in VALID_FEATURES:
         raise HTTPException(status_code=404)
     form = await request.form()
-    db.set_feature_uses_master_severity(feature, form.get("enabled") == "on")
+    valid_values = UPDATE_SEVERITIES if feature == "updates" else FINDING_SEVERITIES
+    default_value = "bugfix" if feature == "updates" else "suggestion"
+    severity = form.get(f"{feature}_severity", default_value)
+    if severity not in valid_values:
+        severity = default_value
+    db.set_feature_severity(feature, severity)
     return _saved(request)
 
 
@@ -777,7 +764,12 @@ def stack_detail(request: Request, id: str):
     stack_row = db.get_stack(id)
     member_names = stacks.stack_member_names(id)
     display_name = stack_row["display_name"] if stack_row else (member_names[0] if member_names else "Unknown stack")
-    analysis_row = db.get_stack_analysis(id)
+
+    # The blurb (and the button that regenerates it) only ever make sense with the toggle on --
+    # showing a stale blurb (or a working button) while it's off would misrepresent a feature
+    # the operator has explicitly opted out of as still active.
+    deep_analysis_enabled = db.get_deep_analysis_enabled("updates")
+    analysis_row = db.get_stack_analysis(id) if deep_analysis_enabled else None
     analysis_html = None
     if analysis_row:
         emphasized_text = _emphasize_stack_mentions(analysis_row["analysis_markdown"], member_names)
@@ -798,7 +790,7 @@ def stack_detail(request: Request, id: str):
         "stack_detail.html",
         {
             "request": request, "stack_id": id, "display_name": display_name,
-            "members": members,
+            "members": members, "deep_analysis_enabled": deep_analysis_enabled,
             "analysis_html": analysis_html, "active_tab": "updates",
         },
     )

@@ -1,10 +1,15 @@
 """Resolves 'this image updated' into 'here's the human-readable changelog text'.
 
 Stage 6 of the ground-up rebuild: real release notes. Stage 8 (brought forward once Stage 7's
-AI summarization landed) adds a web search fallback, opt-in via Settings
-(db.get_release_notes_web_search_enabled) since it's the most expensive step here — a real
-AI provider call with web search/grounding tool use (see app/ai_provider.py), versus everything
-above being either free or a plain HTTP request. Priority order get_release_notes() actually uses:
+AI summarization landed) adds a web search fallback, always on — a real AI provider call with
+web search/grounding tool use (see app/ai_provider.py), versus everything above being either
+free or a plain HTTP request, but only ever reached after every cheaper option above has come up
+empty, and cached per image after the first successful lookup (see step 5) so it's never a
+repeat cost for the same image. This used to be an opt-in Settings toggle, off by default; it's
+unconditional now because the whole point of the app is real release notes, and a container
+that falls through every guess above without this step never gets any — silently defeating the
+purpose for exactly the images that need it most (ones that don't follow a guessable naming
+convention). Priority order get_release_notes() actually uses:
 1. A per-container 'releaseradar.changelog_url' label override — fetched as plain text/markdown.
 2. The cached location that worked last time for this exact image (see release_notes_cache
    in db.py) — skips straight past guessing if it still works, and falls through to full
@@ -13,11 +18,11 @@ above being either free or a plain HTTP request. Priority order get_release_note
 4. Best-effort guesses based on naming convention: ghcr.io images map directly to a GitHub
    repo; LinuxServer images follow their docker-<name>/<name> convention; a plain Docker Hub
    image's namespace is often the same as the project's GitHub username too.
-5. If enabled in Settings, asks the configured AI provider to search the web — see _web_search_release_notes()
-   below. A successful result is cached exactly like a successful guess (as "github" if the
-   discovered URL is a GitHub repo, via _extract_github_repo_from_url, so future lookups reuse
-   the cheap GitHub Releases API path instead of searching again; as a plain "url" otherwise),
-   so this expensive call only ever happens once per image, not on every check.
+5. Asks the configured AI provider to search the web — see _web_search_release_notes() below. A
+   successful result is cached exactly like a successful guess (as "github" if the discovered
+   URL is a GitHub repo, via _extract_github_repo_from_url, so future lookups reuse the cheap
+   GitHub Releases API path instead of searching again; as a plain "url" otherwise), so this
+   expensive call only ever happens once per image, not on every check.
 6. Docker Hub's repository overview page as an absolute last resort (rarely has real changelog
    content, but better than nothing to click on).
 
@@ -186,18 +191,17 @@ def get_release_notes(
             db.set_release_notes_source(image_repo, "github", owner_repo)
             return notes, url
 
-    if db.get_release_notes_web_search_enabled():
-        notes, url = _web_search_release_notes(image_repo, tag)
-        if notes:
-            # Cache as a GitHub repo (the cheap, high-quality path future lookups will use)
-            # whenever the discovered URL is actually a GitHub one; otherwise fall back to
-            # caching the plain URL, same as a changelog_url override would be re-fetched.
-            github_repo = _extract_github_repo_from_url(url) if url else None
-            if github_repo:
-                db.set_release_notes_source(image_repo, "github", github_repo)
-            elif url:
-                db.set_release_notes_source(image_repo, "url", url)
-            return notes, url
+    notes, url = _web_search_release_notes(image_repo, tag)
+    if notes:
+        # Cache as a GitHub repo (the cheap, high-quality path future lookups will use)
+        # whenever the discovered URL is actually a GitHub one; otherwise fall back to
+        # caching the plain URL, same as a changelog_url override would be re-fetched.
+        github_repo = _extract_github_repo_from_url(url) if url else None
+        if github_repo:
+            db.set_release_notes_source(image_repo, "github", github_repo)
+        elif url:
+            db.set_release_notes_source(image_repo, "url", url)
+        return notes, url
 
     # Absolute last resort: point at the Docker Hub tags page so there's at least something to
     # click, since nothing above found real notes.

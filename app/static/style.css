@@ -558,7 +558,7 @@ tr:hover .row-chevron {
 .toggle-row {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 .api-key-row {
   display: flex;
@@ -574,7 +574,7 @@ tr:hover .row-chevron {
 .toggle-with-label {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .toggle-label {
   font-size: 13px;
@@ -670,6 +670,13 @@ tr:hover .row-chevron {
   margin: 0 0 10px;
   font-size: 16px;
   font-weight: 600;
+}
+/* .meta's default 24px bottom margin reads as a large, uneven gap in these tightly-stacked
+   settings rows (a one-line description directly followed by its own control) -- scoped down
+   here rather than changed globally, since 24px is still the right amount of breathing room
+   between unrelated blocks elsewhere (detail pages, table headers, etc). */
+.settings-subsection .meta {
+  margin-bottom: 10px;
 }
 
 /* Schedule fields */

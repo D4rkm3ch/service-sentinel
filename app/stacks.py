@@ -127,6 +127,34 @@ def run_stack_analysis_pass(containers: list[dict], force: bool = False) -> None
                 logger.exception("Stack analysis pass failed for one stack")
 
 
+_MAX_NOTES_CHARS = 1000
+
+
+def _build_changed_summary(members: list[dict]) -> str:
+    """Builds the actual substance the AI reasons about — real release notes/summary text for
+    every member with a pending update, not just their bare image:tag. Passing only image:tag
+    (the original implementation) gave the model nothing concrete to reason about beyond service
+    names, so it reliably fell back to generic, useless observations true of every compose stack
+    ("yes, there is a network") rather than anything grounded in what actually changed. Members
+    without a pending update are listed by name only — the model already has their names via
+    all_service_names, and there's nothing to summarize for something that hasn't changed."""
+    lines = []
+    for m in members:
+        name = m["container_name"]
+        update = db.get_latest_update_for_container(name)
+        if update is None:
+            lines.append(f"- {name}: no pending update.")
+            continue
+        notes = (update["summary_markdown"] or update["release_notes_raw"] or "").strip()
+        if not notes:
+            lines.append(f"- {name} ({m['image_repo']}:{m['tag']}): update pending, no release notes available.")
+            continue
+        if len(notes) > _MAX_NOTES_CHARS:
+            notes = notes[:_MAX_NOTES_CHARS] + "…"
+        lines.append(f"- {name} ({m['image_repo']}:{m['tag']}) -- update pending. Release notes:\n{notes}")
+    return "\n\n".join(lines)
+
+
 def regenerate_stack_analysis(stack_id: str, members: list[dict], force: bool = False) -> None:
     """The actual cache-aware regeneration logic — for each stack with 2+ members, only calls
     the AI if the set of (member, latest known digest) pairs has actually changed since last
@@ -152,7 +180,7 @@ def regenerate_stack_analysis(stack_id: str, members: list[dict], force: bool = 
             return
 
     display_name = get_or_generate_stack_name(stack_id, service_names)
-    changed_summary = "\n".join(f"- {m['container_name']} ({m['image_repo']}:{m['tag']})" for m in members)
+    changed_summary = _build_changed_summary(members)
 
     try:
         analysis = analyze_stack_impact(display_name, service_names, changed_summary)
