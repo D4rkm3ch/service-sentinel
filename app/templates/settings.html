@@ -132,7 +132,7 @@ This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
   <div class="settings-subsection settings-subsection-first">
     {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', 'Enable notifications', "toggleAppriseField(this.checked)") }}
 
-    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated — see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for other services. Discord webhooks are entered as <code>discord://{WebhookID}/{WebhookToken}</code> — the <code>?format=markdown</code> suffix shown below is added automatically.</p>
+    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated — see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for other services.<br>Discord webhooks are entered as <code>discord://{WebhookID}/{WebhookToken}</code> — the <code>?format=markdown</code> suffix shown below is added automatically.</p>
     <div class="input-with-suffix {{ '' if notify.enabled else 'dimmed' }}" id="apprise_urls_wrapper">
       <input type="text" name="apprise_urls" id="apprise_urls_field" class="mono"
              placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}

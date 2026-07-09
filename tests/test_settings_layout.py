@@ -89,3 +89,11 @@ def test_apprise_help_text_shows_a_discord_format_example():
     text = SETTINGS_TEMPLATE.read_text()
     assert "discord://{WebhookID}/{WebhookToken}" in text
     assert "Discord webhook URLs are formatted automatically." not in text
+
+
+def test_apprise_help_text_breaks_after_the_first_sentence():
+    text = SETTINGS_TEMPLATE.read_text()
+    start = text.index("Apprise URL(s), comma-separated")
+    end = text.index("</p>", start)
+    paragraph = text[start:end]
+    assert "for other services.<br>Discord webhooks" in paragraph

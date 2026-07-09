@@ -9,10 +9,11 @@
 <section class="panel">
   <div class="subject-title-row">
     <h1 class="mono subject-heading">{{ display_name }}</h1>
-    {% if active_count %}
+    {% if top_severity %}
     <span class="badge badge-lg badge-sev-{{ top_severity }}">{{ severity_label(source, top_severity) }}</span>
-    {% else %}
-    <span class="badge badge-lg badge-silenced">Silenced only</span>
+    {% endif %}
+    {% if findings and not active_count %}
+    <span class="badge badge-lg badge-silenced">Silenced</span>
     {% endif %}
   </div>
   <p class="meta">
@@ -47,7 +48,7 @@
       <tr class="row-clickable" onclick="window.location='/findings/{{ f.id }}'">
         <td>
           <span class="truncate-cell" title="{{ f.title }}">{{ f.title }}</span>
-          {%- if f.status == 'silenced' %} <span class="badge badge-silenced">Silenced</span>{% endif %}
+          {%- if f.status == 'silenced' and active_count %} <span class="badge badge-silenced">Silenced</span>{% endif %}
         </td>
         <td>{{ f.category|capitalize }}</td>
         <td><span class="badge badge-sev-{{ f.severity }}">{{ severity_label(source, f.severity) }}</span></td>

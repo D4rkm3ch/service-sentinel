@@ -38,11 +38,7 @@
         {%- if show_silenced and issue.silenced_count %}, {{ issue.silenced_count }} silenced{% endif %}
       </td>
       <td>
-        {% if issue.active_count %}
         <span class="badge badge-sev-{{ issue.top_severity }}">{{ severity_label(source, issue.top_severity) }}</span>
-        {% else %}
-        <span class="badge badge-silenced">Silenced only</span>
-        {% endif %}
       </td>
       <td class="nowrap">{{ issue.last_seen_at[:16].replace('T', ' ') }}</td>
       <td><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>

@@ -524,10 +524,14 @@ tr:hover .row-chevron {
   font-weight: 500;
 }
 .card-status-running {
+  /* Reuses .status-badge/.status-running (same classes the feature page's own status badge
+     uses) so this reads as literally the same indicator, just scaled down for the card. */
   font-size: 11px;
-  font-style: italic;
-  color: var(--accent);
   white-space: nowrap;
+}
+.card-status-running .spinner {
+  width: 9px;
+  height: 9px;
 }
 .feature-card-headline {
   font-size: 18px;

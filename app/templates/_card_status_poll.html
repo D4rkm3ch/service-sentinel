@@ -1,0 +1,8 @@
+<span id="card-status-{{ feature }}" class="card-status-slot" hx-swap-oob="true">{% if running %}<span class="status-badge status-running card-status-running"><span class="spinner" aria-hidden="true"></span>{{ progress_text }}</span>{% endif %}</span>
+<span class="status-poller"
+      hx-get="/status/card/{{ feature }}?prev_running={{ 'true' if running else 'false' }}"
+      hx-trigger="load delay:{{ 2000 if running else 4000 }}ms"
+      hx-target="this" hx-swap="outerHTML"></span>
+{% if card %}
+{% with card = card, oob = true %}{% include "_feature_card.html" %}{% endwith %}
+{% endif %}

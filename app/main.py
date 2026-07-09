@@ -126,10 +126,16 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
         headline = f"{count} active finding{'s' if count != 1 else ''}" if count else "All clean"
         last_at = summary["last_at"]
     detail = f"Last checked {last_at[:16].replace('T', ' ')}" if last_at else "Never checked"
+    running = get_state(feature)["running"]
     return {
         "feature": feature, "title": title, "enabled": enabled,
         "headline": headline, "detail": detail, "tab_url": tab_url,
-        "running": get_state(feature)["running"],
+        "running": running,
+        # Reuses the exact same live progress text the feature's own status badge shows (e.g.
+        # "Checking for updates (3/59)…" for Updates, a plain "Checking…" for Logs/Compose,
+        # which don't report granular progress) -- the Overview card's indicator is meant to
+        # read identically to the real thing, not a simplified stand-in.
+        "progress_text": _progress_text(get_progress(feature)) if running else "",
     }
 
 
@@ -169,10 +175,11 @@ def feature_card_status(request: Request, feature: str, prev_running: bool = Fal
     if feature not in _CARD_TITLES:
         raise HTTPException(status_code=404)
     running = get_state(feature)["running"]
+    progress_text = _progress_text(get_progress(feature)) if running else ""
     card = _build_card(feature, _CARD_TITLES[feature], _CARD_TAB_URLS[feature]) if prev_running and not running else None
     return templates.TemplateResponse(
-        "_card_status.html",
-        {"request": request, "feature": feature, "running": running, "card": card},
+        "_card_status_poll.html",
+        {"request": request, "feature": feature, "running": running, "progress_text": progress_text, "card": card},
     )
 
 
@@ -326,7 +333,7 @@ def logs_status_poll(request: Request, prev_running: bool = False):
 
 
 @app.get("/logs/partial/issues")
-def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str = "lastseen", dir: str = "desc"):
+def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str = "severity", dir: str = "asc"):
     issues = _sort_issue_rows(db.list_subjects_with_findings("logs", include_silenced=show_silenced), sort, dir)
     return templates.TemplateResponse(
         "_issues_grouped_table.html",
@@ -338,7 +345,7 @@ def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str
 
 
 @app.get("/logs/partial/containers")
-def logs_partial_containers(request: Request, csort: str = "container", cdir: str = "asc"):
+def logs_partial_containers(request: Request, csort: str = "status", cdir: str = "asc"):
     items = _sort_status_list_rows(db.all_log_watch_states_with_status(), csort, cdir)
     return templates.TemplateResponse(
         "_status_list_table.html",
@@ -363,7 +370,7 @@ def compose_status_poll(request: Request, prev_running: bool = False):
 
 
 @app.get("/compose/partial/issues")
-def compose_partial_issues(request: Request, show_silenced: bool = False, sort: str = "lastseen", dir: str = "desc"):
+def compose_partial_issues(request: Request, show_silenced: bool = False, sort: str = "severity", dir: str = "asc"):
     issues = db.list_subjects_with_findings("compose", include_silenced=show_silenced)
     for issue in issues:
         issue["display_name"] = compose_lookup.subject_display_name("compose", issue["subject"])
@@ -378,7 +385,7 @@ def compose_partial_issues(request: Request, show_silenced: bool = False, sort: 
 
 
 @app.get("/compose/partial/files")
-def compose_partial_files(request: Request, csort: str = "container", cdir: str = "asc"):
+def compose_partial_files(request: Request, csort: str = "status", cdir: str = "asc"):
     items = db.all_compose_file_states_with_status()
     for item in items:
         item["display_name"] = compose_lookup.subject_display_name("compose", item["name"])
@@ -546,14 +553,17 @@ def _sort_status_list_rows(rows: list[dict], sort: str, direction: str) -> list[
 
 def _findings_summary(findings: list[dict]) -> dict:
     """Aggregate stats for a subject's finding list -- active/silenced counts and the most
-    severe active finding's severity -- used to render subject_findings.html's title-row
-    badges the same way detail.html's severity + Read/Unread badges summarize a single
-    update. Silenced findings never contribute to top_severity: a subject with only silenced
-    findings should read as "nothing currently active", matching _issues_grouped_table.html's
-    "Silenced only" badge for the same case."""
+    severe finding's severity -- used to render subject_findings.html's title-row badges the
+    same way detail.html's severity + Read/Unread badges summarize a single update.
+    top_severity prefers active findings, but falls back to ALL findings (silenced included)
+    when nothing's active -- a container that was critical and then got silenced should still
+    read as critical, not lose its classification just because it's quiet now (matching
+    _issues_grouped_table.html's top_severity, which is computed the same way at the SQL
+    level -- see list_subjects_with_findings)."""
     active = [f for f in findings if f["status"] == "active"]
+    severity_pool = active or findings
     top_severity = min(
-        (f["severity"] for f in active), key=lambda s: _ISSUE_SEVERITY_RANK.get(s, 99), default=None
+        (f["severity"] for f in severity_pool), key=lambda s: _ISSUE_SEVERITY_RANK.get(s, 99), default=None
     )
     return {
         "active_count": len(active),
@@ -1042,7 +1052,7 @@ def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
 
 @app.get("/logs")
 def logs_page(request: Request, show_silenced: bool = False,
-              sort: str = "lastseen", dir: str = "desc", csort: str = "container", cdir: str = "asc"):
+              sort: str = "severity", dir: str = "asc", csort: str = "status", cdir: str = "asc"):
     issues = _sort_issue_rows(db.list_subjects_with_findings("logs", include_silenced=show_silenced), sort, dir)
     containers = _sort_status_list_rows(db.all_log_watch_states_with_status(), csort, cdir)
     return templates.TemplateResponse(
@@ -1080,7 +1090,7 @@ def logs_container_detail(request: Request, container_name: str, show_silenced: 
 
 @app.get("/compose")
 def compose_page(request: Request, show_silenced: bool = False,
-                  sort: str = "lastseen", dir: str = "desc", csort: str = "container", cdir: str = "asc"):
+                  sort: str = "severity", dir: str = "asc", csort: str = "status", cdir: str = "asc"):
     issues = db.list_subjects_with_findings("compose", include_silenced=show_silenced)
     for issue in issues:
         issue["display_name"] = compose_lookup.subject_display_name("compose", issue["subject"])

@@ -3,7 +3,7 @@
   <div class="feature-card-header">
     <span class="feature-card-title-group">
       <span class="feature-card-title">{{ card.title }}</span>
-      {% with feature = card.feature, running = card.running %}
+      {% with feature = card.feature, running = card.running, progress_text = card.progress_text %}
       {% with card = none %}{% include "_card_status.html" %}{% endwith %}
       {% endwith %}
     </span>
