@@ -1,0 +1,18 @@
+<span id="finding-read-toggle-btn">
+{% if finding.read_status == 'unread' %}
+<button type="button" hx-post="/findings/{{ finding.id }}/read" hx-target="#finding-read-toggle-btn" hx-swap="outerHTML">
+  Mark as Read
+</button>
+{% else %}
+<button type="button" hx-post="/findings/{{ finding.id }}/unread" hx-target="#finding-read-toggle-btn" hx-swap="outerHTML">
+  Mark as Unread
+</button>
+{% endif %}
+</span>
+<span id="finding-read-status-badge" hx-swap-oob="true">
+{% if finding.read_status == 'unread' %}
+<span class="badge badge-lg badge-unread">Unread</span>
+{% else %}
+<span class="badge badge-lg badge-read">Read</span>
+{% endif %}
+</span>

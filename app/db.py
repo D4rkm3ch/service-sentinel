@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS findings (
     suggested_fix TEXT,                 -- only populated when Deep Analysis is on for this source
     occurrence_count INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'active',  -- active or silenced
+    read_status TEXT NOT NULL DEFAULT 'unread',  -- unread or read -- independent of active/silenced
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     UNIQUE(source, fingerprint)
@@ -155,6 +156,13 @@ def init_db() -> None:
         # Same pattern for the findings table's suggested_fix column (Deep Analysis feature).
         try:
             conn.execute("ALTER TABLE findings ADD COLUMN suggested_fix TEXT")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+        # Same pattern for the findings table's read_status column (per-finding Read/Unread,
+        # mirroring the updates table's own status column).
+        try:
+            conn.execute("ALTER TABLE findings ADD COLUMN read_status TEXT NOT NULL DEFAULT 'unread'")
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
@@ -783,6 +791,13 @@ def set_finding_status(finding_id: int, status: str) -> None:
         conn.execute("UPDATE findings SET status = ? WHERE id = ?", (status, finding_id))
 
 
+def set_finding_read_status(finding_id: int, read_status: str) -> None:
+    """Independent of set_finding_status (active/silenced) -- a finding's read/unread state,
+    mirroring db.mark_update_status for the updates table."""
+    with get_conn() as conn:
+        conn.execute("UPDATE findings SET read_status = ? WHERE id = ?", (read_status, finding_id))
+
+
 def findings_health_summary(source: str) -> dict:
     with get_conn() as conn:
         cur = conn.execute(
@@ -826,7 +841,8 @@ def list_subjects_with_findings(source: str, include_silenced: bool = False) -> 
                    SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical_count,
                    SUM(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END) AS warning_count,
                    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_count,
-                   SUM(CASE WHEN status = 'silenced' THEN 1 ELSE 0 END) AS silenced_count
+                   SUM(CASE WHEN status = 'silenced' THEN 1 ELSE 0 END) AS silenced_count,
+                   SUM(CASE WHEN status = 'active' AND read_status = 'unread' THEN 1 ELSE 0 END) AS unread_count
             FROM findings
             WHERE source = ? {status_filter}
             GROUP BY subject

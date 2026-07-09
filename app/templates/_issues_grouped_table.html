@@ -8,10 +8,11 @@
 {% if issues %}
 <table class="findings-table">
   <colgroup>
-    <col style="width: 30%">
+    <col style="width: 26%">
+    <col style="width: 16%">
+    <col style="width: 16%">
     <col style="width: 18%">
-    <col style="width: 18%">
-    <col style="width: 22%">
+    <col style="width: 12%">
     <col style="width: 4%">
   </colgroup>
   <thead>
@@ -20,6 +21,7 @@
       <th>{{ sh.sort_link('Findings', 'findings', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th>{{ sh.sort_link('Severity', 'severity', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th>{{ sh.sort_link('Last seen', 'lastseen', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th>{{ sh.sort_link('Read', 'unread', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th></th>
     </tr>
   </thead>
@@ -41,6 +43,15 @@
         <span class="badge badge-sev-{{ issue.top_severity }}">{{ severity_label(source, issue.top_severity) }}</span>
       </td>
       <td class="nowrap">{{ issue.last_seen_at[:16].replace('T', ' ') }}</td>
+      <td>
+        {% if issue.unread_count %}
+        <span class="badge badge-unread">Unread</span>
+        {% elif issue.active_count %}
+        <span class="badge badge-read">Read</span>
+        {% else %}
+        <span class="meta">—</span>
+        {% endif %}
+      </td>
       <td><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
     </tr>
     {% endfor %}

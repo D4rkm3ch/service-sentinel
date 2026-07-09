@@ -51,6 +51,17 @@ def stack_member_names(stack_id: str) -> list[str]:
     )
 
 
+def stack_member_names_for_logs(stack_id: str) -> list[str]:
+    """Logs' equivalent of stack_member_names -- every container the log watcher has ever
+    checked (db.all_log_watch_states_with_status, keyed "name" rather than Updates'
+    "container_name") that belongs to this compose stack, alphabetical."""
+    index = compose_lookup.build_stack_index()
+    return sorted(
+        row["name"] for row in db.all_log_watch_states_with_status()
+        if (match := compose_lookup.match_container_to_stack(row["name"], index)) and match["stack_id"] == stack_id
+    )
+
+
 def members_for_analysis(stack_id: str) -> list[dict]:
     """Builds the same check-outcome-shaped member dicts regenerate_stack_analysis() expects
     (container_name, image_repo, tag, current_digest, latest_digest), from whatever's currently

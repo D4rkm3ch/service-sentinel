@@ -346,12 +346,14 @@ def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str
 @app.get("/logs/partial/containers")
 def logs_partial_containers(request: Request, csort: str = "status", cdir: str = "asc"):
     items = _sort_status_list_rows(db.all_log_watch_states_with_status(), csort, cdir)
+    items = _attach_stack_info(items, "name")
     return templates.TemplateResponse(
         "_status_list_table.html",
         {
             "request": request, "items": items, "detail_base": "/logs/container",
             "csort": csort, "cdir": cdir, "partial_url": "/logs/partial/containers",
             "target_id": "logs-containers-table", "base_url": "/logs", "is_partial": True,
+            "show_stack_column": True,
         },
     )
 
@@ -535,6 +537,8 @@ def _sort_issue_rows(rows: list[dict], sort: str, direction: str) -> list[dict]:
         return sorted(rows, key=lambda r: _ISSUE_SEVERITY_RANK.get(r.get("top_severity"), 99), reverse=reverse)
     if sort == "lastseen":
         return sorted(rows, key=lambda r: r.get("last_seen_at") or "", reverse=reverse)
+    if sort == "unread":
+        return sorted(rows, key=lambda r: r.get("unread_count") or 0, reverse=reverse)
     return sorted(rows, key=name_key, reverse=reverse)
 
 
@@ -567,6 +571,7 @@ def _findings_summary(findings: list[dict]) -> dict:
     return {
         "active_count": len(active),
         "silenced_count": len(findings) - len(active),
+        "unread_count": sum(1 for f in active if f["read_status"] == "unread"),
         "top_severity": top_severity,
     }
 
@@ -946,6 +951,18 @@ def stack_detail(request: Request, id: str):
     )
 
 
+def _stack_return_url(form, stack_id: str) -> str:
+    """A stack's identity (and its name) is shared across whichever feature is looking at it
+    (see stacks.py -- stack_id is just the compose file's own path), so the same rename/reset-
+    name routes serve the Updates stack page and the Logs stack page alike. return_to says
+    which one to bounce back to -- checked against an allowlist of the two real prefixes rather
+    than trusted outright, since it's attacker-influenceable form data."""
+    return_to = form.get("return_to", "")
+    if return_to.startswith("/logs/stack?id="):
+        return f"/logs/stack?id={quote(stack_id)}"
+    return f"/updates/stack?id={quote(stack_id)}"
+
+
 @app.post("/updates/stack/rename")
 async def rename_stack_route(request: Request):
     form = await request.form()
@@ -953,7 +970,7 @@ async def rename_stack_route(request: Request):
     name = (form.get("name") or "").strip()
     if stack_id and name:
         stacks.rename_stack(stack_id, name)
-    return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
+    return RedirectResponse(url=_stack_return_url(form, stack_id), status_code=303)
 
 
 @app.post("/updates/stack/reset-name")
@@ -968,7 +985,7 @@ async def reset_stack_name_route(request: Request):
             if entry["stack_id"] == stack_id:
                 stacks.get_or_generate_stack_name(stack_id, entry["service_names"])
                 break
-    return RedirectResponse(url=f"/updates/stack?id={quote(stack_id)}", status_code=303)
+    return RedirectResponse(url=_stack_return_url(form, stack_id), status_code=303)
 
 
 @app.post("/updates/stack/retry")
@@ -1054,6 +1071,7 @@ def logs_page(request: Request, show_silenced: bool = False,
               sort: str = "severity", dir: str = "asc", csort: str = "status", cdir: str = "asc"):
     issues = _sort_issue_rows(db.list_subjects_with_findings("logs", include_silenced=show_silenced), sort, dir)
     containers = _sort_status_list_rows(db.all_log_watch_states_with_status(), csort, cdir)
+    containers = _attach_stack_info(containers, "name")
     return templates.TemplateResponse(
         "logs.html",
         {
@@ -1085,6 +1103,35 @@ def logs_container_detail(request: Request, container_name: str):
             "back_url": "/logs", "overview_html": overview_html, "source": "logs",
             **_findings_summary(findings),
             "active_tab": "logs",
+        },
+    )
+
+
+@app.get("/logs/stack")
+def logs_stack_detail(request: Request, id: str):
+    """Logs' equivalent of /updates/stack -- groups every log-watched container belonging to
+    the same compose stack onto one page, each row summarized the same way a row in the Issues
+    table is (top severity, active/silenced counts, an aggregate unread indicator). Stack
+    identity/naming is shared with Updates (see stacks.py), so a name set from either page
+    shows on both."""
+    stack_row = db.get_stack(id)
+    member_names = stacks.stack_member_names_for_logs(id)
+    display_name = stack_row["display_name"] if stack_row else (member_names[0] if member_names else "Unknown stack")
+
+    members = []
+    for name in member_names:
+        findings = db.list_findings_for_subject("logs", name, include_silenced=True)
+        members.append({
+            "container_name": name,
+            "last_checked_at": db.get_log_watch_checkpoint(name),
+            **_findings_summary(findings),
+        })
+
+    return templates.TemplateResponse(
+        "logs_stack_detail.html",
+        {
+            "request": request, "stack_id": id, "display_name": display_name,
+            "members": members, "active_tab": "logs",
         },
     )
 
@@ -1358,6 +1405,14 @@ def finding_detail(request: Request, finding_id: int):
     finding = db.get_finding(finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
+
+    # Auto-mark-as-read: viewing this page counts as "seen it" -- same unconditional
+    # server-side behavior as update_detail's own auto-mark (see that route's docstring for
+    # why this beats a client-side pagehide/visibilitychange signal).
+    if finding["read_status"] == "unread":
+        db.set_finding_read_status(finding_id, "read")
+        finding = db.get_finding(finding_id)
+
     description_html = render_markdown(finding["description_markdown"] or "")
     suggested_fix_html = render_markdown(finding["suggested_fix"]) if finding["suggested_fix"] else None
     display_name = compose_lookup.subject_display_name(finding["source"], finding["subject"])
@@ -1369,6 +1424,33 @@ def finding_detail(request: Request, finding_id: int):
             "display_name": display_name, "active_tab": finding["source"],
         },
     )
+
+
+def _finding_read_toggle_response(request: Request, finding_id: int):
+    """Shared by mark_finding_read/mark_finding_unread -- same in-place-toggle pattern as
+    _read_toggle_response for Updates' Mark as Read/Unread."""
+    finding = db.get_finding(finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    return templates.TemplateResponse("_finding_read_toggle.html", {"request": request, "finding": finding})
+
+
+@app.post("/findings/{finding_id}/read")
+def mark_finding_read(request: Request, finding_id: int):
+    finding = db.get_finding(finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    db.set_finding_read_status(finding_id, "read")
+    return _finding_read_toggle_response(request, finding_id)
+
+
+@app.post("/findings/{finding_id}/unread")
+def mark_finding_unread(request: Request, finding_id: int):
+    finding = db.get_finding(finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    db.set_finding_read_status(finding_id, "unread")
+    return _finding_read_toggle_response(request, finding_id)
 
 
 def _silence_toggle_response(request: Request, finding_id: int):

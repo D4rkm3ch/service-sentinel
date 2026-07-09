@@ -16,7 +16,8 @@
 <section class="panel">
   <h1>All containers <span class="heading-count" id="logs-containers-table-count-badge">({{ containers|length }})</span></h1>
   {% with items = containers, detail_base = "/logs/container", use_query_param = false,
-          partial_url = "/logs/partial/containers", target_id = "logs-containers-table", base_url = "/logs" %}
+          partial_url = "/logs/partial/containers", target_id = "logs-containers-table", base_url = "/logs",
+          show_stack_column = true %}
   {% include "_status_list_table.html" %}
   {% endwith %}
 </section>

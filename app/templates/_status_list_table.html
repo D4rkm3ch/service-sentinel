@@ -5,14 +5,23 @@
 {% if items %}
 <table class="containers-table">
   <colgroup>
+    {% if show_stack_column %}
+    <col style="width: 30%">
+    <col style="width: 24%">
+    <col style="width: 22%">
+    <col style="width: 18%">
+    <col style="width: 6%">
+    {% else %}
     <col style="width: 44%">
     <col style="width: 28%">
     <col style="width: 22%">
     <col style="width: 6%">
+    {% endif %}
   </colgroup>
   <thead>
     <tr>
       <th>{{ sh.sort_link('Compose file' if use_query_param else 'Container', 'container', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
+      {% if show_stack_column %}<th>Stack</th>{% endif %}
       <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, base_url, 'desc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
       <th>{{ sh.sort_link('Status', 'status', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
       <th></th>
@@ -28,6 +37,15 @@
     {% endif %}
     <tr class="row-clickable" onclick="window.location='{{ href }}'">
       <td class="mono"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
+      {% if show_stack_column %}
+      <td>
+        {% if item.stack_name %}
+        <a href="/logs/stack?id={{ item.stack_id|urlencode }}" class="stack-cell" title="{{ item.stack_name }}" onclick="event.stopPropagation()">{{ item.stack_name }}</a>
+        {% else %}
+        <span class="meta">—</span>
+        {% endif %}
+      </td>
+      {% endif %}
       <td class="nowrap">{{ item.last_at[:16].replace('T', ' ') if item.last_at else '—' }}</td>
       <td>
         {% if item.status == 'issue' %}

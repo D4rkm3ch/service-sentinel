@@ -27,10 +27,11 @@
   {% if findings %}
   <table class="findings-table">
     <colgroup>
-      <col style="width: 40%">
-      <col style="width: 16%">
+      <col style="width: 34%">
       <col style="width: 14%">
-      <col style="width: 24%">
+      <col style="width: 12%">
+      <col style="width: 20%">
+      <col style="width: 10%">
       <col style="width: 6%">
     </colgroup>
     <thead>
@@ -39,6 +40,7 @@
         <th>Category</th>
         <th>Severity</th>
         <th>Seen</th>
+        <th>Read</th>
         <th></th>
       </tr>
     </thead>
@@ -52,6 +54,13 @@
         <td>{{ f.category|capitalize }}</td>
         <td><span class="badge badge-sev-{{ f.severity }}">{{ severity_label(source, f.severity) }}</span></td>
         <td class="nowrap">{{ f.occurrence_count }}× · last {{ f.last_seen_at[:16].replace('T', ' ') }}</td>
+        <td>
+          {% if f.read_status == 'unread' %}
+          <span class="badge badge-unread">Unread</span>
+          {% else %}
+          <span class="badge badge-read">Read</span>
+          {% endif %}
+        </td>
         <td><a href="/findings/{{ f.id }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
       </tr>
       {% endfor %}

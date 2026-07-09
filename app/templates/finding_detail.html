@@ -10,6 +10,13 @@
   <div class="subject-title-row">
     <h1 class="mono subject-heading">{{ display_name }}</h1>
     <span class="badge badge-lg badge-sev-{{ finding.severity }}">{{ severity_label(finding.source, finding.severity) }}</span>
+    <span id="finding-read-status-badge">
+      {% if finding.read_status == 'unread' %}
+      <span class="badge badge-lg badge-unread">Unread</span>
+      {% else %}
+      <span class="badge badge-lg badge-read">Read</span>
+      {% endif %}
+    </span>
     <span id="silence-status-badge">
       {% if finding.status == 'silenced' %}<span class="badge badge-lg badge-silenced">Silenced</span>{% endif %}
     </span>
@@ -22,6 +29,7 @@
   </p>
 
   <div class="action-row" style="display:flex; align-items:center; gap:10px;">
+    {% include "_finding_read_toggle.html" %}
     {% include "_silence_toggle.html" %}
   </div>
 
