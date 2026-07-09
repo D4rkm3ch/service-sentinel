@@ -88,7 +88,6 @@ TRIGGER_FUNCS = {
     "logs": trigger_log_check_now,
     "compose": trigger_compose_check_now,
 }
-FINDING_SOURCES = {"logs": "/logs", "compose": "/compose"}
 
 
 @app.on_event("startup")
@@ -1067,21 +1066,23 @@ def logs_page(request: Request, show_silenced: bool = False,
 
 
 @app.get("/logs/container/{container_name}")
-def logs_container_detail(request: Request, container_name: str, show_silenced: bool = False):
-    findings = db.list_findings_for_subject("logs", container_name, include_silenced=show_silenced)
+def logs_container_detail(request: Request, container_name: str):
+    # Always shows every finding for this container, active and silenced alike -- unlike the
+    # Issues table (where hiding silenced rows keeps the list focused on what's actionable),
+    # once you've drilled into one specific container there's no reason to hide part of its
+    # own history, so the show/hide silenced toggle that used to live on this page is gone.
+    findings = db.list_findings_for_subject("logs", container_name, include_silenced=True)
 
-    if not show_silenced and len(findings) == 1:
+    if len(findings) == 1:
         return RedirectResponse(url=f"/findings/{findings[0]['id']}", status_code=303)
 
     overview = _get_or_build_overview("logs", container_name, container_name, findings)
     overview_html = render_markdown(overview) if overview else None
-    toggle_url = f"/logs/container/{quote(container_name)}?{urlencode({'show_silenced': 0 if show_silenced else 1})}"
     return templates.TemplateResponse(
         "subject_findings.html",
         {
             "request": request, "findings": findings, "display_name": container_name,
-            "back_url": "/logs", "show_silenced": show_silenced, "overview_html": overview_html,
-            "toggle_url": toggle_url, "source": "logs",
+            "back_url": "/logs", "overview_html": overview_html, "source": "logs",
             **_findings_summary(findings),
             "active_tab": "logs",
         },
@@ -1111,22 +1112,21 @@ def compose_page(request: Request, show_silenced: bool = False,
 
 
 @app.get("/compose/file")
-def compose_file_detail(request: Request, path: str, show_silenced: bool = False):
-    findings = db.list_findings_for_subject("compose", path, include_silenced=show_silenced)
+def compose_file_detail(request: Request, path: str):
+    # See logs_container_detail's comment -- always shows every finding for this file.
+    findings = db.list_findings_for_subject("compose", path, include_silenced=True)
 
-    if not show_silenced and len(findings) == 1:
+    if len(findings) == 1:
         return RedirectResponse(url=f"/findings/{findings[0]['id']}", status_code=303)
 
     display_name = compose_lookup.subject_display_name("compose", path)
     overview = _get_or_build_overview("compose", path, display_name, findings)
     overview_html = render_markdown(overview) if overview else None
-    toggle_url = f"/compose/file?{urlencode({'path': path, 'show_silenced': 0 if show_silenced else 1})}"
     return templates.TemplateResponse(
         "subject_findings.html",
         {
             "request": request, "findings": findings, "display_name": display_name,
-            "back_url": "/compose", "show_silenced": show_silenced, "overview_html": overview_html,
-            "toggle_url": toggle_url, "source": "compose",
+            "back_url": "/compose", "overview_html": overview_html, "source": "compose",
             **_findings_summary(findings),
             "active_tab": "compose",
         },
@@ -1371,19 +1371,30 @@ def finding_detail(request: Request, finding_id: int):
     )
 
 
+def _silence_toggle_response(request: Request, finding_id: int):
+    """Shared by silence_finding/unsilence_finding: both just flip the status column then
+    re-render the same fragment (the button and the title-row badge, the latter via an
+    out-of-band swap) -- same in-place-toggle pattern as _read_toggle_response for Updates'
+    Mark as Read/Unread, rather than the old redirect-back-to-the-list behavior."""
+    finding = db.get_finding(finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    return templates.TemplateResponse("_silence_toggle.html", {"request": request, "finding": finding})
+
+
 @app.post("/findings/{finding_id}/silence")
-def silence_finding(finding_id: int):
+def silence_finding(request: Request, finding_id: int):
     finding = db.get_finding(finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
     db.set_finding_status(finding_id, "silenced")
-    return RedirectResponse(url=FINDING_SOURCES.get(finding["source"], "/"), status_code=303)
+    return _silence_toggle_response(request, finding_id)
 
 
 @app.post("/findings/{finding_id}/unsilence")
-def unsilence_finding(finding_id: int):
+def unsilence_finding(request: Request, finding_id: int):
     finding = db.get_finding(finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
     db.set_finding_status(finding_id, "active")
-    return RedirectResponse(url=FINDING_SOURCES.get(finding["source"], "/"), status_code=303)
+    return _silence_toggle_response(request, finding_id)

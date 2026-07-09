@@ -44,6 +44,6 @@ def test_finding_detail_page_uses_panel_and_action_row(client):
     assert '<section class="panel">' in resp.text
     assert '<div class="subject-title-row">' in resp.text
     assert '<div class="back-link-row">' in resp.text
-    assert 'action="/findings/{}/silence"'.format(finding["id"]) in resp.text
+    assert 'hx-post="/findings/{}/silence"'.format(finding["id"]) in resp.text
 
     db.set_finding_status(fid, "silenced")

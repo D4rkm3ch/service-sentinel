@@ -30,13 +30,21 @@ def clean_state(client):
     same id on a scheduler that was never started, an artifact that never happens in
     production (the scheduler is always running there) but reliably breaks apply_schedules()
     tests that call it more than once per test file otherwise."""
+    # Logs/Compose are explicitly disabled too: 2+ enabled features sharing the master schedule
+    # now get grouped into one combined sequential job (see scheduler.py's apply_schedules),
+    # which would hide "updates" own periodic_updates_check job id that these tests assert on
+    # directly (all test files share one physical SQLite database -- see conftest.py).
     check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
     db.reset_updates_data()
     db.set_feature_enabled("updates", True)
+    db.set_feature_enabled("logs", False)
+    db.set_feature_enabled("compose", False)
     yield
     check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
     db.reset_updates_data()
     db.set_feature_enabled("updates", True)
+    db.set_feature_enabled("logs", False)
+    db.set_feature_enabled("compose", False)
 
 
 @pytest.fixture(autouse=True)

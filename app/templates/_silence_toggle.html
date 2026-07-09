@@ -1,0 +1,14 @@
+<span id="silence-toggle-btn">
+{% if finding.status == 'active' %}
+<button type="button" hx-post="/findings/{{ finding.id }}/silence" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
+  Silence
+</button>
+{% else %}
+<button type="button" hx-post="/findings/{{ finding.id }}/unsilence" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
+  Unsilence
+</button>
+{% endif %}
+</span>
+<span id="silence-status-badge" hx-swap-oob="true">
+{% if finding.status == 'silenced' %}<span class="badge badge-lg badge-silenced">Silenced</span>{% endif %}
+</span>

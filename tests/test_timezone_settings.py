@@ -34,10 +34,17 @@ def clean_timezone():
 def updates_feature_enabled():
     """apply_schedules() only registers a feature's periodic job when its toggle is on (see
     scheduler.py) -- these tests are about timezone re-application, not that gate, so keep
-    "updates" enabled regardless of what other test files leave it as."""
+    "updates" enabled regardless of what other test files leave it as. Logs/Compose are
+    explicitly disabled too: 2+ enabled features sharing the master schedule now get grouped
+    into one combined sequential job (see scheduler.py's apply_schedules), which would hide
+    "updates" own periodic_updates_check job id that these tests assert on directly."""
     db.set_feature_enabled("updates", True)
+    db.set_feature_enabled("logs", False)
+    db.set_feature_enabled("compose", False)
     yield
     db.set_feature_enabled("updates", True)
+    db.set_feature_enabled("logs", False)
+    db.set_feature_enabled("compose", False)
 
 
 def test_get_timezone_defaults_to_the_env_var_seed():

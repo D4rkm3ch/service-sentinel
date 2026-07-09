@@ -10,7 +10,9 @@
   <div class="subject-title-row">
     <h1 class="mono subject-heading">{{ display_name }}</h1>
     <span class="badge badge-lg badge-sev-{{ finding.severity }}">{{ severity_label(finding.source, finding.severity) }}</span>
-    {% if finding.status == 'silenced' %}<span class="badge badge-lg badge-silenced">Silenced</span>{% endif %}
+    <span id="silence-status-badge">
+      {% if finding.status == 'silenced' %}<span class="badge badge-lg badge-silenced">Silenced</span>{% endif %}
+    </span>
   </div>
   <p class="meta">
     {{ finding.title }}
@@ -20,15 +22,7 @@
   </p>
 
   <div class="action-row" style="display:flex; align-items:center; gap:10px;">
-    {% if finding.status == 'active' %}
-    <form method="post" action="/findings/{{ finding.id }}/silence">
-      <button type="submit">Silence</button>
-    </form>
-    {% else %}
-    <form method="post" action="/findings/{{ finding.id }}/unsilence">
-      <button type="submit">Unsilence</button>
-    </form>
-    {% endif %}
+    {% include "_silence_toggle.html" %}
   </div>
 
   <div class="detail-body">

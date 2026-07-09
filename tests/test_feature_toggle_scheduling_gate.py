@@ -18,9 +18,15 @@ db.init_db()
 def clean_state(client):
     """Depends on `client` purely so the real scheduler is actually started -- see
     test_stage5_scheduler.py's clean_state fixture for why an unstarted scheduler makes
-    repeated apply_schedules() calls in the same test unreliable."""
+    repeated apply_schedules() calls in the same test unreliable.
+
+    All three start disabled here (rather than all enabled, as this file used to do) since 2+
+    enabled features sharing the master schedule now get grouped into one combined sequential
+    job (see scheduler.py's apply_schedules and test_scheduling_sequential_chain.py) -- each
+    parametrized case below enables only the one feature it's actually testing, so its solo
+    periodic_*_check job id is unambiguous."""
     for feature in ("updates", "logs", "compose"):
-        db.set_feature_enabled(feature, True)
+        db.set_feature_enabled(feature, False)
     yield
     for feature in ("updates", "logs", "compose"):
         db.set_feature_enabled(feature, True)
@@ -33,6 +39,7 @@ def clean_state(client):
     ("compose", "periodic_compose_check"),
 ])
 def test_disabling_any_feature_removes_its_periodic_job(feature, job_id):
+    db.set_feature_enabled(feature, True)
     scheduler.apply_schedules()
     assert scheduler._scheduler.get_job(job_id) is not None
 

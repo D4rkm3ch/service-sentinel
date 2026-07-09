@@ -27,9 +27,9 @@
     {% for issue in issues %}
     {% set name = issue.display_name if issue.display_name is defined else issue.subject %}
     {% if source == 'logs' %}
-    {% set href = '/logs/container/' ~ issue.subject ~ ('?show_silenced=1' if show_silenced else '') %}
+    {% set href = '/logs/container/' ~ issue.subject %}
     {% else %}
-    {% set href = '/compose/file?path=' ~ (issue.subject|urlencode) ~ ('&show_silenced=1' if show_silenced else '') %}
+    {% set href = '/compose/file?path=' ~ (issue.subject|urlencode) %}
     {% endif %}
     <tr class="row-clickable" onclick="window.location='{{ href }}'">
       <td class="mono"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>

@@ -1,3 +1,4 @@
+import functools
 import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -43,6 +44,23 @@ _JOBS = {
     "compose": (run_compose_check, "periodic_compose_check"),
 }
 
+# Fixed order features run in when 2+ of them share the master/general schedule and would
+# otherwise all fire at the exact same instant -- an explicit ask to run sequentially rather
+# than compete for CPU/network/AI-rate-limits at once. Matches the nav tab order.
+_FEATURE_ORDER = ("updates", "logs", "compose")
+
+_MASTER_CHAIN_JOB_ID = "periodic_master_schedule_chain"
+
+
+def _run_chain(funcs) -> None:
+    """Runs each feature's scheduled job body one after another rather than concurrently --
+    each of run_updates_check/run_log_check/run_compose_check already runs synchronously to
+    completion on whatever thread calls it (see run_updates_check's own docstring), so simply
+    calling them in sequence here, within one APScheduler job, is sufficient: the next one
+    can't start until the previous one has actually returned, not just started."""
+    for func in funcs:
+        func()
+
 
 def apply_schedules() -> None:
     """(Re)schedules the periodic jobs using whatever the database currently says each
@@ -60,18 +78,58 @@ def apply_schedules() -> None:
     lock the whole feature, but for logs/compose the check functions used to gate themselves
     too, silently breaking their own Check now button; updates never gated itself at all, so
     its toggle did nothing whatsoever). Also called by /settings/toggle/{feature} so flipping
-    it takes effect immediately rather than on next restart."""
+    it takes effect immediately rather than on next restart.
+
+    Two or more enabled features that both follow the master/general schedule (rather than
+    their own custom override) fire at the exact same trigger time -- left as independent
+    APScheduler jobs, they'd run concurrently and compete for the same resources (registry
+    lookups, AI calls). Instead they're grouped into one combined job (_run_chain, in
+    _FEATURE_ORDER) that runs them one after another, and their individual per-feature job ids
+    are removed so nothing double-fires. A single feature on the master schedule (the other two
+    disabled or on their own override) has nothing to sequence against, so it keeps its own
+    ordinary individual job exactly as before -- grouping only ever kicks in with 2+ of them."""
     tz = db.get_timezone()
-    for feature, (func, job_id) in _JOBS.items():
+    master_group = []
+
+    for feature in _FEATURE_ORDER:
+        func, job_id = _JOBS[feature]
         if not db.get_feature_enabled(feature):
             if _scheduler.get_job(job_id):
                 _scheduler.remove_job(job_id)
             logger.info("Schedule removed for %s: feature is disabled", feature)
             continue
+        if db.get_feature_uses_master_schedule(feature):
+            master_group.append(feature)
+            continue
+        if _scheduler.get_job(job_id):
+            _scheduler.remove_job(job_id)
         spec = db.get_effective_schedule(feature)
         trigger = build_trigger(spec, tz=tz)
         _scheduler.add_job(func, trigger=trigger, id=job_id, replace_existing=True)
         logger.info("Schedule applied for %s: %s (tz=%s)", feature, spec, tz)
+
+    if len(master_group) >= 2:
+        for feature in master_group:
+            _, job_id = _JOBS[feature]
+            if _scheduler.get_job(job_id):
+                _scheduler.remove_job(job_id)
+        spec = db.get_master_schedule()
+        trigger = build_trigger(spec, tz=tz)
+        funcs = [_JOBS[feature][0] for feature in master_group]
+        _scheduler.add_job(
+            functools.partial(_run_chain, funcs), trigger=trigger,
+            id=_MASTER_CHAIN_JOB_ID, replace_existing=True,
+        )
+        logger.info("Schedule applied for %s (sequential): %s (tz=%s)", ", ".join(master_group), spec, tz)
+    else:
+        if _scheduler.get_job(_MASTER_CHAIN_JOB_ID):
+            _scheduler.remove_job(_MASTER_CHAIN_JOB_ID)
+        for feature in master_group:
+            func, job_id = _JOBS[feature]
+            spec = db.get_master_schedule()
+            trigger = build_trigger(spec, tz=tz)
+            _scheduler.add_job(func, trigger=trigger, id=job_id, replace_existing=True)
+            logger.info("Schedule applied for %s: %s (tz=%s)", feature, spec, tz)
 
 
 def start_scheduler() -> None:

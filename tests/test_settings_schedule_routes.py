@@ -17,10 +17,17 @@ def updates_feature_enabled():
     """apply_schedules() only registers a feature's periodic job when its toggle is on (see
     scheduler.py) -- these tests are about the schedule picker itself, not that gate, so keep
     "updates" enabled regardless of what other test files leave it as (all test files share one
-    physical SQLite database -- see conftest.py)."""
+    physical SQLite database -- see conftest.py). Logs/Compose are explicitly disabled too: 2+
+    enabled features sharing the master schedule now get grouped into one combined sequential
+    job (see scheduler.py's apply_schedules), which would hide "updates" own periodic_updates_
+    check job id that these tests assert on directly."""
     db.set_feature_enabled("updates", True)
+    db.set_feature_enabled("logs", False)
+    db.set_feature_enabled("compose", False)
     yield
     db.set_feature_enabled("updates", True)
+    db.set_feature_enabled("logs", False)
+    db.set_feature_enabled("compose", False)
 
 
 def test_settings_page_has_no_raw_javascript_leaking_as_text(client):
