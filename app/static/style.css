@@ -229,8 +229,11 @@ a {
   font-weight: 500;
   white-space: nowrap;
 }
-.badge-unread { background: rgba(94, 201, 166, 0.15); color: var(--accent); }
-.badge-read { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }
+/* Matches the violet Mark as Read/Unread buttons (--violet, see .button-info) -- Unread gets
+   the full-strength color, Read stays a faint tint of the same hue so the pair still reads as
+   one toggle family rather than two unrelated colors. */
+.badge-unread { background: rgba(155, 132, 217, 0.18); color: var(--violet); }
+.badge-read { background: rgba(155, 132, 217, 0.08); color: var(--text-dim); }
 .badge-error { background: rgba(217, 112, 94, 0.15); color: var(--error); }
 .badge-lg {
   padding: 4px 12px;
@@ -346,16 +349,20 @@ a {
   color: var(--accent);
 }
 
+/* Unfilled outline by default, filled solid on hover -- same shape as .button-danger/.button-
+   warn/.button-silence/.button-info below, so every button in the app (Check now included)
+   reads as one consistent family instead of Check now being the odd one out as the only
+   pre-filled button. */
 button {
-  background: var(--accent-dim);
-  color: #eafaf3;
-  border: none;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
   border-radius: 6px;
   padding: 7px 14px;
   font-size: 13px;
   cursor: pointer;
 }
-button:hover { background: var(--accent); color: #0e1210; }
+button:hover { background: var(--accent); color: #0e1210; border-color: var(--accent); }
 button:disabled, button:disabled:hover {
   /* Dim in place only -- deliberately doesn't set background/color, since those would
      override .button-danger's red transparent look with the plain button's green fill
@@ -649,7 +656,8 @@ tr:hover .row-chevron {
 .badge-sev-feature { background: rgba(94, 201, 166, 0.15); color: var(--accent); }
 .badge-sev-action_needed { background: rgba(217, 164, 65, 0.15); color: var(--warn); }
 .badge-sev-breaking { background: rgba(217, 112, 94, 0.15); color: var(--error); }
-.badge-silenced { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }
+/* Matches the blue Silence/Unsilence buttons (--info, see .button-silence). */
+.badge-silenced { background: rgba(91, 147, 217, 0.15); color: var(--info); }
 .badge-healthy { background: rgba(94, 201, 166, 0.12); color: var(--accent); }
 
 /* Severity segmented buttons — replaces the old dropdown */

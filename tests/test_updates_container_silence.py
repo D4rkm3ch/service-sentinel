@@ -71,7 +71,8 @@ def test_tracked_containers_table_has_a_dedicated_silenced_column(client):
     _seed_container_with_update("silence-test-column")
 
     resp = client.get("/updates")
-    assert "<th>Silenced</th>" in resp.text
+    assert "sort-link" in resp.text and "Silenced" in resp.text
+    assert "csort=silenced" in resp.text
     tracked_section = resp.text[resp.text.index("Tracked containers"):]
     row = tracked_section[tracked_section.index("silence-test-column"):]
     row = row[:row.index("</tr>")]

@@ -850,25 +850,36 @@ def list_findings_for_subject(source: str, subject: str, include_silenced: bool 
 
 
 def list_subjects_with_findings(source: str, include_silenced: bool = False) -> list[dict]:
-    """One row per subject (container or compose file) that has at least one finding, with
-    aggregate counts and the highest severity present — used for the grouped 'Issues' list
-    at the top of the Logs/Compose tabs, so you see one line per container rather than one
-    line per individual finding."""
-    status_filter = "" if include_silenced else "AND status = 'active'"
+    """One row per subject (container or compose file) with aggregate counts and the highest
+    severity present — used for the grouped 'Issues' list at the top of the Logs/Compose tabs,
+    so you see one line per container rather than one line per individual finding.
+
+    include_silenced is a swap, not an additive reveal: False (default) shows only subjects
+    with at least one active finding -- something is currently actionable, regardless of
+    whether it also has older silenced ones sitting alongside it. True shows exclusively
+    subjects that have findings but NONE of them are active anymore (fully silenced) --
+    a genuinely different list, not a superset. Severity is computed from whichever set of
+    findings is actually being shown (active_* columns for the default view, silenced_* for
+    the include_silenced view) so a subject's badge never reflects findings the row isn't
+    counting toward it."""
+    having = "active_count = 0 AND silenced_count > 0" if include_silenced else "active_count > 0"
     with get_conn() as conn:
         cur = conn.execute(
             f"""
             SELECT subject,
                    COUNT(*) AS finding_count,
                    MAX(last_seen_at) AS last_seen_at,
-                   SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical_count,
-                   SUM(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END) AS warning_count,
+                   SUM(CASE WHEN status = 'active' AND severity = 'critical' THEN 1 ELSE 0 END) AS active_critical_count,
+                   SUM(CASE WHEN status = 'active' AND severity = 'warning' THEN 1 ELSE 0 END) AS active_warning_count,
+                   SUM(CASE WHEN status = 'silenced' AND severity = 'critical' THEN 1 ELSE 0 END) AS silenced_critical_count,
+                   SUM(CASE WHEN status = 'silenced' AND severity = 'warning' THEN 1 ELSE 0 END) AS silenced_warning_count,
                    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_count,
                    SUM(CASE WHEN status = 'silenced' THEN 1 ELSE 0 END) AS silenced_count,
                    SUM(CASE WHEN status = 'active' AND read_status = 'unread' THEN 1 ELSE 0 END) AS unread_count
             FROM findings
-            WHERE source = ? {status_filter}
+            WHERE source = ?
             GROUP BY subject
+            HAVING {having}
             ORDER BY last_seen_at DESC
             """,
             (source,),
@@ -876,9 +887,11 @@ def list_subjects_with_findings(source: str, include_silenced: bool = False) -> 
         rows = []
         for r in cur.fetchall():
             row = dict(r)
-            if row["critical_count"]:
+            critical = row["silenced_critical_count"] if include_silenced else row["active_critical_count"]
+            warning = row["silenced_warning_count"] if include_silenced else row["active_warning_count"]
+            if critical:
                 row["top_severity"] = "critical"
-            elif row["warning_count"]:
+            elif warning:
                 row["top_severity"] = "warning"
             else:
                 row["top_severity"] = "suggestion"

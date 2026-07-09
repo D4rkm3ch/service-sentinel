@@ -18,7 +18,7 @@
       <th>{{ sh.sort_link('Stack', 'stack', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
       <th>{{ sh.sort_link('Image', 'image', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
       <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, '/updates', 'desc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
-      <th>Silenced</th>
+      <th>{{ sh.sort_link('Silenced', 'silenced', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
     </tr>
   </thead>
   <tbody>

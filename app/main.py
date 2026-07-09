@@ -482,12 +482,13 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
     to just the ones needing attention when updates_only is set, attaches stack info to every
     row (see _attach_stack_info), and sorts by whichever column was clicked.
 
-    show_silenced only affects the Updates list (updates_only=True) -- a silenced container
-    (an EOL service that will always show a new tag, muted via db.set_container_silenced) is
-    hidden from it by default, same as a silenced finding is hidden from Logs/Compose's Issues
-    table by default. The Tracked containers list (updates_only=False) always shows every
-    container regardless, silenced or not -- same as Logs/Compose's "All containers" table
-    always shows everything; only the actionable list ever hides anything.
+    show_silenced only affects the Updates list (updates_only=True) -- it's a swap, not an
+    additive reveal: by default only non-silenced (actionable) containers show, and toggling on
+    shows ONLY silenced ones, exactly like Logs/Compose's Issues table (see
+    db.list_subjects_with_findings's include_silenced). The Tracked containers list
+    (updates_only=False) always shows every container regardless, silenced or not -- same as
+    Logs/Compose's "All containers" table always shows everything; only the actionable list
+    ever filters anything.
 
     Importance is the odd one out: unclassified rows (errors, or anything AI summarization
     hasn't reached) are pinned to the very top regardless of direction -- they might be
@@ -497,8 +498,8 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
     investigate there, so they sort alongside real severities (below even bugfix) instead of
     being pinned to the top."""
     filtered = [r for r in rows if not updates_only or r["status"] in ("update_available", "error")]
-    if updates_only and not show_silenced:
-        filtered = [r for r in filtered if not r.get("silenced")]
+    if updates_only:
+        filtered = [r for r in filtered if bool(r.get("silenced")) == show_silenced]
     annotated = _attach_stack_info(filtered, "container_name")
     reverse = direction == "desc"
 
@@ -541,6 +542,9 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
         # was clicked -- only the rank grouping itself flips, matching every other column here.
         annotated.sort(key=lambda r: r["container_name"].lower())
         annotated.sort(key=lambda r: 0 if r.get("error") else (1 if r.get("read_status") == "unread" else 2), reverse=reverse)
+    elif sort == "silenced":
+        annotated.sort(key=lambda r: r["container_name"].lower())
+        annotated.sort(key=lambda r: 0 if r.get("silenced") else 1, reverse=reverse)
     else:
         annotated.sort(key=lambda r: r["container_name"].lower(), reverse=reverse)
 
@@ -591,6 +595,9 @@ def _sort_status_list_rows(rows: list[dict], sort: str, direction: str) -> list[
             ungrouped = [r for r in annotated if r.get("stack_name") is None]
             return grouped + ungrouped
         return annotated
+    if sort == "silenced":
+        annotated = sorted(rows, key=name_key)
+        return sorted(annotated, key=lambda r: 0 if r.get("silenced") else 1, reverse=reverse)
     return sorted(rows, key=name_key, reverse=reverse)
 
 

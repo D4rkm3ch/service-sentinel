@@ -21,7 +21,8 @@ def test_logs_all_containers_table_has_a_silenced_column(client):
     db.set_finding_status(fid, "silenced")
 
     resp = client.get("/logs")
-    assert "<th>Silenced</th>" in resp.text
+    assert "sort-link" in resp.text and "Silenced" in resp.text
+    assert "csort=silenced" in resp.text
     section = resp.text[resp.text.index('id="logs-containers-table"'):]
     row = section[section.index("silenced-col-logs-container"):]
     row = row[:row.index("</tr>")]
@@ -66,7 +67,8 @@ def test_compose_all_files_table_has_a_silenced_column(client):
     db.set_finding_status(fid, "silenced")
 
     resp = client.get("/compose")
-    assert "<th>Silenced</th>" in resp.text
+    assert "sort-link" in resp.text and "Silenced" in resp.text
+    assert "csort=silenced" in resp.text
     section = resp.text[resp.text.index('id="compose-files-table"'):]
     row = section[section.index("silenced-col-compose.yml"):]
     row = row[:row.index("</tr>")]
