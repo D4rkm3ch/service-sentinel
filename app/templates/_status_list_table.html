@@ -1,23 +1,34 @@
+{% import "_sort_header.html" as sh %}
+<div id="{{ target_id }}" hx-get="{{ partial_url }}?csort={{ csort }}&cdir={{ cdir }}"
+     hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
+{% if is_partial %}<span id="{{ target_id }}-count-badge" class="heading-count" hx-swap-oob="true">({{ items|length }})</span>{% endif %}
 {% if items %}
 <table class="containers-table">
+  <colgroup>
+    <col style="width: 44%">
+    <col style="width: 28%">
+    <col style="width: 22%">
+    <col style="width: 6%">
+  </colgroup>
   <thead>
     <tr>
-      <th>{{ 'Container' if not use_query_param else 'Compose file' }}</th>
-      <th>Last checked</th>
-      <th>Status</th>
+      <th>{{ sh.sort_link('Compose file' if use_query_param else 'Container', 'container', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
+      <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, base_url, 'desc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
+      <th>{{ sh.sort_link('Status', 'status', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
+      <th></th>
     </tr>
   </thead>
   <tbody>
     {% for item in items %}
-    <tr>
-      <td class="mono">
-        {% if use_query_param %}
-        <a href="{{ detail_base }}?path={{ item.name|urlencode }}">{{ item.display_name if item.display_name is defined else item.name }}</a>
-        {% else %}
-        <a href="{{ detail_base }}/{{ item.name }}">{{ item.name }}</a>
-        {% endif %}
-      </td>
-      <td>{{ item.last_at[:16].replace('T', ' ') if item.last_at else '—' }}</td>
+    {% set name = item.display_name if item.display_name is defined else item.name %}
+    {% if use_query_param %}
+    {% set href = detail_base ~ '?path=' ~ (item.name|urlencode) %}
+    {% else %}
+    {% set href = detail_base ~ '/' ~ item.name %}
+    {% endif %}
+    <tr class="row-clickable" onclick="window.location='{{ href }}'">
+      <td class="mono"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
+      <td class="nowrap">{{ item.last_at[:16].replace('T', ' ') if item.last_at else '—' }}</td>
       <td>
         {% if item.status == 'issue' %}
         <span class="badge badge-sev-warning">issue</span>
@@ -25,6 +36,7 @@
         <span class="badge badge-healthy">healthy</span>
         {% endif %}
       </td>
+      <td><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
     </tr>
     {% endfor %}
   </tbody>
@@ -32,3 +44,4 @@
 {% else %}
 <p class="empty">No containers tracked yet.</p>
 {% endif %}
+</div>

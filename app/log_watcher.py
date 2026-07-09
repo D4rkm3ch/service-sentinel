@@ -16,10 +16,13 @@ def run_log_check() -> dict:
     since the last check (or the configured lookback window on first run), keep only lines
     that matched a suspicious keyword locally, and — only for containers that actually had
     something worth showing — send those excerpts to Claude for triage. Containers with
-    clean logs never reach the API at all."""
-    if not db.get_feature_enabled("logs"):
-        return {"skipped": True}
+    clean logs never reach the API at all.
 
+    Deliberately does NOT check db.get_feature_enabled("logs") here -- this function backs
+    both the scheduled job and the manual Check now button (see scheduler.py), and the
+    feature toggle is only meant to control the automatic schedule, not the manual button.
+    scheduler.apply_schedules() is what actually skips scheduling this when the feature is
+    disabled."""
     set_running("logs")
     checked = 0
     findings_found = 0

@@ -14,10 +14,12 @@ def run_compose_check() -> dict:
     """Hashes every compose file release-radar can see. A file that's new (never hashed
     before) or changed (hash differs from what's stored) gets reviewed by Claude; anything
     unchanged is skipped entirely — this is what keeps the feature cheap over time, since
-    editing a stack is infrequent."""
-    if not db.get_feature_enabled("compose"):
-        return {"skipped": True}
+    editing a stack is infrequent.
 
+    Deliberately does NOT check db.get_feature_enabled("compose") here -- see run_log_check's
+    equivalent docstring note in log_watcher.py; the toggle only controls the automatic
+    schedule, never the manual Check now button, and scheduler.apply_schedules() is what
+    actually skips scheduling this when the feature is disabled."""
     set_running("compose")
     checked = 0
     reviewed = 0

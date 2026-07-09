@@ -23,12 +23,20 @@ db.init_db()
 
 
 @pytest.fixture(autouse=True)
-def clean_state():
+def clean_state(client):
+    """Depends on `client` purely so the real scheduler is actually started (its background
+    thread starts on FastAPI's startup event) -- APScheduler accumulates a stale duplicate in
+    its own "pending jobs" list across repeated add_job(replace_existing=True) calls for the
+    same id on a scheduler that was never started, an artifact that never happens in
+    production (the scheduler is always running there) but reliably breaks apply_schedules()
+    tests that call it more than once per test file otherwise."""
     check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
     db.reset_updates_data()
+    db.set_feature_enabled("updates", True)
     yield
     check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
     db.reset_updates_data()
+    db.set_feature_enabled("updates", True)
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +49,61 @@ def test_updates_job_is_registered_by_apply_schedules():
     scheduler.apply_schedules()
     job = scheduler._scheduler.get_job("periodic_updates_check")
     assert job is not None, "apply_schedules() must register a job for updates, not just logs/compose"
+
+
+def test_disabling_the_feature_removes_its_periodic_job():
+    """Regression test for a real-world report: toggling a feature off on the Overview page
+    was supposed to stop its automatic schedule, but updates never checked the toggle anywhere
+    at all, so turning it off did nothing whatsoever -- confirmed still running after being
+    switched off. apply_schedules() is now the one place this toggle is enforced."""
+    scheduler.apply_schedules()
+    assert scheduler._scheduler.get_job("periodic_updates_check") is not None
+
+    db.set_feature_enabled("updates", False)
+    scheduler.apply_schedules()
+    assert scheduler._scheduler.get_job("periodic_updates_check") is None
+
+
+def test_re_enabling_the_feature_restores_its_periodic_job():
+    db.set_feature_enabled("updates", False)
+    scheduler.apply_schedules()
+    assert scheduler._scheduler.get_job("periodic_updates_check") is None
+
+    db.set_feature_enabled("updates", True)
+    scheduler.apply_schedules()
+    assert scheduler._scheduler.get_job("periodic_updates_check") is not None
+
+
+def test_disabling_the_feature_never_blocks_a_manual_check():
+    """The toggle only ever controls the automatic schedule -- run_updates_check() itself
+    (what both the scheduled job and a manual Check now ultimately call) must keep working
+    with the feature toggled off, exactly as it always did (updates had no internal gate to
+    remove here, unlike logs/compose -- see log_watcher.py/compose_reviewer.py)."""
+    db.set_feature_enabled("updates", False)
+    containers = [TrackedContainer(name="sonarr", image_repo="owner/sonarr", tag="latest",
+                                    current_digest="sha256:old", labels={})]
+
+    with patch("app.reconcile.list_tracked_containers", return_value=containers), \
+         patch("app.reconcile.get_latest_digest", return_value="sha256:new"):
+        scheduler.run_updates_check()
+
+    rows = db.list_tracked_containers_with_status()
+    assert len(rows) == 1
+    assert rows[0]["status"] == "update_available"
+
+
+def test_toggle_route_re_applies_schedules_immediately(client):
+    db.set_feature_enabled("updates", True)
+    scheduler.apply_schedules()
+    assert scheduler._scheduler.get_job("periodic_updates_check") is not None
+
+    resp = client.post("/settings/toggle/updates")
+    assert resp.status_code == 200
+    assert db.get_feature_enabled("updates") is False
+    assert scheduler._scheduler.get_job("periodic_updates_check") is None
+
+    client.post("/settings/toggle/updates")  # restore for other tests
+    assert db.get_feature_enabled("updates") is True
 
 
 def test_scheduled_check_runs_and_persists_like_a_real_check():

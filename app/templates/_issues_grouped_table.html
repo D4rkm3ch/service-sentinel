@@ -1,18 +1,38 @@
+{% import "_sort_header.html" as sh %}
+{% set table_id = source ~ "-issues-table" %}
+{% set partial_url = "/" ~ source ~ "/partial/issues" %}
+{% set preserve_other = "&show_silenced=1" if show_silenced else "" %}
+<div id="{{ table_id }}" hx-get="{{ partial_url }}?sort={{ sort }}&dir={{ dir }}{{ preserve_other }}"
+     hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
+{% if is_partial %}<span id="{{ source }}-issues-count-badge" class="heading-count" hx-swap-oob="true">({{ issues|length }})</span>{% endif %}
 {% if issues %}
 <table class="findings-table">
+  <colgroup>
+    <col style="width: 30%">
+    <col style="width: 18%">
+    <col style="width: 18%">
+    <col style="width: 22%">
+    <col style="width: 4%">
+  </colgroup>
   <thead>
     <tr>
-      <th>{{ 'Container' if source == 'logs' else 'Compose file' }}</th>
-      <th>Findings</th>
-      <th>Severity</th>
-      <th>Last seen</th>
+      <th>{{ sh.sort_link('Container' if source == 'logs' else 'Compose file', 'name', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th>{{ sh.sort_link('Findings', 'findings', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th>{{ sh.sort_link('Severity', 'severity', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th>{{ sh.sort_link('Last seen', 'lastseen', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th></th>
     </tr>
   </thead>
   <tbody>
     {% for issue in issues %}
-    <tr>
-      <td class="mono">{{ issue.display_name if issue.display_name is defined else issue.subject }}</td>
+    {% set name = issue.display_name if issue.display_name is defined else issue.subject %}
+    {% if source == 'logs' %}
+    {% set href = '/logs/container/' ~ issue.subject ~ ('?show_silenced=1' if show_silenced else '') %}
+    {% else %}
+    {% set href = '/compose/file?path=' ~ (issue.subject|urlencode) ~ ('&show_silenced=1' if show_silenced else '') %}
+    {% endif %}
+    <tr class="row-clickable" onclick="window.location='{{ href }}'">
+      <td class="mono"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
       <td>
         {{ issue.active_count }} active
         {%- if show_silenced and issue.silenced_count %}, {{ issue.silenced_count }} silenced{% endif %}
@@ -24,14 +44,8 @@
         <span class="badge badge-silenced">Silenced only</span>
         {% endif %}
       </td>
-      <td>{{ issue.last_seen_at[:16].replace('T', ' ') }}</td>
-      <td>
-        {% if source == 'logs' %}
-        <a href="/logs/container/{{ issue.subject }}{{ '?show_silenced=1' if show_silenced else '' }}" class="row-chevron">›</a>
-        {% else %}
-        <a href="/compose/file?path={{ issue.subject|urlencode }}{{ '&show_silenced=1' if show_silenced else '' }}" class="row-chevron">›</a>
-        {% endif %}
-      </td>
+      <td class="nowrap">{{ issue.last_seen_at[:16].replace('T', ' ') }}</td>
+      <td><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
     </tr>
     {% endfor %}
   </tbody>
@@ -39,3 +53,4 @@
 {% else %}
 <p class="empty">No active issues. {% if show_silenced %}(Including silenced — still nothing.){% endif %}</p>
 {% endif %}
+</div>

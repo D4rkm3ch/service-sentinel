@@ -14,6 +14,9 @@
 
 body {
   margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -45,8 +48,10 @@ body {
 
 main {
   max-width: 1260px;
+  width: 100%;
   margin: 0 auto;
-  padding: 32px 24px 64px;
+  padding: 32px 24px;
+  flex: 1 0 auto;
 }
 
 h1 {
@@ -314,13 +319,15 @@ a {
 
 .app-footer {
   max-width: 1260px;
-  margin: 40px auto 24px;
-  padding: 16px 24px 0;
+  width: 100%;
+  margin: 0 auto;
+  padding: 16px 24px;
   border-top: 1px solid var(--border);
   font-size: 11px;
   color: var(--text-dim);
   opacity: 0.6;
   text-align: center;
+  flex-shrink: 0;
 }
 .app-footer a {
   color: var(--text-dim);
@@ -623,11 +630,32 @@ tr:hover .row-chevron {
   opacity: 0.5;
   transition: opacity 0.15s, background 0.15s, color 0.15s;
 }
+/* Selected state uses each severity's own color (matching its badge elsewhere in the app --
+   see .badge-sev-* below) rather than one flat accent color for every tier, so the button
+   that's currently selected reads as "which severity" at a glance, the same way the badges do
+   on the Updates table. */
 .severity-group input:checked + .severity-btn {
   opacity: 1;
+  color: #fff;
+}
+.severity-group input:checked + .severity-btn-suggestion,
+.severity-group input:checked + .severity-btn-bugfix {
+  background: var(--text-dim);
+  border-color: var(--text-dim);
+}
+.severity-group input:checked + .severity-btn-warning,
+.severity-group input:checked + .severity-btn-action_needed {
+  background: var(--warn);
+  border-color: var(--warn);
+}
+.severity-group input:checked + .severity-btn-critical,
+.severity-group input:checked + .severity-btn-breaking {
+  background: var(--error);
+  border-color: var(--error);
+}
+.severity-group input:checked + .severity-btn-feature {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
 }
 .severity-group.faded .severity-btn {
   opacity: 0.25;
@@ -635,9 +663,6 @@ tr:hover .row-chevron {
 }
 .severity-group.faded input:checked + .severity-btn {
   opacity: 0.55;
-  background: var(--accent-dim);
-  border-color: var(--accent-dim);
-  color: #fff;
 }
 
 /* Settings page — unified bubble sections */
@@ -655,6 +680,13 @@ tr:hover .row-chevron {
   color: var(--text);
   text-transform: none;
   letter-spacing: normal;
+}
+/* A section's own intro paragraph (a direct child of .panel, above the first subsection) --
+   same reasoning as .settings-subsection .meta below: the default 24px .meta margin plus the
+   next subsection's own top margin/padding compounded into a visibly oversized gap between the
+   description and the first heading beneath it. */
+.panel > .meta {
+  margin-bottom: 10px;
 }
 .settings-subsection {
   border-top: 1px solid var(--border);

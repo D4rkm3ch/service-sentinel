@@ -6,93 +6,7 @@
 {% block content %}
 
 <section class="panel">
-  <h2 class="settings-heading-lg">Scheduling</h2>
-
-  <div class="settings-subsection settings-subsection-first">
-    <h4>Timezone</h4>
-    <p class="meta">What "6:00 AM" and every other time on this page actually means — also used to display "Last checked" times.</p>
-    <form class="schedule-fields" hx-post="/settings/timezone" hx-trigger="change" hx-target="#saved-timezone" hx-swap="innerHTML">
-      <select name="timezone" class="mono">
-        {% for tz in available_timezones %}
-        <option value="{{ tz }}" {{ 'selected' if tz == timezone else '' }}>{{ tz }}</option>
-        {% endfor %}
-      </select>
-      <span class="saved-indicator-slot" id="saved-timezone"></span>
-    </form>
-  </div>
-
-  <div class="settings-subsection">
-    <h4>General</h4>
-    <p class="meta">Used by any feature below that isn't set to its own custom schedule.</p>
-    {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
-  </div>
-
-  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
-  <div class="settings-subsection">
-    <h4>{{ title }}</h4>
-    <div class="toggle-with-label">
-      {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature, "toggleScheduleOverride('" ~ feature ~ "', this.checked)") }}
-      <span class="toggle-label" id="{{ feature }}_schedule_toggle_label">{{ 'Using own schedule' if not features[feature].use_master else 'Using general schedule' }}</span>
-    </div>
-    <div id="{{ feature }}_schedule_wrapper" class="schedule-wrapper {{ 'faded' if features[feature].use_master else '' }}">
-      {{ sf.schedule_fields(feature, features[feature].spec, '/settings/schedule/' ~ feature, features[feature].use_master) }}
-    </div>
-  </div>
-  {% endfor %}
-</section>
-
-<section class="panel">
-  <h2 class="settings-heading-lg">Notifications</h2>
-
-  <div class="settings-subsection settings-subsection-first">
-    <div class="toggle-with-label">
-      {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', "toggleAppriseField(this.checked)") }}
-      <span class="toggle-label">Enable notifications</span>
-    </div>
-
-    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated. See <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for supported services.</p>
-    <p class="meta">For Discord, add <code>?format=markdown</code> to the end of your webhook URL (e.g. <code>discord://id/token/?format=markdown</code>) — without it, Discord shows a flat plain-text message with no color coding. Discord shows whatever name/icon you've set on the webhook itself (Server Settings → Integrations → Webhooks → Edit).</p>
-    <textarea name="apprise_urls" id="apprise_urls_field" rows="2" class="mono apprise-textarea {{ '' if notify.enabled else 'dimmed' }}"
-              placeholder="discord://webhook_id/webhook_token/?format=markdown" {{ 'disabled' if not notify.enabled else '' }}>{{ notify.apprise_urls }}</textarea>
-    <p class="meta apprise-disclaimer">Click "Send test notification" to save this URL — typing alone doesn't save it, and a failed test won't be saved either.</p>
-    <div>
-      <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
-        Send test notification
-      </button>
-      <span id="apprise-test-result"></span>
-    </div>
-  </div>
-
-  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
-  <div class="settings-subsection">
-    <h4>{{ title }}</h4>
-    <div class="toggle-with-label">
-      {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature) }}
-      <span class="toggle-label">Enable notifications</span>
-    </div>
-    <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
-    {% if feature == 'updates' %}
-    <div>
-      {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
-    </div>
-    <div class="toggle-with-label" style="margin-top:8px">
-      {{ ts.toggle_switch('notify_updates_include_errors', notify.updates_include_errors, '/settings/notify/updates-include-errors') }}
-      <span class="toggle-label">Also notify when a container's registry can't be reached</span>
-    </div>
-    {% else %}
-    <div>
-      {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
-    </div>
-    {% endif %}
-  </div>
-  {% endfor %}
-</section>
-
-<section class="panel">
   <h2 class="settings-heading-lg">AI Provider</h2>
-  <p class="meta">Powers release note summaries, severity classification, log/compose analysis, and the
-release notes web search fallback. Only one provider is active at a time -- switching here takes effect
-on the next check, no restart needed.</p>
 
   <div class="settings-subsection settings-subsection-first">
     <h4>Active provider</h4>
@@ -153,34 +67,105 @@ This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
   {% for feature, title in [('logs', 'Log health'), ('compose', 'Compose health')] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
     <h4>{{ title }}</h4>
-    <div class="toggle-with-label">
-      <span class="toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="deep_analysis_{{ feature }}" {{ 'checked' if deep_analysis[feature] else '' }}
-                 onchange="handleDeepAnalysisToggle(this, '{{ feature }}')">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="saved-indicator-slot" id="saved-deep_analysis_{{ feature }}"></span>
-      </span>
+    <span class="toggle-with-label">
+      <label class="toggle-switch">
+        <input type="checkbox" id="deep_analysis_{{ feature }}" {{ 'checked' if deep_analysis[feature] else '' }}
+               onchange="handleDeepAnalysisToggle(this, '{{ feature }}')">
+        <span class="toggle-slider"></span>
+      </label>
       <span class="toggle-label">Suggest fixes for {{ title }} findings (uses more tokens)</span>
-    </div>
+      <span class="saved-indicator-slot" id="saved-deep_analysis_{{ feature }}"></span>
+    </span>
   </div>
   {% endfor %}
 
   <div class="settings-subsection">
     <h4>Updates: Cross-Service Analysis</h4>
-    <div class="toggle-with-label">
-      <span class="toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="deep_analysis_updates" {{ 'checked' if deep_analysis['updates'] else '' }}
-                 onchange="handleDeepAnalysisToggle(this, 'updates')">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="saved-indicator-slot" id="saved-deep_analysis_updates"></span>
-      </span>
+    <span class="toggle-with-label">
+      <label class="toggle-switch">
+        <input type="checkbox" id="deep_analysis_updates" {{ 'checked' if deep_analysis['updates'] else '' }}
+               onchange="handleDeepAnalysisToggle(this, 'updates')">
+        <span class="toggle-slider"></span>
+      </label>
       <span class="toggle-label">Analyze whether an update in one service could affect others in the same compose stack (uses more tokens)</span>
+      <span class="saved-indicator-slot" id="saved-deep_analysis_updates"></span>
+    </span>
+  </div>
+</section>
+
+<section class="panel">
+  <h2 class="settings-heading-lg">Scheduling</h2>
+
+  <div class="settings-subsection settings-subsection-first">
+    <h4>Timezone</h4>
+    <p class="meta">What "6:00 AM" and every other time on this page actually means — also used to display "Last checked" times.</p>
+    <form class="schedule-fields" hx-post="/settings/timezone" hx-trigger="change" hx-target="#saved-timezone" hx-swap="innerHTML">
+      <select name="timezone" class="mono">
+        {% for tz in available_timezones %}
+        <option value="{{ tz }}" {{ 'selected' if tz == timezone else '' }}>{{ tz }}</option>
+        {% endfor %}
+      </select>
+      <span class="saved-indicator-slot" id="saved-timezone"></span>
+    </form>
+  </div>
+
+  <div class="settings-subsection">
+    <h4>General</h4>
+    <p class="meta">Used by any feature below that isn't set to its own custom schedule.</p>
+    {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
+  </div>
+
+  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
+  <div class="settings-subsection">
+    <h4>{{ title }}</h4>
+    {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
+                         'Using own schedule' if not features[feature].use_master else 'Using general schedule',
+                         "toggleScheduleOverride('" ~ feature ~ "', this.checked)", feature ~ '_schedule_toggle_label') }}
+    <div id="{{ feature }}_schedule_wrapper" class="schedule-wrapper {{ 'faded' if features[feature].use_master else '' }}">
+      {{ sf.schedule_fields(feature, features[feature].spec, '/settings/schedule/' ~ feature, features[feature].use_master) }}
     </div>
   </div>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2 class="settings-heading-lg">Notifications</h2>
+
+  <div class="settings-subsection settings-subsection-first">
+    {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', 'Enable notifications', "toggleAppriseField(this.checked)") }}
+
+    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated — see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for supported services. Discord webhook URLs are formatted automatically.</p>
+    <textarea name="apprise_urls" id="apprise_urls_field" rows="2" class="mono apprise-textarea {{ '' if notify.enabled else 'dimmed' }}"
+              placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}>{{ notify.apprise_urls }}</textarea>
+    <p class="meta apprise-disclaimer">Click "Send test notification" to save this URL — typing alone doesn't save it, and a failed test won't be saved either.</p>
+    <div>
+      <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
+        Send test notification
+      </button>
+      <span id="apprise-test-result"></span>
+    </div>
+  </div>
+
+  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
+  <div class="settings-subsection">
+    <h4>{{ title }}</h4>
+    {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature, 'Enable notifications') }}
+    {% if feature == 'updates' %}
+    <div style="margin-top:8px">
+      {{ ts.toggle_switch('notify_updates_include_errors', notify.updates_include_errors, '/settings/notify/updates-include-errors', "Also notify when a container's registry can't be reached") }}
+    </div>
+    <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
+    <div>
+      {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
+    </div>
+    {% else %}
+    <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
+    <div>
+      {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
 </section>
 
 <script>

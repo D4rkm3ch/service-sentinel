@@ -7,7 +7,20 @@ might not currently be working correctly" reported before this stage, separate f
 "updates" was never registered with the scheduler at all.
 """
 
+import pytest
+
 from app import db
+
+
+@pytest.fixture(autouse=True)
+def updates_feature_enabled():
+    """apply_schedules() only registers a feature's periodic job when its toggle is on (see
+    scheduler.py) -- these tests are about the schedule picker itself, not that gate, so keep
+    "updates" enabled regardless of what other test files leave it as (all test files share one
+    physical SQLite database -- see conftest.py)."""
+    db.set_feature_enabled("updates", True)
+    yield
+    db.set_feature_enabled("updates", True)
 
 
 def test_settings_page_has_no_raw_javascript_leaking_as_text(client):

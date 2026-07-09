@@ -50,9 +50,24 @@ def apply_schedules() -> None:
     timezone is currently configured (Stage 5c — also called right after the Settings page
     saves a timezone change, so a running job's times reinterpret immediately rather than
     waiting for the next restart). Safe to call at any time since replace_existing means it
-    just updates the existing job's trigger rather than duplicating it."""
+    just updates the existing job's trigger rather than duplicating it.
+
+    A feature toggled off (db.get_feature_enabled) has its periodic job removed entirely
+    rather than scheduled -- this is the ONLY place that toggle is enforced. It deliberately
+    does not touch run_updates_check/run_log_check/run_compose_check themselves, since those
+    also back the manual Check now button, which must keep working even when the automatic
+    schedule is off (a real-world report: the toggle was meant to just pause the schedule, not
+    lock the whole feature, but for logs/compose the check functions used to gate themselves
+    too, silently breaking their own Check now button; updates never gated itself at all, so
+    its toggle did nothing whatsoever). Also called by /settings/toggle/{feature} so flipping
+    it takes effect immediately rather than on next restart."""
     tz = db.get_timezone()
     for feature, (func, job_id) in _JOBS.items():
+        if not db.get_feature_enabled(feature):
+            if _scheduler.get_job(job_id):
+                _scheduler.remove_job(job_id)
+            logger.info("Schedule removed for %s: feature is disabled", feature)
+            continue
         spec = db.get_effective_schedule(feature)
         trigger = build_trigger(spec, tz=tz)
         _scheduler.add_job(func, trigger=trigger, id=job_id, replace_existing=True)

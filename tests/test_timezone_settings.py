@@ -30,6 +30,16 @@ def clean_timezone():
     _clear_stored_timezone()
 
 
+@pytest.fixture(autouse=True)
+def updates_feature_enabled():
+    """apply_schedules() only registers a feature's periodic job when its toggle is on (see
+    scheduler.py) -- these tests are about timezone re-application, not that gate, so keep
+    "updates" enabled regardless of what other test files leave it as."""
+    db.set_feature_enabled("updates", True)
+    yield
+    db.set_feature_enabled("updates", True)
+
+
 def test_get_timezone_defaults_to_the_env_var_seed():
     with patch("app.db.settings.tz", "Australia/Sydney"):
         assert db.get_timezone() == "Australia/Sydney"

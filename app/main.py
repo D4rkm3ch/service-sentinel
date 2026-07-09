@@ -145,6 +145,10 @@ def toggle_feature(feature: str, request: Request):
     if feature not in ("updates", "logs", "compose"):
         raise HTTPException(status_code=404)
     db.set_feature_enabled(feature, not db.get_feature_enabled(feature))
+    # Takes effect immediately (adds/removes the periodic job) rather than waiting for a
+    # restart -- see apply_schedules()'s own docstring for why this is the only place the
+    # toggle is actually enforced.
+    apply_schedules()
     titles = {"updates": "Updates", "logs": "Log health", "compose": "Compose health"}
     tab_urls = {"updates": "/updates", "logs": "/logs", "compose": "/compose"}
     card = _build_card(feature, titles[feature], tab_urls[feature])
@@ -271,18 +275,28 @@ def logs_status_poll(request: Request):
 
 
 @app.get("/logs/partial/issues")
-def logs_partial_issues(request: Request, show_silenced: bool = False):
-    issues = db.list_subjects_with_findings("logs", include_silenced=show_silenced)
+def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str = "lastseen", dir: str = "desc"):
+    issues = _sort_issue_rows(db.list_subjects_with_findings("logs", include_silenced=show_silenced), sort, dir)
     return templates.TemplateResponse(
         "_issues_grouped_table.html",
-        {"request": request, "issues": issues, "source": "logs", "show_silenced": show_silenced},
+        {
+            "request": request, "issues": issues, "source": "logs", "show_silenced": show_silenced,
+            "sort": sort, "dir": dir, "is_partial": True,
+        },
     )
 
 
 @app.get("/logs/partial/containers")
-def logs_partial_containers(request: Request):
-    items = db.all_log_watch_states_with_status()
-    return templates.TemplateResponse("_status_list_table.html", {"request": request, "items": items, "detail_base": "/logs/container"})
+def logs_partial_containers(request: Request, csort: str = "container", cdir: str = "asc"):
+    items = _sort_status_list_rows(db.all_log_watch_states_with_status(), csort, cdir)
+    return templates.TemplateResponse(
+        "_status_list_table.html",
+        {
+            "request": request, "items": items, "detail_base": "/logs/container",
+            "csort": csort, "cdir": cdir, "partial_url": "/logs/partial/containers",
+            "target_id": "logs-containers-table", "base_url": "/logs", "is_partial": True,
+        },
+    )
 
 
 @app.post("/compose/check-now")
@@ -298,22 +312,34 @@ def compose_status_poll(request: Request):
 
 
 @app.get("/compose/partial/issues")
-def compose_partial_issues(request: Request, show_silenced: bool = False):
+def compose_partial_issues(request: Request, show_silenced: bool = False, sort: str = "lastseen", dir: str = "desc"):
     issues = db.list_subjects_with_findings("compose", include_silenced=show_silenced)
     for issue in issues:
         issue["display_name"] = compose_lookup.subject_display_name("compose", issue["subject"])
+    issues = _sort_issue_rows(issues, sort, dir)
     return templates.TemplateResponse(
         "_issues_grouped_table.html",
-        {"request": request, "issues": issues, "source": "compose", "show_silenced": show_silenced},
+        {
+            "request": request, "issues": issues, "source": "compose", "show_silenced": show_silenced,
+            "sort": sort, "dir": dir, "is_partial": True,
+        },
     )
 
 
 @app.get("/compose/partial/files")
-def compose_partial_files(request: Request):
+def compose_partial_files(request: Request, csort: str = "container", cdir: str = "asc"):
     items = db.all_compose_file_states_with_status()
     for item in items:
         item["display_name"] = compose_lookup.subject_display_name("compose", item["name"])
-    return templates.TemplateResponse("_status_list_table.html", {"request": request, "items": items, "detail_base": "/compose/file", "use_query_param": True})
+    items = _sort_status_list_rows(items, csort, cdir)
+    return templates.TemplateResponse(
+        "_status_list_table.html",
+        {
+            "request": request, "items": items, "detail_base": "/compose/file", "use_query_param": True,
+            "csort": csort, "cdir": cdir, "partial_url": "/compose/partial/files",
+            "target_id": "compose-files-table", "base_url": "/compose", "is_partial": True,
+        },
+    )
 
 
 def _launch_check_if_not_running() -> None:
@@ -434,6 +460,37 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
         annotated.sort(key=lambda r: r["container_name"].lower(), reverse=reverse)
 
     return annotated
+
+
+_ISSUE_SEVERITY_RANK = {"critical": 0, "warning": 1, "suggestion": 2}
+
+
+def _sort_issue_rows(rows: list[dict], sort: str, direction: str) -> list[dict]:
+    """Sorts the Logs/Compose "Issues" table (db.list_subjects_with_findings's rows) --
+    Python-level sort over an already-small result set, same approach _sort_and_filter_rows
+    uses for Updates, rather than pushing sorting into SQL for what's realistically a few dozen
+    rows at most."""
+    reverse = direction == "desc"
+    name_key = lambda r: (r.get("display_name") or r["subject"]).lower()  # noqa: E731
+    if sort == "findings":
+        return sorted(rows, key=lambda r: r["active_count"], reverse=reverse)
+    if sort == "severity":
+        return sorted(rows, key=lambda r: _ISSUE_SEVERITY_RANK.get(r.get("top_severity"), 99), reverse=reverse)
+    if sort == "lastseen":
+        return sorted(rows, key=lambda r: r.get("last_seen_at") or "", reverse=reverse)
+    return sorted(rows, key=name_key, reverse=reverse)
+
+
+def _sort_status_list_rows(rows: list[dict], sort: str, direction: str) -> list[dict]:
+    """Sorts the Logs/Compose "All containers"/"All files" table (db.all_log_watch_states_
+    with_status / db.all_compose_file_states_with_status's rows)."""
+    reverse = direction == "desc"
+    name_key = lambda r: (r.get("display_name") or r["name"]).lower()  # noqa: E731
+    if sort == "lastchecked":
+        return sorted(rows, key=lambda r: r.get("last_at") or "", reverse=reverse)
+    if sort == "status":
+        return sorted(rows, key=lambda r: 0 if r["status"] == "issue" else 1, reverse=reverse)
+    return sorted(rows, key=name_key, reverse=reverse)
 
 
 def _get_or_build_overview(source: str, subject: str, display_name: str, findings) -> str | None:
@@ -715,16 +772,31 @@ async def save_notify_updates_include_errors(request: Request):
     return _saved(request)
 
 
+def _normalize_apprise_url(url: str) -> str:
+    """Discord webhook URLs need ?format=markdown for Apprise to build a colored embed at all
+    (see notifications.py's own module docstring) -- a bare discord:// URL otherwise falls back
+    to a flat plain-text message with no severity color. Appended automatically here so the
+    user never has to remember to type it themselves, the same way an email signup form fills
+    in "@example.com" after whatever you type. Every other Apprise-supported service's URL
+    passes through untouched -- this only ever touches a discord:// URL with no query string
+    of its own yet."""
+    if url.startswith("discord://") and "?" not in url:
+        return url + "?format=markdown"
+    return url
+
+
 @app.post("/settings/notify/apprise-test")
 async def test_apprise(request: Request):
     form = await request.form()
     raw = form.get("apprise_urls", "") or ""
-    urls = [u.strip() for u in raw.replace("\n", ",").split(",") if u.strip()]
+    urls = [_normalize_apprise_url(u.strip()) for u in raw.replace("\n", ",").split(",") if u.strip()]
     success, message = send_test_notification(urls=urls)
     if success:
         # Only persist the URL once it's actually proven to work — an unsaved textarea
         # that hasn't been tested (or failed its test) never gets written to the database.
-        db.set_apprise_urls(raw)
+        # Saves the normalized form (with ?format=markdown already appended) so what's tested
+        # is exactly what's saved and reused on every real notification from then on.
+        db.set_apprise_urls(", ".join(urls))
     css_class = "test-result-ok" if success else "test-result-error"
     return templates.TemplateResponse(
         "_test_notification_result.html", {"request": request, "message": message, "css_class": css_class}
@@ -900,14 +972,16 @@ def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
 
 
 @app.get("/logs")
-def logs_page(request: Request, show_silenced: bool = False):
-    issues = db.list_subjects_with_findings("logs", include_silenced=show_silenced)
-    containers = db.all_log_watch_states_with_status()
+def logs_page(request: Request, show_silenced: bool = False,
+              sort: str = "lastseen", dir: str = "desc", csort: str = "container", cdir: str = "asc"):
+    issues = _sort_issue_rows(db.list_subjects_with_findings("logs", include_silenced=show_silenced), sort, dir)
+    containers = _sort_status_list_rows(db.all_log_watch_states_with_status(), csort, cdir)
     return templates.TemplateResponse(
         "logs.html",
         {
             **_status_context(request, "logs"),
             "issues": issues, "containers": containers, "show_silenced": show_silenced,
+            "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
             "active_tab": "logs",
         },
     )
@@ -935,18 +1009,22 @@ def logs_container_detail(request: Request, container_name: str, show_silenced: 
 
 
 @app.get("/compose")
-def compose_page(request: Request, show_silenced: bool = False):
+def compose_page(request: Request, show_silenced: bool = False,
+                  sort: str = "lastseen", dir: str = "desc", csort: str = "container", cdir: str = "asc"):
     issues = db.list_subjects_with_findings("compose", include_silenced=show_silenced)
     for issue in issues:
         issue["display_name"] = compose_lookup.subject_display_name("compose", issue["subject"])
+    issues = _sort_issue_rows(issues, sort, dir)
     files = db.all_compose_file_states_with_status()
     for f in files:
         f["display_name"] = compose_lookup.subject_display_name("compose", f["name"])
+    files = _sort_status_list_rows(files, csort, cdir)
     return templates.TemplateResponse(
         "compose.html",
         {
             **_status_context(request, "compose"),
             "issues": issues, "files": files, "show_silenced": show_silenced,
+            "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
             "active_tab": "compose",
         },
     )

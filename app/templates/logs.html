@@ -2,26 +2,23 @@
 {% block title %}Log health — release-radar{% endblock %}
 {% block content %}
 
-{% include "_feature_header.html" %}
-
-<section>
+<section class="panel">
+  {% include "_feature_header.html" %}
   <div class="section-header">
-    <h2>Issues</h2>
+    <h2>Issues <span class="heading-count" id="logs-issues-count-badge">({{ issues|length }})</span></h2>
     <a href="/logs{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
       {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
     </a>
   </div>
-  <div id="logs-issues" hx-get="/logs/partial/issues{{ '?show_silenced=1' if show_silenced else '' }}"
-       hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
-    {% with source = "logs" %}{% include "_issues_grouped_table.html" %}{% endwith %}
-  </div>
+  {% with source = "logs" %}{% include "_issues_grouped_table.html" %}{% endwith %}
 </section>
 
-<section>
-  <h2>All containers</h2>
-  <div id="logs-containers" hx-get="/logs/partial/containers" hx-trigger="every 20s, checkComplete from:body" hx-swap="innerHTML">
-    {% with items = containers, detail_base = "/logs/container", use_query_param = false %}{% include "_status_list_table.html" %}{% endwith %}
-  </div>
+<section class="panel">
+  <h1>All containers <span class="heading-count" id="logs-containers-table-count-badge">({{ containers|length }})</span></h1>
+  {% with items = containers, detail_base = "/logs/container", use_query_param = false,
+          partial_url = "/logs/partial/containers", target_id = "logs-containers-table", base_url = "/logs" %}
+  {% include "_status_list_table.html" %}
+  {% endwith %}
 </section>
 
 {% endblock %}
