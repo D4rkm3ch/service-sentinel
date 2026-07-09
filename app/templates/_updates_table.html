@@ -1,8 +1,9 @@
 {% import "_sort_header.html" as sh %}
-<div id="updates-table" hx-get="/updates/partial?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}"
+{% set preserve_silenced = "&show_silenced=1" if show_silenced else "" %}
+<div id="updates-table" hx-get="/updates/partial?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}{{ preserve_silenced }}"
      hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
 {% if is_partial %}<span id="updates-count-badge" class="heading-count" hx-swap-oob="true">({{ updates|length }})</span>{% endif %}
-{% set preserve_other = '&csort=' ~ csort ~ '&cdir=' ~ cdir %}
+{% set preserve_other = '&csort=' ~ csort ~ '&cdir=' ~ cdir ~ preserve_silenced %}
 {% if updates %}
 <table class="updates-table">
   <colgroup>
@@ -28,7 +29,10 @@
   <tbody>
     {% for u in updates %}
     <tr class="{{ 'row-error' if u.status == 'error' else 'row-unread' }} {{ 'row-clickable' if u.id else '' }}" {% if u.id %}onclick="window.location='/updates/{{ u.id }}'"{% endif %}>
-      <td class="mono"><span class="truncate-cell" title="{{ u.container_name }}">{{ u.container_name }}</span></td>
+      <td class="mono">
+        <span class="truncate-cell" title="{{ u.container_name }}">{{ u.container_name }}</span>
+        {%- if u.silenced %} <span class="badge badge-silenced">Silenced</span>{% endif %}
+      </td>
       <td>
         {% if u.stack_name %}
         <a href="/updates/stack?id={{ u.stack_id|urlencode }}" class="stack-cell" title="{{ u.stack_name }}" onclick="event.stopPropagation()">{{ u.stack_name }}</a>

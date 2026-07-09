@@ -9,6 +9,12 @@
   <div class="topbar-right">
     <div id="check-status">{% include "_status.html" %}</div>
     {% if feature == "updates" %}
+    <form method="post" action="/updates/regenerate-all"
+          onsubmit="return confirm('This regenerates the AI response for every pending update. Continue?')">
+      <button type="submit" class="button-warn updates-action-btn" title="Regenerate the AI-written summary for every currently pending update">
+        Regenerate AI Response
+      </button>
+    </form>
     <form method="post" action="/updates/reset-and-recheck"
           onsubmit="return confirm('This wipes all Update history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger updates-action-btn" title="Wipe all tracked-container and update history, then run a fresh check">

@@ -299,12 +299,15 @@ def compose_running_state():
 
 @app.get("/updates/partial")
 def updates_partial(request: Request, sort: str = "importance", dir: str = "asc",
-                     csort: str = "container", cdir: str = "asc"):
+                     csort: str = "container", cdir: str = "asc", show_silenced: bool = False):
     rows = db.list_tracked_containers_with_status()
-    updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True)
+    updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True, show_silenced=show_silenced)
     return templates.TemplateResponse(
         "_updates_table.html",
-        {"request": request, "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "is_partial": True},
+        {
+            "request": request, "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
+            "show_silenced": show_silenced, "is_partial": True,
+        },
     )
 
 
@@ -345,8 +348,8 @@ def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str
 
 @app.get("/logs/partial/containers")
 def logs_partial_containers(request: Request, csort: str = "status", cdir: str = "asc"):
-    items = _sort_status_list_rows(db.all_log_watch_states_with_status(), csort, cdir)
-    items = _attach_stack_info(items, "name")
+    items = _attach_stack_info(db.all_log_watch_states_with_status(), "name")
+    items = _sort_status_list_rows(items, csort, cdir)
     return templates.TemplateResponse(
         "_status_list_table.html",
         {
@@ -460,10 +463,18 @@ def _attach_stack_info(rows: list[dict], name_key: str) -> list[dict]:
     return annotated
 
 
-def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_only: bool) -> list[dict]:
+def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_only: bool,
+                           show_silenced: bool = False) -> list[dict]:
     """Filters the persisted per-container rows (db.list_tracked_containers_with_status()) down
     to just the ones needing attention when updates_only is set, attaches stack info to every
     row (see _attach_stack_info), and sorts by whichever column was clicked.
+
+    show_silenced only affects the Updates list (updates_only=True) -- a silenced container
+    (an EOL service that will always show a new tag, muted via db.set_container_silenced) is
+    hidden from it by default, same as a silenced finding is hidden from Logs/Compose's Issues
+    table by default. The Tracked containers list (updates_only=False) always shows every
+    container regardless, silenced or not -- same as Logs/Compose's "All containers" table
+    always shows everything; only the actionable list ever hides anything.
 
     Importance is the odd one out: unclassified rows (errors, or anything AI summarization
     hasn't reached) are pinned to the very top regardless of direction -- they might be
@@ -473,6 +484,8 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
     investigate there, so they sort alongside real severities (below even bugfix) instead of
     being pinned to the top."""
     filtered = [r for r in rows if not updates_only or r["status"] in ("update_available", "error")]
+    if updates_only and not show_silenced:
+        filtered = [r for r in filtered if not r.get("silenced")]
     annotated = _attach_stack_info(filtered, "container_name")
     reverse = direction == "desc"
 
@@ -551,6 +564,20 @@ def _sort_status_list_rows(rows: list[dict], sort: str, direction: str) -> list[
         return sorted(rows, key=lambda r: r.get("last_at") or "", reverse=reverse)
     if sort == "status":
         return sorted(rows, key=lambda r: 0 if r["status"] == "issue" else 1, reverse=reverse)
+    if sort == "stack":
+        # Same "ungrouped always sorts last regardless of direction" tie-breaking as Updates'
+        # own stack sort (_sort_and_filter_rows) -- rows must already carry stack_name/stack_id
+        # (see _attach_stack_info), called by the route before this, same as Updates does.
+        annotated = sorted(
+            rows,
+            key=lambda r: (r.get("stack_name") is None, (r.get("stack_name") or "").lower(), name_key(r)),
+            reverse=reverse,
+        )
+        if reverse:
+            grouped = [r for r in annotated if r.get("stack_name") is not None]
+            ungrouped = [r for r in annotated if r.get("stack_name") is None]
+            return grouped + ungrouped
+        return annotated
     return sorted(rows, key=name_key, reverse=reverse)
 
 
@@ -899,6 +926,16 @@ def reset_and_recheck_updates():
     return RedirectResponse(url="/updates", status_code=303)
 
 
+@app.post("/updates/regenerate-all")
+def regenerate_all_updates():
+    """The main Updates page's bulk "Regenerate AI Response" -- reuses the same claimed-mutex
+    pattern as reset-and-recheck above so it can't overlap with a real check or another
+    regenerate run; the actual fan-out lives in persist.run_claimed_bulk_regenerate."""
+    if persist.try_start_updates_check():
+        threading.Thread(target=persist.run_claimed_bulk_regenerate, daemon=True).start()
+    return RedirectResponse(url="/updates", status_code=303)
+
+
 def _emphasize_stack_mentions(text: str, service_names: list[str]) -> str:
     """Bolds exact mentions of a stack's own service names within the analysis text, purely to
     make them easier to pick out while reading -- these used to be jump-links to that service's
@@ -1050,9 +1087,9 @@ def stack_status_poll(request: Request, stack_id: str):
 
 @app.get("/updates")
 def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
-                  csort: str = "container", cdir: str = "asc"):
+                  csort: str = "container", cdir: str = "asc", show_silenced: bool = False):
     rows = db.list_tracked_containers_with_status()
-    updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True)
+    updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True, show_silenced=show_silenced)
     containers = _sort_and_filter_rows(rows, csort, cdir, updates_only=False)
     return templates.TemplateResponse(
         "updates.html",
@@ -1060,7 +1097,7 @@ def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
             **_status_context(request, "updates"),
             "updates": updates, "containers": containers,
             "updates_count": len(updates), "containers_count": len(containers),
-            "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
+            "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "show_silenced": show_silenced,
             "active_tab": "updates",
         },
     )
@@ -1070,8 +1107,8 @@ def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
 def logs_page(request: Request, show_silenced: bool = False,
               sort: str = "severity", dir: str = "asc", csort: str = "status", cdir: str = "asc"):
     issues = _sort_issue_rows(db.list_subjects_with_findings("logs", include_silenced=show_silenced), sort, dir)
-    containers = _sort_status_list_rows(db.all_log_watch_states_with_status(), csort, cdir)
-    containers = _attach_stack_info(containers, "name")
+    containers = _attach_stack_info(db.all_log_watch_states_with_status(), "name")
+    containers = _sort_status_list_rows(containers, csort, cdir)
     return templates.TemplateResponse(
         "logs.html",
         {
@@ -1219,12 +1256,14 @@ def update_detail(request: Request, update_id: int):
     )
     stack_info = compose_lookup.get_stack_info(update["container_name"])
     stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
+    container_row = db.get_container_state(update["container_name"])
     return templates.TemplateResponse(
         "detail.html",
         {
             "request": request, "update": update, "summary_html": summary_html,
             "release_notes_html": release_notes_html,
             "stack_id": stack_id, "active_tab": "updates",
+            "container_silenced": bool(container_row["silenced"]) if container_row else False,
         },
     )
 
@@ -1237,6 +1276,37 @@ def _read_toggle_response(request: Request, update_id: int):
     if update is None:
         raise HTTPException(status_code=404, detail="Update not found")
     return templates.TemplateResponse("_read_toggle.html", {"request": request, "update": update})
+
+
+def _container_silence_toggle_response(request: Request, container_name: str):
+    """Shared by silence_container/unsilence_container: same in-place-toggle pattern as
+    _read_toggle_response, but keyed by container_name (not update_id) -- an EOL container's
+    silenced flag lives on container_state, independent of whatever pending update row exists
+    right now, so it must survive that row being deleted and recreated as digests keep
+    changing (see db.set_container_silenced)."""
+    container_row = db.get_container_state(container_name)
+    if container_row is None:
+        raise HTTPException(status_code=404, detail="Container not found")
+    return templates.TemplateResponse(
+        "_container_silence_toggle.html",
+        {"request": request, "container_name": container_name, "silenced": bool(container_row["silenced"])},
+    )
+
+
+@app.post("/updates/container/{container_name}/silence")
+def silence_container(request: Request, container_name: str):
+    if db.get_container_state(container_name) is None:
+        raise HTTPException(status_code=404, detail="Container not found")
+    db.set_container_silenced(container_name, True)
+    return _container_silence_toggle_response(request, container_name)
+
+
+@app.post("/updates/container/{container_name}/unsilence")
+def unsilence_container(request: Request, container_name: str):
+    if db.get_container_state(container_name) is None:
+        raise HTTPException(status_code=404, detail="Container not found")
+    db.set_container_silenced(container_name, False)
+    return _container_silence_toggle_response(request, container_name)
 
 
 @app.post("/updates/{update_id}/read")

@@ -87,7 +87,28 @@ def test_logs_containers_table_links_to_the_stack_page(client):
 
         resp = client.get("/logs")
         assert f'/logs/stack?id={stack_id}' in resp.text
-        assert '<th>Stack</th>' in resp.text
+        assert 'sort-link' in resp.text and 'Stack' in resp.text  # sortable header, not a bare <th>
+        assert 'csort=stack' in resp.text
+    finally:
+        compose_file.unlink()
+
+
+def test_the_all_containers_table_actually_sorts_by_stack(client):
+    """Regression guard: the Stack column header used to be a bare <th>, not a real sort
+    link -- clicking it (or requesting csort=stack directly) did nothing at all."""
+    compose_file = _compose_file("logs-stack-sort.yml", "aaa-service", "zzz-service")
+    try:
+        db.set_log_watch_checkpoint("aaa-service")
+        db.set_log_watch_checkpoint("zzz-service")
+        db.set_log_watch_checkpoint("mmm-ungrouped")  # no compose file match -- stays ungrouped
+
+        resp = client.get("/logs?csort=stack&cdir=asc")
+        assert resp.status_code == 200
+        tbody = resp.text[resp.text.index('id="logs-containers-table"'):]
+        aaa_pos = tbody.index("aaa-service")
+        ungrouped_pos = tbody.index("mmm-ungrouped")
+        # Grouped members (any stack_name) sort before ungrouped ones regardless of direction.
+        assert aaa_pos < ungrouped_pos
     finally:
         compose_file.unlink()
 

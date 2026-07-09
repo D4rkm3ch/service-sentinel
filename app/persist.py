@@ -648,6 +648,38 @@ def run_claimed_regenerate_summary(item_key: str, container_name: str) -> None:
         check_state.release_running("updates")
 
 
+def run_claimed_bulk_regenerate() -> None:
+    """The main Updates page's "Regenerate AI Response" button -- affects every currently
+    pending update at once rather than just one, reusing the same fan-out helper the real
+    check's own release-notes/summarization phases use (_run_concurrent_phase, capped by
+    ai_provider.concurrency_limit()) so this doesn't hammer the AI provider any harder than a
+    normal check already does. Claims the Updates mutex (see try_start_updates_check) so it
+    can't overlap with a real check or another regenerate run, and reports live progress
+    through the exact same check_state "updates" channel the status badge already polls, under
+    stage="regenerating" (see main.py's _STAGE_LABELS) so it reads as "Regenerating AI Response
+    (N/total)…" while it's running.
+
+    release_running (not set_finished) on completion: this isn't itself a check, so it must
+    not overwrite the status badge's "Last checked: ..." summary with a result shape that was
+    never meant to describe a regenerate pass."""
+    try:
+        rows = db.list_tracked_containers_with_status()
+        candidates = [r for r in rows if r["status"] == "update_available" and r.get("release_notes_raw")]
+
+        def _on_progress(stage: str, done: int, total: int) -> None:
+            check_state.set_progress("updates", stage, done, total)
+
+        _run_concurrent_phase(
+            "regenerating", candidates,
+            lambda c: run_and_persist_regenerate_summary(c["container_name"]),
+            _on_progress,
+        )
+    except Exception:
+        logger.exception("Bulk Regenerate AI Response failed unexpectedly")
+    finally:
+        check_state.release_running("updates")
+
+
 # ---------------------------------------------------------------------------
 # Stack-level Retry / Reset & re-check (Stage 12 follow-up) -- originally plain synchronous
 # form posts with no spinner and no client-side "already running" guard, which made hitting

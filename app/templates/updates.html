@@ -4,6 +4,12 @@
 
 <section class="panel">
   {% include "_feature_header.html" %}
+  <div class="section-header">
+    <span></span>
+    <a href="/updates{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
+      {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
+    </a>
+  </div>
   {% include "_updates_table.html" %}
 </section>
 

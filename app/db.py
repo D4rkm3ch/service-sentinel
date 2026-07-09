@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS container_state (
     image_repo TEXT NOT NULL,
     tag TEXT NOT NULL,
     last_seen_digest TEXT,
-    last_checked_at TEXT
+    last_checked_at TEXT,
+    silenced INTEGER NOT NULL DEFAULT 0  -- an EOL/always-flagged container the operator muted
 );
 
 CREATE TABLE IF NOT EXISTS updates (
@@ -169,6 +170,14 @@ def init_db() -> None:
         # Same pattern for the updates table's release_notes_raw column (Stage 6).
         try:
             conn.execute("ALTER TABLE updates ADD COLUMN release_notes_raw TEXT")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+        # Same pattern for container_state's silenced column (an EOL container that will
+        # always show an update -- muted at the container level, independent of whatever
+        # pending update row exists/gets recreated as digests keep changing).
+        try:
+            conn.execute("ALTER TABLE container_state ADD COLUMN silenced INTEGER NOT NULL DEFAULT 0")
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
@@ -471,6 +480,18 @@ def upsert_container_state(container_name: str, image_repo: str, tag: str, diges
         )
 
 
+def set_container_silenced(container_name: str, silenced: bool) -> None:
+    """Mutes/unmutes a container at the container level -- independent of any single pending
+    update row, which persist.py deletes and recreates as digests keep changing. An EOL
+    container that will always show a new tag needs this to stick across every future check,
+    not just the update that happened to exist when Silence was clicked."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE container_state SET silenced = ? WHERE container_name = ?",
+            (1 if silenced else 0, container_name),
+        )
+
+
 CONTAINER_SORT_COLUMNS = {
     "container": "container_name COLLATE NOCASE",
     "image": "image_repo COLLATE NOCASE",
@@ -518,6 +539,7 @@ def list_tracked_containers_with_status() -> list[dict]:
                 cs.image_repo AS image_repo,
                 cs.tag AS tag,
                 cs.last_checked_at AS last_checked_at,
+                cs.silenced AS silenced,
                 u.id AS id,
                 u.error AS error,
                 u.severity AS severity,
@@ -541,6 +563,7 @@ def list_tracked_containers_with_status() -> list[dict]:
             "image_repo": r["image_repo"],
             "tag": r["tag"],
             "status": status,
+            "silenced": bool(r["silenced"]),
             "id": r["id"],
             "severity": r["severity"] or None,
             "error": r["error"],

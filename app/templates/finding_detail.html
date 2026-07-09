@@ -29,8 +29,28 @@
   </p>
 
   <div class="action-row" style="display:flex; align-items:center; gap:10px;">
-    {% include "_finding_read_toggle.html" %}
-    {% include "_silence_toggle.html" %}
+    <span id="finding-read-toggle-btn">
+      {% if finding.read_status == 'unread' %}
+      <button type="button" class="button-info" hx-post="/findings/{{ finding.id }}/read" hx-target="#finding-read-toggle-btn" hx-swap="outerHTML">
+        Mark as Read
+      </button>
+      {% else %}
+      <button type="button" class="button-info" hx-post="/findings/{{ finding.id }}/unread" hx-target="#finding-read-toggle-btn" hx-swap="outerHTML">
+        Mark as Unread
+      </button>
+      {% endif %}
+    </span>
+    <span id="silence-toggle-btn">
+      {% if finding.status == 'active' %}
+      <button type="button" class="button-silence" hx-post="/findings/{{ finding.id }}/silence" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
+        Silence
+      </button>
+      {% else %}
+      <button type="button" class="button-silence" hx-post="/findings/{{ finding.id }}/unsilence" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
+        Unsilence
+      </button>
+      {% endif %}
+    </span>
   </div>
 
   <div class="detail-body">

@@ -8,6 +8,8 @@
   --accent-dim: #3a7a63;
   --warn: #d9a441;
   --error: #d9705e;
+  --info: #5b93d9;
+  --violet: #9b84d9;
 }
 
 * { box-sizing: border-box; }
@@ -385,6 +387,31 @@ button:disabled, button:disabled:hover {
 .button-warn:hover {
   background: var(--warn);
   color: #1a1508;
+}
+
+/* Silence/Unsilence -- deliberately not green (the default) or red/amber (danger/caution,
+   already meaning something else) so it reads as its own, distinct kind of action: muting,
+   not doing or undoing damage. */
+.button-silence {
+  background: transparent;
+  border: 1px solid var(--info);
+  color: var(--info);
+}
+.button-silence:hover {
+  background: var(--info);
+  color: #0d1420;
+}
+
+/* Mark as Read/Unread -- its own color too, separate from Silence's blue, so the two toggles
+   sitting side by side on a finding's page read as visually distinct actions at a glance. */
+.button-info {
+  background: transparent;
+  border: 1px solid var(--violet);
+  color: var(--violet);
+}
+.button-info:hover {
+  background: var(--violet);
+  color: #17121f;
 }
 
 .row-chevron {
