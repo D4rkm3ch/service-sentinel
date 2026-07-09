@@ -16,21 +16,16 @@
       </button>
     </form>
     {% endif %}
-    {% if feature == 'updates' %}
-    {# The self-disabling attribute other Check now buttons use is deliberately omitted here --
-       it only covers the fast POST round-trip (the actual check runs in a background thread),
-       so it was disabling the button then immediately re-enabling it before the check itself
-       finished, leaving base.html's once-a-second poll as the only thing keeping it dimmed --
-       exactly the "takes up to a second to dim" bug. base.html's beforeRequest listener plus
-       its running-state poll now cover both the instant disable and the eventual re-enable
-       for every .updates-action-btn on the page, this one included. #}
-    <button class="updates-action-btn" hx-post="/updates/check-now" hx-target="#check-status" hx-swap="innerHTML">
+    {# hx-disabled-elt is deliberately not used here -- it only covers the fast POST round-trip
+       (the actual check runs in a background thread or on the scheduler), so it was disabling
+       the button then immediately re-enabling it before the check itself finished, leaving
+       base.html's once-a-second poll as the only thing keeping it dimmed -- exactly the "takes
+       up to a second to dim" bug. base.html's beforeRequest listener plus its per-feature
+       running-state poll now cover both the instant disable and the eventual re-enable (and
+       also catch a scheduled firing that started the check without this button being clicked
+       at all) for every .{{ feature }}-action-btn on the page, this one included. #}
+    <button class="{{ feature }}-action-btn" hx-post="/{{ feature }}/check-now" hx-target="#check-status" hx-swap="innerHTML">
       Check now
     </button>
-    {% else %}
-    <button hx-post="/{{ feature }}/check-now" hx-target="#check-status" hx-swap="innerHTML" hx-disabled-elt="this">
-      Check now
-    </button>
-    {% endif %}
   </div>
 </div>

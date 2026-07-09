@@ -2,9 +2,11 @@
 {% block title %}{{ finding.title }} — release-radar{% endblock %}
 {% block content %}
 
-<a href="{{ '/logs' if finding.source == 'logs' else '/compose' }}" class="back-link">← Back to {{ 'Logs' if finding.source == 'logs' else 'Compose' }}</a>
+<div class="back-link-row">
+  <a href="{{ '/logs' if finding.source == 'logs' else '/compose' }}" class="back-link">← Back to {{ 'Logs' if finding.source == 'logs' else 'Compose' }}</a>
+</div>
 
-<section>
+<section class="panel">
   <div class="subject-title-row">
     <h1 class="mono subject-heading">{{ display_name }}</h1>
     <span class="badge badge-lg badge-sev-{{ finding.severity }}">{{ severity_label(finding.source, finding.severity) }}</span>
@@ -17,26 +19,30 @@
     · last {{ finding.last_seen_at[:16].replace('T', ' ') }}
   </p>
 
-  <div class="summary">
-    {{ description_html | safe }}
+  <div class="action-row" style="display:flex; align-items:center; gap:10px;">
+    {% if finding.status == 'active' %}
+    <form method="post" action="/findings/{{ finding.id }}/silence">
+      <button type="submit">Silence</button>
+    </form>
+    {% else %}
+    <form method="post" action="/findings/{{ finding.id }}/unsilence">
+      <button type="submit">Unsilence</button>
+    </form>
+    {% endif %}
   </div>
 
-  {% if suggested_fix_html %}
-  <div class="summary suggested-fix">
-    <h3>Suggested fix</h3>
-    {{ suggested_fix_html | safe }}
-  </div>
-  {% endif %}
+  <div class="detail-body">
+    <div class="summary">
+      {{ description_html | safe }}
+    </div>
 
-  {% if finding.status == 'active' %}
-  <form method="post" action="/findings/{{ finding.id }}/silence" class="action-row">
-    <button type="submit">Silence</button>
-  </form>
-  {% else %}
-  <form method="post" action="/findings/{{ finding.id }}/unsilence" class="action-row">
-    <button type="submit">Unsilence</button>
-  </form>
-  {% endif %}
+    {% if suggested_fix_html %}
+    <div class="summary suggested-fix">
+      <h3>Suggested fix</h3>
+      {{ suggested_fix_html | safe }}
+    </div>
+    {% endif %}
+  </div>
 </section>
 
 {% endblock %}

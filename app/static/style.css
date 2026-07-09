@@ -29,6 +29,14 @@ body {
   font-size: 13px;
 }
 
+code {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -505,9 +513,21 @@ tr:hover .row-chevron {
   justify-content: space-between;
   align-items: center;
 }
+.feature-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .feature-card-title {
   font-size: 14px;
   font-weight: 500;
+}
+.card-status-running {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--accent);
+  white-space: nowrap;
 }
 .feature-card-headline {
   font-size: 18px;
@@ -782,7 +802,42 @@ textarea {
   font-size: 13px;
   resize: vertical;
 }
-.apprise-textarea { width: 100%; max-width: 520px; }
+/* Input with a fixed, non-editable suffix -- e.g. the Apprise Discord URL field, where
+   ?format=markdown is always appended server-side, so it's shown outside the editable area
+   the same way a signup form shows a fixed "@example.com" after an editable username box. */
+.input-with-suffix {
+  display: flex;
+  align-items: stretch;
+  max-width: 520px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.input-with-suffix:focus-within {
+  border-color: var(--accent);
+}
+.input-with-suffix input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 8px;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+.input-with-suffix .input-suffix {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 1px solid var(--border);
+  white-space: nowrap;
+}
+.input-with-suffix.dimmed { opacity: 0.6; }
 .apprise-disclaimer {
   font-style: italic;
   margin: 6px 0 10px;

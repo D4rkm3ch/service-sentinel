@@ -109,6 +109,10 @@ def healthz():
 # Overview
 # ---------------------------------------------------------------------------
 
+_CARD_TITLES = {"updates": "Updates", "logs": "Log health", "compose": "Compose health"}
+_CARD_TAB_URLS = {"updates": "/updates", "logs": "/logs", "compose": "/compose"}
+
+
 def _build_card(feature: str, title: str, tab_url: str) -> dict:
     enabled = db.get_feature_enabled(feature)
     if feature == "updates":
@@ -125,6 +129,7 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
     return {
         "feature": feature, "title": title, "enabled": enabled,
         "headline": headline, "detail": detail, "tab_url": tab_url,
+        "running": get_state(feature)["running"],
     }
 
 
@@ -149,10 +154,26 @@ def toggle_feature(feature: str, request: Request):
     # restart -- see apply_schedules()'s own docstring for why this is the only place the
     # toggle is actually enforced.
     apply_schedules()
-    titles = {"updates": "Updates", "logs": "Log health", "compose": "Compose health"}
-    tab_urls = {"updates": "/updates", "logs": "/logs", "compose": "/compose"}
-    card = _build_card(feature, titles[feature], tab_urls[feature])
+    card = _build_card(feature, _CARD_TITLES[feature], _CARD_TAB_URLS[feature])
     return templates.TemplateResponse("_feature_card.html", {"request": request, "card": card})
+
+
+@app.get("/status/card/{feature}")
+def feature_card_status(request: Request, feature: str, prev_running: bool = False):
+    """Backs each Overview card's own tiny live status indicator, next to its title -- the
+    same perpetual self-poll pattern as _status.html/_status_poll.html (see
+    _render_status_poll's docstring), so a scheduled check starting makes "Checking…" appear on
+    the card with no click needed. On a genuine running -> idle transition, also re-renders and
+    swaps in the whole card (oob) so its headline/detail count doesn't sit stale once the check
+    that was running when the page loaded finishes."""
+    if feature not in _CARD_TITLES:
+        raise HTTPException(status_code=404)
+    running = get_state(feature)["running"]
+    card = _build_card(feature, _CARD_TITLES[feature], _CARD_TAB_URLS[feature]) if prev_running and not running else None
+    return templates.TemplateResponse(
+        "_card_status.html",
+        {"request": request, "feature": feature, "running": running, "card": card},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +208,14 @@ def _progress_text(progress: dict) -> str:
     return f"{label} ({progress['done']}/{total})…"
 
 
+# How often the status badge polls itself while idle, purely to notice a check that started
+# some other way -- the scheduler firing, or a click on a different open tab/device -- since
+# nothing else pushes that event to an already-open page. Deliberately slower than the
+# feature's own running-cadence (poll_delay_ms below): there's no live progress to show yet,
+# just a boolean to notice.
+_IDLE_POLL_DELAY_MS = 3000
+
+
 def _status_context(request: Request, feature: str) -> dict:
     state = get_state(feature)
     progress = get_progress(feature)
@@ -198,6 +227,7 @@ def _status_context(request: Request, feature: str) -> dict:
         "progress": progress,
         "progress_text": _progress_text(progress),
         "poll_delay_ms": poll_delay_ms,
+        "idle_poll_delay_ms": _IDLE_POLL_DELAY_MS,
         "status_summary_text": format_summary(feature, state),
     }
 
@@ -210,10 +240,18 @@ def _render_status(request: Request, feature: str):
     return resp
 
 
-def _render_status_poll(request: Request, feature: str):
+def _render_status_poll(request: Request, feature: str, prev_running: bool = False):
+    """Backs the status badge's own perpetual self-poll (see _status.html/_status_poll.html):
+    every response re-embeds a fresh poller span so the chain keeps running indefinitely at
+    whatever cadence matches the current state, which is what lets a scheduled check (or a
+    manual one kicked off from a different tab) make the badge start showing progress on its
+    own, with no click needed on this page. checkComplete only fires on a genuine running ->
+    idle transition (prev_running says what the last poll considered current, compared against
+    this poll's fresh state) -- firing it on every idle tick would re-trigger every table's
+    "every 20s, checkComplete from:body" listener every _IDLE_POLL_DELAY_MS for nothing."""
     context = _status_context(request, feature)
     resp = templates.TemplateResponse("_status_poll.html", context)
-    if not context["state"]["running"]:
+    if prev_running and not context["state"]["running"]:
         resp.headers["HX-Trigger"] = "checkComplete"
     return resp
 
@@ -225,8 +263,8 @@ def updates_check_now(request: Request):
 
 
 @app.get("/updates/status-poll")
-def updates_status_poll(request: Request):
-    return _render_status_poll(request, "updates")
+def updates_status_poll(request: Request, prev_running: bool = False):
+    return _render_status_poll(request, "updates", prev_running)
 
 
 @app.get("/updates/running-state")
@@ -238,6 +276,19 @@ def updates_running_state():
     fragment: this needs to be pollable from pages that don't render the status badge at all
     (Stack, Service), and every caller only ever needs the one boolean."""
     return {"running": get_state("updates")["running"]}
+
+
+@app.get("/logs/running-state")
+def logs_running_state():
+    """Logs' equivalent of /updates/running-state -- see that route's docstring. Backs the
+    Logs page's Check now button, which now dims the same way Updates' does (base.html)."""
+    return {"running": get_state("logs")["running"]}
+
+
+@app.get("/compose/running-state")
+def compose_running_state():
+    """Compose's equivalent of /updates/running-state -- see that route's docstring."""
+    return {"running": get_state("compose")["running"]}
 
 
 @app.get("/updates/partial")
@@ -270,8 +321,8 @@ def logs_check_now(request: Request):
 
 
 @app.get("/logs/status-poll")
-def logs_status_poll(request: Request):
-    return _render_status_poll(request, "logs")
+def logs_status_poll(request: Request, prev_running: bool = False):
+    return _render_status_poll(request, "logs", prev_running)
 
 
 @app.get("/logs/partial/issues")
@@ -307,8 +358,8 @@ def compose_check_now(request: Request):
 
 
 @app.get("/compose/status-poll")
-def compose_status_poll(request: Request):
-    return _render_status_poll(request, "compose")
+def compose_status_poll(request: Request, prev_running: bool = False):
+    return _render_status_poll(request, "compose", prev_running)
 
 
 @app.get("/compose/partial/issues")
@@ -491,6 +542,24 @@ def _sort_status_list_rows(rows: list[dict], sort: str, direction: str) -> list[
     if sort == "status":
         return sorted(rows, key=lambda r: 0 if r["status"] == "issue" else 1, reverse=reverse)
     return sorted(rows, key=name_key, reverse=reverse)
+
+
+def _findings_summary(findings: list[dict]) -> dict:
+    """Aggregate stats for a subject's finding list -- active/silenced counts and the most
+    severe active finding's severity -- used to render subject_findings.html's title-row
+    badges the same way detail.html's severity + Read/Unread badges summarize a single
+    update. Silenced findings never contribute to top_severity: a subject with only silenced
+    findings should read as "nothing currently active", matching _issues_grouped_table.html's
+    "Silenced only" badge for the same case."""
+    active = [f for f in findings if f["status"] == "active"]
+    top_severity = min(
+        (f["severity"] for f in active), key=lambda s: _ISSUE_SEVERITY_RANK.get(s, 99), default=None
+    )
+    return {
+        "active_count": len(active),
+        "silenced_count": len(findings) - len(active),
+        "top_severity": top_severity,
+    }
 
 
 def _get_or_build_overview(source: str, subject: str, display_name: str, findings) -> str | None:
@@ -1002,7 +1071,8 @@ def logs_container_detail(request: Request, container_name: str, show_silenced: 
         {
             "request": request, "findings": findings, "display_name": container_name,
             "back_url": "/logs", "show_silenced": show_silenced, "overview_html": overview_html,
-            "toggle_url": toggle_url,
+            "toggle_url": toggle_url, "source": "logs",
+            **_findings_summary(findings),
             "active_tab": "logs",
         },
     )
@@ -1046,7 +1116,8 @@ def compose_file_detail(request: Request, path: str, show_silenced: bool = False
         {
             "request": request, "findings": findings, "display_name": display_name,
             "back_url": "/compose", "show_silenced": show_silenced, "overview_html": overview_html,
-            "toggle_url": toggle_url,
+            "toggle_url": toggle_url, "source": "compose",
+            **_findings_summary(findings),
             "active_tab": "compose",
         },
     )

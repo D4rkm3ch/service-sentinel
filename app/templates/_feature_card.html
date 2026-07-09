@@ -1,6 +1,12 @@
-<div class="feature-card {{ '' if card.enabled else 'card-disabled' }}" id="card-{{ card.feature }}">
+<div class="feature-card {{ '' if card.enabled else 'card-disabled' }}" id="card-{{ card.feature }}"
+     {{ 'hx-swap-oob="true"' | safe if oob is defined and oob else '' }}>
   <div class="feature-card-header">
-    <span class="feature-card-title">{{ card.title }}</span>
+    <span class="feature-card-title-group">
+      <span class="feature-card-title">{{ card.title }}</span>
+      {% with feature = card.feature, running = card.running %}
+      {% with card = none %}{% include "_card_status.html" %}{% endwith %}
+      {% endwith %}
+    </span>
     <label class="toggle-switch">
       <input type="checkbox" {{ 'checked' if card.enabled else '' }}
              hx-post="/settings/toggle/{{ card.feature }}" hx-target="#card-{{ card.feature }}" hx-swap="outerHTML">

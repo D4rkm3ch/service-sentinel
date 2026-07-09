@@ -3,9 +3,14 @@ moved to the top of the page (this is an AI program first and foremost), the "no
 registry error" toggle moved above the severity buttons, the saved-indicator's reserved 40px
 slot moved from between a toggle switch and its label (where it just read as an oversized gap)
 to trail after the label instead, and the severity buttons colored to match their badges
-elsewhere in the app instead of one flat accent color regardless of severity."""
+elsewhere in the app instead of one flat accent color regardless of severity. A later round
+removed the now-redundant "Active provider" label and the Timezone explanation paragraph, and
+replaced the free-form Apprise textarea with a single input showing a fixed ?format=markdown
+suffix outside the editable box."""
 
-from app import db
+from pathlib import Path
+
+SETTINGS_TEMPLATE = Path(__file__).resolve().parent.parent / "app" / "templates" / "settings.html"
 
 
 def test_ai_provider_and_deep_analysis_come_before_scheduling_and_notifications(client):
@@ -50,3 +55,37 @@ def test_severity_buttons_use_per_severity_colors_not_one_flat_class(client):
 def test_ai_provider_description_paragraph_is_gone_or_much_shorter(client):
     page = client.get("/settings")
     assert "Powers release note summaries, severity classification, log/compose analysis" not in page.text
+
+
+def test_active_provider_label_is_gone_and_dropdown_sits_right_under_the_heading():
+    """The "Active provider" <h4> was redundant once the AI Provider blurb above it was
+    removed -- the select now sits directly under the "AI Provider" <h2>."""
+    text = SETTINGS_TEMPLATE.read_text()
+    assert "Active provider" not in text
+    ai_provider_heading = text.index(">AI Provider<")
+    select_pos = text.index('name="ai_provider"')
+    deep_analysis_heading = text.index(">Deep Analysis<")
+    assert ai_provider_heading < select_pos < deep_analysis_heading
+
+
+def test_timezone_explanation_paragraph_is_gone():
+    text = SETTINGS_TEMPLATE.read_text()
+    assert "actually means" not in text
+    timezone_section = text.split(">Timezone<")[1].split("</form>")[0]
+    assert "Last checked" not in timezone_section
+
+
+def test_apprise_field_shows_a_fixed_format_markdown_suffix(client):
+    page = client.get("/settings")
+    assert '<span class="input-suffix">?format=markdown</span>' in page.text
+    # The editable input itself must never show the suffix baked into its value -- it's shown
+    # once, fixed, outside the box, not duplicated inside it.
+    input_start = page.text.index('id="apprise_urls_field"')
+    input_end = page.text.index(">", input_start)
+    assert "?format=markdown" not in page.text[input_start:input_end]
+
+
+def test_apprise_help_text_shows_a_discord_format_example():
+    text = SETTINGS_TEMPLATE.read_text()
+    assert "discord://{WebhookID}/{WebhookToken}" in text
+    assert "Discord webhook URLs are formatted automatically." not in text
