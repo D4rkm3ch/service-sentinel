@@ -20,7 +20,7 @@
        also catch a scheduled firing that started the check without this button being clicked
        at all) for every .{{ feature }}-action-btn on the page, this one included. #}
     <button class="{{ feature }}-action-btn" hx-post="/{{ feature }}/check-now" hx-target="#check-status" hx-swap="innerHTML">
-      Check now
+      Check Now
     </button>
     {% if feature == "updates" %}
     <form method="post" action="/updates/regenerate-all"
@@ -43,7 +43,7 @@
       </button>
     </form>
     <form method="post" action="/logs/reset-and-recheck"
-          onsubmit="return confirm('This wipes all Log health history and tracking state, then re-checks everything fresh. Continue?')">
+          onsubmit="return confirm('This wipes all Log Health history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger logs-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
         Reset &amp; re-check
       </button>
@@ -56,7 +56,7 @@
       </button>
     </form>
     <form method="post" action="/compose/reset-and-recheck"
-          onsubmit="return confirm('This wipes all Compose health history and tracking state, then re-checks everything fresh. Continue?')">
+          onsubmit="return confirm('This wipes all Compose Health history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger compose-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
         Reset &amp; re-check
       </button>

@@ -65,8 +65,8 @@ result, not just the problem report. This costs noticeably more tokens, so it's 
 feature.</p>
 
   {% for feature, title, label in [
-    ('logs', 'Log health', 'Suggest fixes for Log health findings (uses more tokens)'),
-    ('compose', 'Compose health', 'Suggest fixes for Compose health findings (uses more tokens)'),
+    ('logs', 'Log Health', 'Suggest fixes for Log Health findings (uses more tokens)'),
+    ('compose', 'Compose Health', 'Suggest fixes for Compose Health findings (uses more tokens)'),
     ('updates', 'Updates', 'Suggest upgrade guidance for pending updates (uses more tokens)'),
   ] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
@@ -87,13 +87,13 @@ feature.</p>
 <section class="panel">
   <h2 class="settings-heading-lg">Cross-Service Analysis</h2>
   <p class="meta">Analyzes whether something in one service could affect others in the same
-compose stack. Not offered for Compose health, since a compose file's services are already
+compose stack. Not offered for Compose Health, since a compose file's services are already
 grouped together in the same file. This costs noticeably more tokens, so it's opt-in per
 feature.</p>
 
   {% for feature, title, label in [
     ('updates', 'Updates', 'Analyze whether an update in one service could affect others in the same compose stack (uses more tokens)'),
-    ('logs', 'Log health', 'Analyze whether a log issue in one service could be related to others in the same compose stack (uses more tokens)'),
+    ('logs', 'Log Health', 'Analyze whether a log issue in one service could be related to others in the same compose stack (uses more tokens)'),
   ] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
     <h4>{{ title }}</h4>
@@ -153,7 +153,7 @@ last actual check either way.</p>
     {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
   </div>
 
-  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
+  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log Health'), ('compose', 'Compose Health')] %}
   <div class="settings-subsection">
     <h4>{{ title }}</h4>
     {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
@@ -188,7 +188,7 @@ last actual check either way.</p>
     </div>
   </div>
 
-  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log health'), ('compose', 'Compose health')] %}
+  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log Health'), ('compose', 'Compose Health')] %}
   <div class="settings-subsection">
     <h4>{{ title }}</h4>
     {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature, 'Enable notifications') }}
