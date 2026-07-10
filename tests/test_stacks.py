@@ -21,13 +21,13 @@ def clean_db():
     with db.get_conn() as conn:
         conn.execute("DELETE FROM stacks")
         conn.execute("DELETE FROM stack_analyses")
-    db.set_deep_analysis_enabled("updates", False)
+    db.set_cross_service_analysis_enabled("updates", False)
     yield
     db.reset_updates_data()
     with db.get_conn() as conn:
         conn.execute("DELETE FROM stacks")
         conn.execute("DELETE FROM stack_analyses")
-    db.set_deep_analysis_enabled("updates", False)
+    db.set_cross_service_analysis_enabled("updates", False)
 
 
 def _write_compose(filename: str, services: dict[str, str]) -> Path:
@@ -99,6 +99,7 @@ def test_fewer_than_two_members_never_calls_the_ai():
 
 
 def test_a_genuinely_new_stack_calls_the_ai_and_persists_the_result():
+    db.set_cross_service_analysis_enabled("updates", True)
     members = [_c("sonarr", repo="linuxserver/sonarr"), _c("radarr", repo="linuxserver/radarr")]
     with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
          patch("app.stacks.analyze_stack_impact", return_value="They share a downloads volume.") as mock_analyze:
@@ -114,6 +115,7 @@ def test_the_ai_call_receives_real_release_notes_not_just_image_and_tag():
     notes text gave the model nothing to reason about, so it fell back to generic, useless
     answers ("yes, there is a network") true of every compose stack. The prompt must carry each
     pending member's actual summary/notes text."""
+    db.set_cross_service_analysis_enabled("updates", True)
     db.record_update(
         container_name="sonarr", image_repo="linuxserver/sonarr", tag="latest",
         old_digest="sha256:old", new_digest="sha256:new",
@@ -130,6 +132,7 @@ def test_the_ai_call_receives_real_release_notes_not_just_image_and_tag():
 
 
 def test_an_unchanged_fingerprint_skips_the_ai_call_on_the_next_pass():
+    db.set_cross_service_analysis_enabled("updates", True)
     members = [_c("sonarr", latest_digest="sha256:v2"), _c("radarr", latest_digest="sha256:v2")]
     with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
          patch("app.stacks.analyze_stack_impact", return_value="First analysis."):
@@ -141,6 +144,7 @@ def test_an_unchanged_fingerprint_skips_the_ai_call_on_the_next_pass():
 
 
 def test_a_changed_digest_triggers_a_fresh_ai_call():
+    db.set_cross_service_analysis_enabled("updates", True)
     with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
          patch("app.stacks.analyze_stack_impact", return_value="First analysis."):
         stacks.regenerate_stack_analysis("stack1", [_c("sonarr", latest_digest="sha256:v1"), _c("radarr", latest_digest="sha256:v1")])
@@ -154,6 +158,7 @@ def test_a_changed_digest_triggers_a_fresh_ai_call():
 
 
 def test_force_regenerates_even_with_an_unchanged_fingerprint():
+    db.set_cross_service_analysis_enabled("updates", True)
     members = [_c("sonarr", latest_digest="sha256:v2"), _c("radarr", latest_digest="sha256:v2")]
     with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
          patch("app.stacks.analyze_stack_impact", return_value="First analysis."):
@@ -171,6 +176,7 @@ def test_a_registry_error_falls_back_to_current_digest_for_the_fingerprint():
     """latest_digest is None this round (a registry error) -- the fingerprint must fall back to
     current_digest rather than treating "unknown" as its own distinct, ever-changing value that
     would force a real AI call on every single check while the registry stays down."""
+    db.set_cross_service_analysis_enabled("updates", True)
     members_first = [_c("sonarr", current_digest="sha256:same", latest_digest="sha256:same"),
                       _c("radarr", current_digest="sha256:same", latest_digest="sha256:same")]
     with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
@@ -185,6 +191,7 @@ def test_a_registry_error_falls_back_to_current_digest_for_the_fingerprint():
 
 
 def test_a_failed_ai_call_never_raises_and_leaves_no_stale_write():
+    db.set_cross_service_analysis_enabled("updates", True)
     members = [_c("sonarr"), _c("radarr")]
     with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
          patch("app.stacks.analyze_stack_impact", side_effect=RuntimeError("provider down")):
@@ -193,6 +200,7 @@ def test_a_failed_ai_call_never_raises_and_leaves_no_stale_write():
 
 
 def test_a_blank_analysis_result_is_not_persisted():
+    db.set_cross_service_analysis_enabled("updates", True)
     members = [_c("sonarr"), _c("radarr")]
     with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
          patch("app.stacks.analyze_stack_impact", return_value=None):
@@ -218,7 +226,7 @@ def test_disabled_by_default_never_calls_the_ai_even_with_a_real_stack():
 def test_enabled_regenerates_every_qualifying_stack():
     compose_file = _write_compose("enabled.yml", {"sonarr": "linuxserver/sonarr", "radarr": "linuxserver/radarr"})
     try:
-        db.set_deep_analysis_enabled("updates", True)
+        db.set_cross_service_analysis_enabled("updates", True)
         containers = [_c("sonarr", repo="linuxserver/sonarr"), _c("radarr", repo="linuxserver/radarr")]
         with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
              patch("app.stacks.analyze_stack_impact", return_value="Cross-service notes.") as mock_analyze:
@@ -229,7 +237,7 @@ def test_enabled_regenerates_every_qualifying_stack():
 
 
 def test_no_qualifying_stacks_never_touches_the_ai_even_when_enabled():
-    db.set_deep_analysis_enabled("updates", True)
+    db.set_cross_service_analysis_enabled("updates", True)
     with patch("app.stacks.analyze_stack_impact") as mock_analyze:
         stacks.run_stack_analysis_pass([_c("standalone")])
     mock_analyze.assert_not_called()

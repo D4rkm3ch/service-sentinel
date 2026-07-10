@@ -7,9 +7,9 @@ import hashlib
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import compose_lookup, db
+from app import check_state, compose_lookup, db
 from app.config import settings
-from app.summarizer import analyze_stack_impact, generate_stack_name
+from app.summarizer import analyze_log_stack_impact, analyze_stack_impact, generate_stack_name
 
 logger = logging.getLogger("release_radar.stacks")
 
@@ -105,21 +105,21 @@ def run_stack_analysis_pass(containers: list[dict], force: bool = False) -> None
     check naturally covers every stack, a stack-scoped Reset & re-check covers exactly one, and
     a single-container scoped check never has 2+ members of the same stack present so this is
     always a no-op there, with no special-casing needed to make that true (see
-    _group_containers_by_stack above). Only runs at all if the Deep Analysis toggle is on —
-    this is the automatic, scheduled path.
+    _group_containers_by_stack above). Only runs at all if the Cross-Service Analysis toggle is
+    on — this is the automatic, scheduled path.
 
     force=True (the stack page's own Reset & re-check button, via persist.run_claimed_stack_
     reset_and_recheck) always regenerates regardless of whether the digest fingerprint actually
     moved, same "an explicit click always gets a fresh take" semantics as the Retry button
-    (regenerate_stack_analysis) uses directly. Still gated behind the Deep Analysis toggle like
-    everything else here -- force only means "skip the content-hash cache," not "ignore the
-    opt-in setting entirely" (Retry itself bypasses the toggle by calling
-    regenerate_stack_analysis directly rather than going through this function).
+    (regenerate_stack_analysis) uses directly. Still gated behind the Cross-Service Analysis
+    toggle like everything else here — force only means "skip the content-hash cache," not
+    "ignore the opt-in setting entirely" (regenerate_stack_analysis itself also checks the
+    toggle now, so Retry can't bypass it either — see that function's own docstring).
 
     Stacks are processed concurrently with each other too — with many multi-service stacks,
     processing them one at a time would just recreate the same sequential bottleneck that
     per-container summarization had."""
-    if not db.get_deep_analysis_enabled("updates"):
+    if not db.get_cross_service_analysis_enabled("updates"):
         return
 
     groups = _group_containers_by_stack(containers)
@@ -175,7 +175,15 @@ def regenerate_stack_analysis(stack_id: str, members: list[dict], force: bool = 
     objects reconcile.py itself works with. latest_digest is preferred over current_digest for
     the fingerprint (it reflects what the registry says right now, not just what's currently
     running), falling back to current_digest only when latest_digest is unknown (e.g. a
-    registry error this round) so a transient outage doesn't spuriously invalidate the cache."""
+    registry error this round) so a transient outage doesn't spuriously invalidate the cache.
+
+    Checks the Cross-Service Analysis toggle itself now (a real-world bug report: the manual
+    Retry button used to call this directly and bypass the toggle entirely, so a raw POST -- or
+    a race where the setting got turned off between page load and the click landing -- could
+    still trigger a real AI call while the setting was off). force=True only ever means "skip
+    the content-hash cache," never "ignore the opt-in setting.\""""
+    if not db.get_cross_service_analysis_enabled("updates"):
+        return
     if len(members) < 2:
         return
 
@@ -186,7 +194,7 @@ def regenerate_stack_analysis(stack_id: str, members: list[dict], force: bool = 
     content_hash = hashlib.sha256(fingerprint_input.encode()).hexdigest()[:16]
 
     if not force:
-        cached = db.get_stack_analysis(stack_id)
+        cached = db.get_stack_analysis(stack_id, source="updates")
         if cached and cached["content_hash"] == content_hash:
             return
 
@@ -200,4 +208,122 @@ def regenerate_stack_analysis(stack_id: str, members: list[dict], force: bool = 
         return
 
     if analysis:
-        db.set_stack_analysis(stack_id, content_hash, analysis)
+        db.set_stack_analysis(stack_id, content_hash, analysis, source="updates")
+
+
+# ---------------------------------------------------------------------------
+# Cross-Service Analysis for Logs -- same concept as Updates' above (a stack-wide AI blurb,
+# cached by content hash, gated behind its own opt-in toggle, off by default), just reasoning
+# over active log findings instead of release notes. Not offered for Compose: a compose
+# file's services are already grouped together in the same file, so there's no separate
+# cross-file "stack" concept for it the way Updates/Logs have (they key off container names
+# matched against compose_lookup's stack index, not a file boundary).
+# ---------------------------------------------------------------------------
+
+_MAX_FINDING_CHARS = 300
+
+
+def _build_log_findings_summary(member_names: list[str]) -> str:
+    """Builds the actual substance the AI reasons about -- each member's currently active log
+    findings, not just their bare container name. Mirrors _build_changed_summary above: a
+    member with nothing active is listed by name only, since there's nothing to summarize for
+    a currently-quiet container."""
+    lines = []
+    for name in member_names:
+        findings = db.list_findings_for_subject("logs", name, include_silenced=False)
+        if not findings:
+            lines.append(f"- {name}: no active findings.")
+            continue
+        finding_lines = []
+        for f in findings:
+            desc = (f["description_markdown"] or "").strip()
+            if len(desc) > _MAX_FINDING_CHARS:
+                desc = desc[:_MAX_FINDING_CHARS] + "…"
+            finding_lines.append(f"  - [{f['severity']}] {f['title']}: {desc}")
+        lines.append(f"- {name}:\n" + "\n".join(finding_lines))
+    return "\n\n".join(lines)
+
+
+def run_log_stack_analysis_pass(container_names: list[str], force: bool = False) -> None:
+    """Logs' counterpart to run_stack_analysis_pass above -- called once per completed log
+    check (see log_watcher.run_log_check), for every stack where 2+ of its services are
+    present in container_names (always true for a full log check, which covers every tracked
+    container). Only runs at all if Logs' Cross-Service Analysis toggle is on."""
+    if not db.get_cross_service_analysis_enabled("logs"):
+        return
+
+    index = compose_lookup.build_stack_index()
+    groups: dict[str, list[str]] = {}
+    for name in container_names:
+        info = compose_lookup.match_container_to_stack(name, index)
+        if info and len(info["service_names"]) >= 2:
+            groups.setdefault(info["stack_id"], []).append(name)
+    groups = {stack_id: members for stack_id, members in groups.items() if len(members) >= 2}
+    if not groups:
+        return
+
+    with ThreadPoolExecutor(max_workers=settings.ai_summarize_concurrency) as pool:
+        futures = [
+            pool.submit(regenerate_log_stack_analysis, stack_id, members, force)
+            for stack_id, members in groups.items()
+        ]
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception:
+                logger.exception("Log stack analysis pass failed for one stack")
+
+
+def regenerate_log_stack_analysis(stack_id: str, member_names: list[str], force: bool = False) -> None:
+    """Logs' counterpart to regenerate_stack_analysis above -- same cache-aware shape (only
+    calls the AI if the fingerprint of active findings has actually changed, unless
+    force=True), checking the toggle itself for the same reason: a manual Retry click must not
+    be able to bypass it either."""
+    if not db.get_cross_service_analysis_enabled("logs"):
+        return
+    if len(member_names) < 2:
+        return
+
+    fingerprint_input = "|".join(
+        sorted(
+            f"{name}:{f['id']}:{f['status']}"
+            for name in member_names
+            for f in db.list_findings_for_subject("logs", name, include_silenced=True)
+        )
+    )
+    content_hash = hashlib.sha256(fingerprint_input.encode()).hexdigest()[:16]
+
+    if not force:
+        cached = db.get_stack_analysis(stack_id, source="logs")
+        if cached and cached["content_hash"] == content_hash:
+            return
+
+    display_name = get_or_generate_stack_name(stack_id, member_names)
+    findings_summary = _build_log_findings_summary(member_names)
+
+    try:
+        analysis = analyze_log_stack_impact(display_name, member_names, findings_summary)
+    except Exception:
+        logger.exception("Log stack analysis failed for %s", stack_id)
+        return
+
+    if analysis:
+        db.set_stack_analysis(stack_id, content_hash, analysis, source="logs")
+
+
+def run_claimed_log_stack_retry(item_key: str, stack_id: str) -> None:
+    """Manual Retry button for a Logs stack's cross-service blurb -- force-regenerates,
+    bypassing the content-hash cache (but never the toggle itself, see regenerate_log_stack_
+    analysis above). Uses the Logs mutex (check_state's "logs" channel), not Updates', since
+    this is a Logs-scoped action -- claimed by the caller via check_state.try_start("logs")
+    before this runs (see main.py's _launch_scoped_log_stack_check)."""
+    check_state.set_item_progress(item_key, "log_stack_analysis", 0, 1)
+    try:
+        member_names = stack_member_names_for_logs(stack_id)
+        regenerate_log_stack_analysis(stack_id, member_names, force=True)
+    except Exception:
+        logger.exception("Log stack Retry failed unexpectedly for %s", stack_id)
+    finally:
+        check_state.set_item_progress(item_key, "log_stack_analysis", 1, 1)
+        check_state.finish_item(item_key)
+        check_state.release_running("logs")

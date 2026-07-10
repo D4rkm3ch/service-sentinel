@@ -77,7 +77,7 @@ def test_a_failing_stack_analysis_pass_never_breaks_the_check():
 def test_end_to_end_a_real_two_member_stack_gets_a_fresh_analysis_when_deep_analysis_is_on():
     compose_file = _write_compose("e2e.yml", {"sonarr": "linuxserver/sonarr", "radarr": "linuxserver/radarr"})
     try:
-        db.set_deep_analysis_enabled("updates", True)
+        db.set_cross_service_analysis_enabled("updates", True)
         with patch("app.stacks.generate_stack_name", return_value="Arr Stack"), \
              patch("app.stacks.analyze_stack_impact", return_value="They share a downloads volume.") as mock_analyze:
             persist.persist_check_outcome(_outcome(
@@ -91,7 +91,7 @@ def test_end_to_end_a_real_two_member_stack_gets_a_fresh_analysis_when_deep_anal
         assert len(rows) == 2
     finally:
         compose_file.unlink()
-        db.set_deep_analysis_enabled("updates", False)
+        db.set_cross_service_analysis_enabled("updates", False)
 
 
 def test_a_single_container_scoped_check_never_triggers_stack_analysis():

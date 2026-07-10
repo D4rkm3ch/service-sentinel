@@ -27,13 +27,13 @@ def clean_db():
     with db.get_conn() as conn:
         conn.execute("DELETE FROM stacks")
         conn.execute("DELETE FROM stack_analyses")
-    db.set_deep_analysis_enabled("updates", False)
+    db.set_cross_service_analysis_enabled("updates", False)
     yield
     db.reset_updates_data()
     with db.get_conn() as conn:
         conn.execute("DELETE FROM stacks")
         conn.execute("DELETE FROM stack_analyses")
-    db.set_deep_analysis_enabled("updates", False)
+    db.set_cross_service_analysis_enabled("updates", False)
 
 
 @pytest.fixture(autouse=True)
@@ -132,7 +132,7 @@ def test_stack_reset_and_recheck_force_regenerates_the_blurb_when_deep_analysis_
     try:
         db.upsert_container_state("sonarr", "owner/sonarr", "latest", "sha256:same")
         db.upsert_container_state("radarr", "owner/radarr", "latest", "sha256:same")
-        db.set_deep_analysis_enabled("updates", True)
+        db.set_cross_service_analysis_enabled("updates", True)
 
         from app import compose_lookup
         stack_id = compose_lookup.match_container_to_stack("sonarr", compose_lookup.build_stack_index())["stack_id"]

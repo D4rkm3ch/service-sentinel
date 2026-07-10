@@ -740,12 +740,17 @@ def settings_page(request: Request):
     deep_analysis = {
         feature: db.get_deep_analysis_enabled(feature) for feature in ("logs", "compose", "updates")
     }
+    cross_service_analysis = {
+        feature: db.get_cross_service_analysis_enabled(feature) for feature in ("updates", "logs")
+    }
     return templates.TemplateResponse(
         "settings.html",
         {
             "request": request, "master": master, "features": features,
             "describe": describe_schedule, "notify": _build_notify_context(),
-            "deep_analysis": deep_analysis, "update_severities": list(UPDATE_SEVERITIES),
+            "deep_analysis": deep_analysis, "cross_service_analysis": cross_service_analysis,
+            "update_severities": list(UPDATE_SEVERITIES),
+            "release_notes_lookback": db.get_release_notes_lookback(),
             "timezone": db.get_timezone(), "available_timezones": AVAILABLE_TIMEZONES,
             "ai_provider": db.get_ai_provider(),
             "anthropic_key_configured": bool(db.get_anthropic_api_key()),
@@ -783,6 +788,25 @@ async def save_deep_analysis(feature: str, request: Request):
     form = await request.form()
     db.set_deep_analysis_enabled(feature, form.get("enabled") == "on")
     return {"status": "ok"}
+
+
+@app.post("/settings/cross-service-analysis/{feature}")
+async def save_cross_service_analysis(feature: str, request: Request):
+    if feature not in ("updates", "logs"):
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    db.set_cross_service_analysis_enabled(feature, form.get("enabled") == "on")
+    return {"status": "ok"}
+
+
+@app.post("/settings/release-notes-lookback")
+async def save_release_notes_lookback(request: Request):
+    form = await request.form()
+    value = form.get("release_notes_lookback", "since_check")
+    if value not in db.RELEASE_NOTES_LOOKBACK_DAYS:
+        raise HTTPException(status_code=400, detail="Unknown lookback value")
+    db.set_release_notes_lookback(value)
+    return _saved(request)
 
 
 @app.post("/settings/ai/provider")
@@ -980,8 +1004,8 @@ def stack_detail(request: Request, id: str):
     # The blurb (and the button that regenerates it) only ever make sense with the toggle on --
     # showing a stale blurb (or a working button) while it's off would misrepresent a feature
     # the operator has explicitly opted out of as still active.
-    deep_analysis_enabled = db.get_deep_analysis_enabled("updates")
-    analysis_row = db.get_stack_analysis(id) if deep_analysis_enabled else None
+    deep_analysis_enabled = db.get_cross_service_analysis_enabled("updates")
+    analysis_row = db.get_stack_analysis(id, source="updates") if deep_analysis_enabled else None
     analysis_html = None
     if analysis_row:
         emphasized_text = _emphasize_stack_mentions(analysis_row["analysis_markdown"], member_names)
@@ -1189,6 +1213,15 @@ def logs_stack_detail(request: Request, id: str):
     member_names = stacks.stack_member_names_for_logs(id)
     display_name = stack_row["display_name"] if stack_row else (member_names[0] if member_names else "Unknown stack")
 
+    # Same "the blurb and its button only ever make sense with the toggle on" reasoning as
+    # Updates' stack page -- see stack_detail() above.
+    cross_service_enabled = db.get_cross_service_analysis_enabled("logs")
+    analysis_row = db.get_stack_analysis(id, source="logs") if cross_service_enabled else None
+    analysis_html = None
+    if analysis_row:
+        emphasized_text = _emphasize_stack_mentions(analysis_row["analysis_markdown"], member_names)
+        analysis_html = render_markdown(emphasized_text)
+
     members = []
     for name in member_names:
         findings = db.list_findings_for_subject("logs", name, include_silenced=True)
@@ -1203,8 +1236,46 @@ def logs_stack_detail(request: Request, id: str):
         {
             "request": request, "stack_id": id, "display_name": display_name,
             "members": members, "active_tab": "logs",
+            "cross_service_enabled": cross_service_enabled, "analysis_html": analysis_html,
         },
     )
+
+
+@app.post("/logs/stack/retry")
+def retry_log_stack_route(request: Request, stack_id: str = ""):
+    """Force-regenerates this Logs stack's cross-service analysis blurb, bypassing the
+    content-hash cache -- same "an explicit click always regenerates" semantics as Updates'
+    stack Retry button. Runs on a background thread with a live spinner via
+    _launch_scoped_log_stack_check."""
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    return _launch_scoped_log_stack_check(
+        request, stack_id,
+        lambda item_key: stacks.run_claimed_log_stack_retry(item_key, stack_id),
+    )
+
+
+@app.get("/logs/stack/status-poll")
+def log_stack_status_poll(request: Request, stack_id: str):
+    """Polling counterpart to stack_status_poll (Updates' version) below, for a Logs-scoped
+    stack action -- same "still running -> re-arm the poller, finished -> redirect back to this
+    stack" shape."""
+    item_key = _log_stack_item_key(stack_id)
+    item = check_state.get_item_state(item_key)
+
+    if item is not None and item["running"]:
+        return templates.TemplateResponse(
+            "_log_stack_item_status_poll.html",
+            {"request": request, "stack_id": stack_id, "item": item, "progress_text": _progress_text(item)},
+        )
+
+    check_state.clear_item(item_key)
+    resp = templates.TemplateResponse(
+        "_log_stack_item_status_poll.html",
+        {"request": request, "stack_id": stack_id, "item": None, "progress_text": ""},
+    )
+    resp.headers["HX-Redirect"] = f"/logs/stack?id={quote(stack_id)}"
+    return resp
 
 
 @app.get("/compose")
@@ -1291,11 +1362,13 @@ def update_detail(request: Request, update_id: int):
     stack_info = compose_lookup.get_stack_info(update["container_name"])
     stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
     container_row = db.get_container_state(update["container_name"])
+    upgrade_guidance_html = render_markdown(update["upgrade_guidance"]) if update["upgrade_guidance"] else None
     return templates.TemplateResponse(
         "detail.html",
         {
             "request": request, "update": update, "summary_html": summary_html,
             "release_notes_html": release_notes_html,
+            "upgrade_guidance_html": upgrade_guidance_html,
             "stack_id": stack_id, "active_tab": "updates",
             "container_silenced": bool(container_row["silenced"]) if container_row else False,
         },
@@ -1431,6 +1504,38 @@ def _launch_scoped_stack_check(request: Request, stack_id: str, target) -> objec
     check_state.start_item(item_key, stack_id)
     threading.Thread(target=target, args=(item_key,), daemon=True).start()
     return _render_stack_item_status(request, stack_id, item_key)
+
+
+def _log_stack_item_key(stack_id: str) -> str:
+    return f"logstack:{stack_id}"
+
+
+def _render_log_stack_item_status(request: Request, stack_id: str, item_key: str, busy_message: str | None = None):
+    item = check_state.get_item_state(item_key)
+    return templates.TemplateResponse(
+        "_log_stack_item_status.html",
+        {
+            "request": request, "stack_id": stack_id, "item": item,
+            "progress_text": _progress_text(item) if item else "",
+            "busy_message": busy_message,
+        },
+    )
+
+
+def _launch_scoped_log_stack_check(request: Request, stack_id: str, target) -> object:
+    """Logs' counterpart to _launch_scoped_stack_check above -- claims the Logs mutex (check_
+    state's "logs" channel), not Updates', since this is a Logs-scoped action and must not
+    block on (or be blocked by) an unrelated Updates check."""
+    item_key = _log_stack_item_key(stack_id)
+    if not check_state.try_start("logs"):
+        return _render_log_stack_item_status(
+            request, stack_id, item_key,
+            busy_message="A check just started elsewhere — try again shortly.",
+        )
+
+    check_state.start_item(item_key, stack_id)
+    threading.Thread(target=target, args=(item_key,), daemon=True).start()
+    return _render_log_stack_item_status(request, stack_id, item_key)
 
 
 @app.post("/updates/{update_id}/check-now")

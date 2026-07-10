@@ -24,11 +24,13 @@ db.init_db()
 @pytest.fixture(autouse=True)
 def clean_db():
     db.reset_updates_data()
+    db.set_cross_service_analysis_enabled("updates", True)
     with db.get_conn() as conn:
         conn.execute("DELETE FROM stacks")
         conn.execute("DELETE FROM stack_analyses")
     yield
     db.reset_updates_data()
+    db.set_cross_service_analysis_enabled("updates", False)
     with db.get_conn() as conn:
         conn.execute("DELETE FROM stacks")
         conn.execute("DELETE FROM stack_analyses")

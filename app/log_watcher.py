@@ -1,6 +1,6 @@
 import logging
 
-from app import db
+from app import db, stacks
 from app.check_state import set_finished, set_running
 from app.config import settings
 from app.docker_client import get_container_logs_since, list_running_containers_for_logs
@@ -53,9 +53,12 @@ def run_log_check() -> dict:
         if excerpt:
             excerpts_by_container[container.name] = excerpt
 
+    checked_names = [c.name for c in containers]
+
     if not excerpts_by_container:
         logger.info("Log check complete: %d containers checked, all clean", checked)
         result = {"checked": checked, "findings_found": 0, "errors": 0}
+        _run_log_stack_analysis_pass_safely(checked_names)
         set_finished("logs", result)
         return result
 
@@ -89,5 +92,19 @@ def run_log_check() -> dict:
 
     logger.info("Log check complete: %d containers checked, %d findings", checked, findings_found)
     result = {"checked": checked, "findings_found": findings_found, "errors": 0}
+    _run_log_stack_analysis_pass_safely(checked_names)
     set_finished("logs", result)
     return result
+
+
+def _run_log_stack_analysis_pass_safely(checked_names: list[str]) -> None:
+    """Cross-Service Analysis for Logs (see stacks.run_log_stack_analysis_pass) -- a no-op
+    unless the toggle is on and 2+ members of the same stack were both checked this round
+    (always true for a full check). Content-hash cached internally, so calling this on every
+    check (not just ones that found something new) is cheap -- it naturally no-ops whenever
+    nothing about any stack's active findings has actually changed. Never fatal to the check
+    itself, same "log and move on" treatment persist.py gives Updates' equivalent pass."""
+    try:
+        stacks.run_log_stack_analysis_pass(checked_names)
+    except Exception:
+        logger.exception("Log stack analysis pass failed for this check")

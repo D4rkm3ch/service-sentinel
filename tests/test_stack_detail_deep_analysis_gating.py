@@ -21,13 +21,13 @@ def clean_db():
     with db.get_conn() as conn:
         conn.execute("DELETE FROM stacks")
         conn.execute("DELETE FROM stack_analyses")
-    db.set_deep_analysis_enabled("updates", False)
+    db.set_cross_service_analysis_enabled("updates", False)
     yield
     db.reset_updates_data()
     with db.get_conn() as conn:
         conn.execute("DELETE FROM stacks")
         conn.execute("DELETE FROM stack_analyses")
-    db.set_deep_analysis_enabled("updates", False)
+    db.set_cross_service_analysis_enabled("updates", False)
 
 
 def _compose_file(name, *services):
@@ -49,7 +49,7 @@ def test_a_cached_blurb_is_hidden_entirely_when_the_toggle_is_off(client):
         db.upsert_container_state("radarr", "owner/radarr", "latest", "sha256:old")
         stack_id = _stack_id_for("sonarr")
         db.set_stack_analysis(stack_id, "abc123", "sonarr needs radarr updated first.")
-        db.set_deep_analysis_enabled("updates", False)
+        db.set_cross_service_analysis_enabled("updates", False)
 
         resp = client.get(f"/updates/stack?id={stack_id}")
         assert "sonarr needs radarr updated first." not in resp.text
@@ -65,7 +65,7 @@ def test_the_blurb_shows_again_once_the_toggle_is_back_on(client):
         db.upsert_container_state("radarr", "owner/radarr", "latest", "sha256:old")
         stack_id = _stack_id_for("sonarr")
         db.set_stack_analysis(stack_id, "abc123", "sonarr needs radarr updated first.")
-        db.set_deep_analysis_enabled("updates", True)
+        db.set_cross_service_analysis_enabled("updates", True)
 
         resp = client.get(f"/updates/stack?id={stack_id}")
         assert "updated first" in resp.text
@@ -80,7 +80,7 @@ def test_regenerate_button_is_disabled_with_a_tooltip_when_the_toggle_is_off(cli
         db.upsert_container_state("sonarr", "owner/sonarr", "latest", "sha256:old")
         db.upsert_container_state("radarr", "owner/radarr", "latest", "sha256:old")
         stack_id = _stack_id_for("sonarr")
-        db.set_deep_analysis_enabled("updates", False)
+        db.set_cross_service_analysis_enabled("updates", False)
 
         resp = client.get(f"/updates/stack?id={stack_id}")
         assert 'hx-post="/updates/stack/retry' not in resp.text
@@ -95,7 +95,7 @@ def test_regenerate_button_is_clickable_when_the_toggle_is_on(client):
         db.upsert_container_state("sonarr", "owner/sonarr", "latest", "sha256:old")
         db.upsert_container_state("radarr", "owner/radarr", "latest", "sha256:old")
         stack_id = _stack_id_for("sonarr")
-        db.set_deep_analysis_enabled("updates", True)
+        db.set_cross_service_analysis_enabled("updates", True)
 
         resp = client.get(f"/updates/stack?id={stack_id}")
         assert 'hx-post="/updates/stack/retry' in resp.text

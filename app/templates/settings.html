@@ -60,10 +60,15 @@
 
 <section class="panel">
   <h2 class="settings-heading-lg">Deep Analysis</h2>
-  <p class="meta">Adds an AI-suggested fix alongside each finding, not just the problem report.
-This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
+  <p class="meta">Adds an AI-suggested fix (or, for Updates, upgrade guidance) alongside each
+result, not just the problem report. This costs noticeably more tokens, so it's opt-in per
+feature.</p>
 
-  {% for feature, title in [('logs', 'Log health'), ('compose', 'Compose health')] %}
+  {% for feature, title, label in [
+    ('logs', 'Log health', 'Suggest fixes for Log health findings (uses more tokens)'),
+    ('compose', 'Compose health', 'Suggest fixes for Compose health findings (uses more tokens)'),
+    ('updates', 'Updates', 'Suggest upgrade guidance for pending updates (uses more tokens)'),
+  ] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
     <h4>{{ title }}</h4>
     <span class="toggle-with-label">
@@ -72,23 +77,58 @@ This costs noticeably more tokens per finding, so it's opt-in per feature.</p>
                onchange="handleDeepAnalysisToggle(this, '{{ feature }}')">
         <span class="toggle-slider"></span>
       </label>
-      <span class="toggle-label">Suggest fixes for {{ title }} findings (uses more tokens)</span>
+      <span class="toggle-label">{{ label }}</span>
       <span class="saved-indicator-slot" id="saved-deep_analysis_{{ feature }}"></span>
     </span>
   </div>
   {% endfor %}
+</section>
 
-  <div class="settings-subsection">
-    <h4>Updates: Cross-Service Analysis</h4>
+<section class="panel">
+  <h2 class="settings-heading-lg">Cross-Service Analysis</h2>
+  <p class="meta">Analyzes whether something in one service could affect others in the same
+compose stack. Not offered for Compose health, since a compose file's services are already
+grouped together in the same file. This costs noticeably more tokens, so it's opt-in per
+feature.</p>
+
+  {% for feature, title, label in [
+    ('updates', 'Updates', 'Analyze whether an update in one service could affect others in the same compose stack (uses more tokens)'),
+    ('logs', 'Log health', 'Analyze whether a log issue in one service could be related to others in the same compose stack (uses more tokens)'),
+  ] %}
+  <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
+    <h4>{{ title }}</h4>
     <span class="toggle-with-label">
       <label class="toggle-switch">
-        <input type="checkbox" id="deep_analysis_updates" {{ 'checked' if deep_analysis['updates'] else '' }}
-               onchange="handleDeepAnalysisToggle(this, 'updates')">
+        <input type="checkbox" id="cross_service_analysis_{{ feature }}" {{ 'checked' if cross_service_analysis[feature] else '' }}
+               onchange="handleCrossServiceAnalysisToggle(this, '{{ feature }}')">
         <span class="toggle-slider"></span>
       </label>
-      <span class="toggle-label">Analyze whether an update in one service could affect others in the same compose stack (uses more tokens)</span>
-      <span class="saved-indicator-slot" id="saved-deep_analysis_updates"></span>
+      <span class="toggle-label">{{ label }}</span>
+      <span class="saved-indicator-slot" id="saved-cross_service_analysis_{{ feature }}"></span>
     </span>
+  </div>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2 class="settings-heading-lg">Release Notes</h2>
+  <p class="meta">If you've missed several releases since your last check, compile them all into
+one combined summary instead of just the latest.</p>
+
+  <div class="settings-subsection settings-subsection-first">
+    <h4>Lookback window</h4>
+    <p class="meta">How far back to look for missed releases, at most — still bounded by your
+last actual check either way.</p>
+    <select name="release_notes_lookback" class="mono field-input" hx-post="/settings/release-notes-lookback"
+            hx-trigger="change" hx-target="#saved-release-notes-lookback">
+      <option value="since_check" {{ 'selected' if release_notes_lookback == 'since_check' else '' }}>No limit (since last check)</option>
+      <option value="7" {{ 'selected' if release_notes_lookback == '7' else '' }}>Last 7 days</option>
+      <option value="30" {{ 'selected' if release_notes_lookback == '30' else '' }}>Last 30 days</option>
+      <option value="90" {{ 'selected' if release_notes_lookback == '90' else '' }}>Last 90 days</option>
+      <option value="180" {{ 'selected' if release_notes_lookback == '180' else '' }}>Last 6 months</option>
+      <option value="365" {{ 'selected' if release_notes_lookback == '365' else '' }}>Last year</option>
+    </select>
+    <span class="saved-indicator-slot" id="saved-release-notes-lookback"></span>
   </div>
 </section>
 
@@ -210,6 +250,28 @@ function handleDeepAnalysisToggle(el, feature) {
     body: 'enabled=' + (el.checked ? 'on' : ''),
   }).then(() => {
     const slot = document.getElementById('saved-deep_analysis_' + feature);
+    if (slot) slot.innerHTML = '<span class="saved-indicator">Saved</span>';
+  });
+}
+
+function handleCrossServiceAnalysisToggle(el, feature) {
+  if (el.checked) {
+    const ok = confirm(
+      'Cross-Service Analysis asks Claude to check whether something in one service could ' +
+      'affect others in the same compose stack. This uses noticeably more tokens.\n\n' +
+      'Enable Cross-Service Analysis for ' + feature + '?'
+    );
+    if (!ok) {
+      el.checked = false;
+      return;
+    }
+  }
+  fetch('/settings/cross-service-analysis/' + feature, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'enabled=' + (el.checked ? 'on' : ''),
+  }).then(() => {
+    const slot = document.getElementById('saved-cross_service_analysis_' + feature);
     if (slot) slot.innerHTML = '<span class="saved-indicator">Saved</span>';
   });
 }

@@ -10,6 +10,12 @@ logger = logging.getLogger("release_radar.summarizer")
 SYSTEM_PROMPT = """You write short, practical release-note summaries for a homelab operator \
 deciding whether to update a self-hosted Docker container.
 
+The release notes below may cover a SINGLE release, or MULTIPLE releases the operator missed \
+since their last check (look for multiple "## <version> (<date>)" headers in the text). If \
+there are multiple, write ONE combined summary of everything that changed across all of them \
+-- don't summarize each release separately or restate the version headers. Treat it as one \
+batch of changes to catch the operator up on, oldest-relevant-context to newest.
+
 Structure your response in markdown with exactly these sections:
 
 ## New Features
@@ -39,8 +45,10 @@ restating the version numbers.
 After the three sections above, add one final line with nothing else on it, in exactly this \
 format: `SEVERITY: X` where X is one of: bugfix, feature, action_needed, breaking.
 
-Determine X using this exact order — stop at the first line that applies, don't judge it \
-separately from what you already wrote above:
+If multiple releases are covered, this reflects the HIGHEST severity found across any of them \
+individually, not just the most recent one — a breaking change three releases back still makes \
+the whole batch "breaking." Determine X using this exact order — stop at the first line that \
+applies, don't judge it separately from what you already wrote above:
 1. breaking — the Breaking Changes section above says anything other than "None found."
 2. action_needed — the Relevant to your Setup section above concludes the operator must \
 actually change something in their own configuration (an env var, a volume, a port, a label) \
@@ -113,6 +121,63 @@ Operator's compose configuration for this service:
     # existing error-handling path (visible notice, action_needed severity), same as any
     # other summarization failure.
     raise RuntimeError("Model returned no summary content beyond the severity line, even after a retry")
+
+
+UPGRADE_GUIDANCE_SYSTEM_PROMPT = """You give a homelab operator concrete, actionable guidance \
+for upgrading a self-hosted Docker container, given its release notes, the summary already \
+written for this update, and their actual compose configuration.
+
+Write a short, practical checklist of concrete steps to take BEFORE or DURING this upgrade -- \
+config changes to make first, backups worth taking, migration commands to run, env vars to add \
+or change, ports or volumes to adjust. Only include real, specific guidance grounded in what \
+the release notes actually say -- never invent generic advice like "always back up before \
+upgrading" unless the release notes specifically call out something that makes that unusually \
+important this time.
+
+If there's genuinely nothing the operator needs to do beyond a normal update (pull the new \
+image, restart), say so in one plain sentence instead of padding out a checklist.
+
+Format as a short markdown bullet list, or one plain sentence if there's nothing to do. No \
+headers, no preamble, no restating the summary you were given."""
+
+
+def generate_upgrade_guidance(container_name: str, image_repo: str, release_notes: str,
+                               compose_config: dict | None, summary_markdown: str) -> str:
+    """Deep Analysis for Updates (opt-in, off by default) -- concrete upgrade/migration steps
+    alongside the regular summary, mirroring Logs/Compose's per-finding suggested fix. A
+    separate AI call from summarize_update() above (same pattern analyze_stack_impact below
+    uses) rather than a third field bolted onto that response -- summarize_update's severity-
+    line-stripping contract is already relied on by several callers/tests, and this is only
+    ever wanted for the subset of updates where the toggle is on."""
+    if not ai_provider.is_configured():
+        return ""
+
+    compose_block = (
+        json.dumps(compose_config, indent=2, default=str)
+        if compose_config
+        else "(no matching compose service found)"
+    )
+    user_message = f"""Container: {container_name}
+Image: {image_repo}
+
+Release notes:
+---
+{release_notes}
+---
+
+Summary already written for this update:
+---
+{summary_markdown}
+---
+
+Operator's compose configuration for this service:
+---
+{compose_block}
+---"""
+
+    return ai_provider.complete_text(
+        system=UPGRADE_GUIDANCE_SYSTEM_PROMPT, user_message=user_message, max_tokens=500,
+    ).strip()
 
 
 LOG_TRIAGE_SYSTEM_PROMPT_BASE = """You are triaging pre-filtered log excerpts from a homelab \
@@ -304,4 +369,44 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
 
     return ai_provider.complete_text(
         system=STACK_ANALYSIS_SYSTEM_PROMPT, user_message=user_message, max_tokens=150,
+    ).strip()
+
+
+LOG_STACK_ANALYSIS_SYSTEM_PROMPT = """You are looking at one docker-compose stack for a \
+homelab operator — several services that run together and can affect each other, defined in \
+the same file. You'll be given the full list of services in the stack, and for each one with \
+active log findings, those findings (crashes, errors, reliability issues, etc.).
+
+Read the findings for anything that suggests one service's problem is causing or being caused \
+by another service in the same stack — a database connection failure in one service matching a \
+crash in another that depends on it, a shared resource (disk, memory, network) being exhausted \
+by one service and starving others, a cascading restart loop. Only real, specific connections \
+grounded in the actual findings you were given — never guess or speculate about services just \
+because they happen to be in the same stack, and never comment on networking, "they share a \
+network," or anything else that's true of every compose stack by definition.
+
+In AT MOST 2 short sentences: if you found a real connection, name the specific services and \
+what links their issues. If nothing in the findings points to a real cross-service effect, \
+respond with exactly: "No cross-service issues found." Do not restate each finding, do not \
+describe how each service works, do not explain your reasoning — only state the conclusion.
+
+No markdown, no headers, no bullet list."""
+
+
+def analyze_log_stack_impact(stack_display_name: str, all_service_names: list[str], findings_summary_text: str) -> str:
+    """Logs' equivalent of analyze_stack_impact above -- cross-service analysis for a compose
+    stack's active log findings instead of Updates' release notes. Same "only meaningful for
+    2+ services, needs real findings text to reason about" shape; see stacks.
+    _build_log_findings_summary for what findings_summary_text actually contains."""
+    if not ai_provider.is_configured() or len(all_service_names) < 2:
+        return ""
+
+    user_message = (
+        f"Stack: {stack_display_name}\n"
+        f"All services in this stack: {', '.join(all_service_names)}\n\n"
+        f"Current log findings in this stack:\n{findings_summary_text}"
+    )
+
+    return ai_provider.complete_text(
+        system=LOG_STACK_ANALYSIS_SYSTEM_PROMPT, user_message=user_message, max_tokens=150,
     ).strip()

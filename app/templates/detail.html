@@ -99,6 +99,13 @@
     {% elif not update.error %}
       <p class="meta">No release notes could be found for this image.</p>
     {% endif %}
+
+    {% if upgrade_guidance_html %}
+    <div class="summary suggested-fix">
+      <h3>Upgrade guidance</h3>
+      {{ upgrade_guidance_html | safe }}
+    </div>
+    {% endif %}
   </div>
 </section>
 

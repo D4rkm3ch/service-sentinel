@@ -57,7 +57,7 @@ def test_a_severity_backfill_calls_the_digest_with_the_real_row_id_already_commi
         conn.execute("UPDATE updates SET release_notes_raw = ? WHERE id = ?", ("Real notes here.", row_id))
 
     with patch("app.persist.ai_provider.is_configured", return_value=True), \
-         patch("app.persist._summarize_container", return_value=("Summary text.", "breaking")), \
+         patch("app.persist._summarize_container", return_value=("Summary text.", "breaking", None)), \
          patch("app.persist.notifications.notify_updates_digest") as mock_digest:
         persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
 
@@ -114,7 +114,7 @@ def test_a_persistent_registry_error_calls_the_digest_once_not_on_every_check():
 def test_multiple_containers_in_one_check_bucket_into_a_single_digest_call():
     with patch("app.persist.release_notes.get_release_notes", return_value=("Real notes.", "https://example.com")), \
          patch("app.persist.ai_provider.is_configured", return_value=True), \
-         patch("app.persist._summarize_container", return_value=("Summary text.", "feature")), \
+         patch("app.persist._summarize_container", return_value=("Summary text.", "feature", None)), \
          patch("app.persist.notifications.notify_updates_digest") as mock_digest:
         persist.persist_check_outcome(_outcome(
             _c("sonarr", "update_available", repo="owner/sonarr"),
@@ -131,7 +131,7 @@ def test_multiple_containers_in_one_check_bucket_into_a_single_digest_call():
 def test_a_failing_digest_call_never_breaks_the_check():
     with patch("app.persist.release_notes.get_release_notes", return_value=("Real notes.", "https://example.com")), \
          patch("app.persist.ai_provider.is_configured", return_value=True), \
-         patch("app.persist._summarize_container", return_value=("Summary text.", "feature")), \
+         patch("app.persist._summarize_container", return_value=("Summary text.", "feature", None)), \
          patch("app.persist.notifications.notify_updates_digest", side_effect=RuntimeError("apprise boom")) as mock_digest:
         persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
 

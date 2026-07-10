@@ -24,6 +24,26 @@
 
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
 
+  <div class="action-row" style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+    {% if cross_service_enabled %}
+    <button type="button" class="button-warn logs-action-btn"
+            hx-post="/logs/stack/retry?stack_id={{ stack_id|urlencode }}"
+            hx-target="#item-recheck-status" hx-swap="outerHTML">
+      Regenerate AI Response
+    </button>
+    {% else %}
+    <button type="button" class="button-warn" disabled
+            title="Enable Cross-Service Analysis for Log health in Settings to use this">
+      Regenerate AI Response
+    </button>
+    {% endif %}
+    <span id="item-recheck-status"></span>
+  </div>
+
+  {% if analysis_html %}
+  <div class="overview-summary">{{ analysis_html | safe }}</div>
+  {% endif %}
+
   {% if members %}
   <table class="findings-table">
     <colgroup>

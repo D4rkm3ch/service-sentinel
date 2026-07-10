@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS updates (
     status TEXT NOT NULL DEFAULT 'unread',
     error TEXT,
     severity TEXT NOT NULL DEFAULT '',
+    upgrade_guidance TEXT,              -- only populated when Deep Analysis is on for updates
     created_at TEXT NOT NULL
 );
 
@@ -89,6 +90,13 @@ CREATE TABLE IF NOT EXISTS stacks (
 );
 
 CREATE TABLE IF NOT EXISTS stack_analyses (
+    -- stack_id is a PRIMARY KEY column holding a "{stack_id}:{source}" compound value (see
+    -- _stack_analysis_key below) rather than a real composite PRIMARY KEY -- SQLite can't ALTER
+    -- a PRIMARY KEY on an existing table without a full rebuild, so this lets an existing
+    -- install's stack_analyses rows (all originally Updates') get migrated forward with a plain
+    -- ALTER TABLE + UPDATE instead. "updates" and "logs" cross-service analyses for the same
+    -- physical stack_id (a compose file's own path, shared identity across features) are
+    -- otherwise indistinguishable rows that would silently overwrite each other.
     stack_id TEXT PRIMARY KEY,
     content_hash TEXT NOT NULL,         -- hash of member names + their current digests
     analysis_markdown TEXT NOT NULL,
@@ -181,6 +189,54 @@ def init_db() -> None:
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
+        # Same pattern for the updates table's upgrade_guidance column (Deep Analysis for
+        # Updates, added alongside the per-finding suggested_fix Logs/Compose already had).
+        try:
+            conn.execute("ALTER TABLE updates ADD COLUMN upgrade_guidance TEXT")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+
+        # Migration: deep_analysis_updates_enabled used to be the ONLY Updates-related Deep
+        # Analysis toggle, meaning "stack-wide cross-service analysis" -- the same concept Deep
+        # Analysis means for Logs/Compose (an opt-in extra AI pass) got its own genuinely
+        # per-item toggle added later (upgrade guidance on an individual update, mirroring Logs/
+        # Compose's per-finding suggested fix), so the key names needed to stop meaning two
+        # different things. Renamed to cross_service_analysis_updates_enabled, preserving
+        # whatever value an existing install already had; deep_analysis_updates_enabled is reset
+        # to 'false' so it starts fresh as the new per-item toggle's key. Guarded by a marker row
+        # so this runs exactly once ever -- without the guard, every subsequent boot would reset
+        # deep_analysis_updates_enabled back to 'false' even after a user legitimately turns the
+        # new per-item feature on.
+        migrated = conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'migrated_cross_service_updates_rename'"
+        ).fetchone()
+        if migrated is None:
+            old = conn.execute(
+                "SELECT value FROM app_settings WHERE key = 'deep_analysis_updates_enabled'"
+            ).fetchone()
+            if old is not None:
+                conn.execute(
+                    "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('cross_service_analysis_updates_enabled', ?)",
+                    (old["value"],),
+                )
+                conn.execute(
+                    "UPDATE app_settings SET value = 'false' WHERE key = 'deep_analysis_updates_enabled'"
+                )
+            conn.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('migrated_cross_service_updates_rename', 'true')"
+            )
+
+        # Migration: stack_analyses rows created before Cross-Service Analysis existed for Logs
+        # are all implicitly Updates' -- rewrite their stack_id to the "{stack_id}:updates"
+        # compound form get_stack_analysis/set_stack_analysis now use (see the table's own
+        # comment above), so they keep matching instead of silently becoming orphaned rows a
+        # fresh Updates analysis would just re-create. Guarded the same way: a bare (no ':')
+        # stack_id is exactly what identifies a not-yet-migrated row, so this is naturally
+        # idempotent even without a separate marker.
+        conn.execute(
+            "UPDATE stack_analyses SET stack_id = stack_id || ':updates' WHERE stack_id NOT LIKE '%:updates' AND stack_id NOT LIKE '%:logs'"
+        )
 
         # Explicitly seed defaults rather than relying only on read-time fallbacks — this is
         # the same belt-and-suspenders approach as the feature toggles above, and avoids any
@@ -307,6 +363,37 @@ def get_timezone() -> str:
 
 def set_timezone(tz: str) -> None:
     _set_setting("timezone", tz)
+
+
+# ---------------------------------------------------------------------------
+# Release notes lookback — how far back Updates will compile missed releases from when a
+# container's digest has moved past more than one release since the last check. Always
+# bounded by the container's own last-checked time first (see persist._release_notes_since);
+# this setting only ever tightens that further, as a ceiling on prompt size/AI cost for a
+# container that's gone unchecked for a very long time. "since_check" means no additional
+# ceiling at all.
+# ---------------------------------------------------------------------------
+
+RELEASE_NOTES_LOOKBACK_DAYS = {
+    "since_check": None,
+    "7": 7,
+    "30": 30,
+    "90": 90,
+    "180": 180,
+    "365": 365,
+}
+
+
+def get_release_notes_lookback() -> str:
+    return _get_setting("release_notes_lookback", "since_check")
+
+
+def set_release_notes_lookback(value: str) -> None:
+    _set_setting("release_notes_lookback", value)
+
+
+def get_release_notes_lookback_days() -> int | None:
+    return RELEASE_NOTES_LOOKBACK_DAYS.get(get_release_notes_lookback())
 
 
 # ---------------------------------------------------------------------------
@@ -455,9 +542,9 @@ def get_effective_severity(feature: str) -> str:
 # Container digest tracking (updates feature)
 # ---------------------------------------------------------------------------
 
-def get_container_state(container_name: str) -> sqlite3.Row | None:
-    with get_conn() as conn:
-        cur = conn.execute(
+def get_container_state(container_name: str, conn: sqlite3.Connection | None = None) -> sqlite3.Row | None:
+    with get_conn(conn) as c:
+        cur = c.execute(
             "SELECT * FROM container_state WHERE container_name = ?", (container_name,)
         )
         return cur.fetchone()
@@ -594,16 +681,17 @@ def record_update(
     error: str | None = None,
     severity: str = "",
     release_notes_raw: str | None = None,
+    upgrade_guidance: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     with get_conn(conn) as c:
         cur = c.execute(
             """
             INSERT INTO updates
-                (container_name, image_repo, tag, old_digest, new_digest, release_notes_raw, summary_markdown, source_url, error, severity, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (container_name, image_repo, tag, old_digest, new_digest, release_notes_raw, summary_markdown, source_url, error, severity, upgrade_guidance, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (container_name, image_repo, tag, old_digest, new_digest, release_notes_raw, summary_markdown, source_url, error, severity, now_iso()),
+            (container_name, image_repo, tag, old_digest, new_digest, release_notes_raw, summary_markdown, source_url, error, severity, upgrade_guidance, now_iso()),
         )
         return cur.lastrowid
 
@@ -679,18 +767,23 @@ def get_latest_update_for_container(container_name: str, conn: sqlite3.Connectio
 
 
 def update_existing_update(update_id: int, summary_markdown: str | None, severity: str,
-                           error: str | None, source_url: str | None) -> None:
+                           error: str | None, source_url: str | None,
+                           upgrade_guidance: str | None = None) -> None:
     """Regenerates an existing update record in place (used by the manual Retry button) —
     keeps the same id, container, tag, and digests, just refreshes the AI-generated content
-    and clears/resets status back to unread so the fresh content gets seen."""
+    and clears/resets status back to unread so the fresh content gets seen. upgrade_guidance
+    defaults to None (cleared) rather than preserving whatever was there before -- a
+    regenerate call always reflects the current Deep Analysis toggle state, same as every
+    other regenerated field here, not a stale guidance blob from whenever it was last on."""
     with get_conn() as conn:
         conn.execute(
             """
             UPDATE updates
-            SET summary_markdown = ?, severity = ?, error = ?, source_url = ?, status = 'unread'
+            SET summary_markdown = ?, severity = ?, error = ?, source_url = ?, status = 'unread',
+                upgrade_guidance = ?
             WHERE id = ?
             """,
-            (summary_markdown, severity, error, source_url, update_id),
+            (summary_markdown, severity, error, source_url, upgrade_guidance, update_id),
         )
 
 
@@ -1047,6 +1140,24 @@ def set_deep_analysis_enabled(feature: str, enabled: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Cross-Service Analysis — a distinct opt-in toggle from Deep Analysis above, off by
+# default, for "updates" and "logs" only ("compose" doesn't need it -- a compose file's
+# services are already grouped together in the same file, there's no separate cross-file
+# stack concept for Compose the way there is for Updates/Logs, which key off container
+# names matched against compose_lookup's stack index instead of a file boundary). When on,
+# a stack-wide AI blurb gets generated: "could this update/finding in one service affect
+# others in the same compose stack."
+# ---------------------------------------------------------------------------
+
+def get_cross_service_analysis_enabled(feature: str) -> bool:
+    return _get_setting(f"cross_service_analysis_{feature}_enabled", "false") == "true"
+
+
+def set_cross_service_analysis_enabled(feature: str, enabled: bool) -> None:
+    _set_setting(f"cross_service_analysis_{feature}_enabled", "true" if enabled else "false")
+
+
+# ---------------------------------------------------------------------------
 # AI provider (moved off compose-file env vars and into Settings so a provider/model/key can
 # be changed without a redeploy — the whole point being able to switch away from a provider
 # that's temporarily out of credits without touching the compose file at all). Only one
@@ -1132,14 +1243,27 @@ def reset_stack_name(stack_id: str) -> None:
 # Cached stack-wide cross-service analysis
 # ---------------------------------------------------------------------------
 
-def get_stack_analysis(stack_id: str) -> dict | None:
+def _stack_analysis_key(stack_id: str, source: str) -> str:
+    """See stack_analyses' own schema comment -- "updates" and "logs" cross-service analyses
+    for the same physical stack_id need independent rows, and SQLite can't add a real
+    composite PRIMARY KEY to an existing table without a full rebuild."""
+    return f"{stack_id}:{source}"
+
+
+def get_stack_analysis(stack_id: str, source: str = "updates") -> dict | None:
     with get_conn() as conn:
-        cur = conn.execute("SELECT * FROM stack_analyses WHERE stack_id = ?", (stack_id,))
+        cur = conn.execute(
+            "SELECT * FROM stack_analyses WHERE stack_id = ?", (_stack_analysis_key(stack_id, source),)
+        )
         row = cur.fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        result = dict(row)
+        result["stack_id"] = stack_id  # strip the ":source" suffix back off for callers
+        return result
 
 
-def set_stack_analysis(stack_id: str, content_hash: str, analysis_markdown: str) -> None:
+def set_stack_analysis(stack_id: str, content_hash: str, analysis_markdown: str, source: str = "updates") -> None:
     with get_conn() as conn:
         conn.execute(
             """
@@ -1150,7 +1274,7 @@ def set_stack_analysis(stack_id: str, content_hash: str, analysis_markdown: str)
                 analysis_markdown = excluded.analysis_markdown,
                 created_at = excluded.created_at
             """,
-            (stack_id, content_hash, analysis_markdown, now_iso()),
+            (_stack_analysis_key(stack_id, source), content_hash, analysis_markdown, now_iso()),
         )
 
 

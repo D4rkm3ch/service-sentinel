@@ -31,10 +31,11 @@ time.
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from app import ai_provider, check_state, compose_lookup, db, notifications, reconcile, release_notes, stacks
-from app.summarizer import summarize_update
+from app.summarizer import generate_upgrade_guidance, summarize_update
 
 logger = logging.getLogger("release_radar.persist")
 
@@ -167,11 +168,20 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
             c["container_name"]: db.get_latest_update_for_container(c["container_name"], conn=read_conn)
             for c in containers
         }
+        # Read once here, batched onto the same connection as the lookup above, rather than
+        # _fetch_release_notes opening its own connection per container to answer "how far
+        # back should this one's notes compilation look" -- that was exactly the "one
+        # connection per container" regression this whole read phase exists to avoid (see
+        # this function's own docstring, and test_persist.py's connection-count test).
+        container_state_by_name = {
+            c["container_name"]: db.get_container_state(c["container_name"], conn=read_conn)
+            for c in containers
+        }
     finally:
         read_conn.close()
 
     to_fetch = [c for c in containers if _is_new_or_changed_update(c, existing_by_name[c["container_name"]])]
-    release_notes_by_name = _fetch_release_notes_deduped(to_fetch, on_progress)
+    release_notes_by_name = _fetch_release_notes_deduped(to_fetch, on_progress, container_state_by_name)
 
     # Only worth summarizing a container that actually has real notes text to work from --
     # either freshly fetched this round, or (see _needs_summary_retry) already on file from an
@@ -332,12 +342,33 @@ def _release_notes_for_summary(container: dict, release_notes_by_name: dict, exi
     return existing["release_notes_raw"] if existing else None
 
 
-def _fetch_release_notes(container: dict) -> tuple[str | None, str | None]:
+def _release_notes_since(container_state) -> datetime | None:
+    """How far back to compile missed releases from -- the container's own last-checked time
+    (a pre-fetched container_state row, read once for the whole batch before this check's own
+    upsert_container_state call overwrites it further down the pipeline in _persist_one -- see
+    persist_check_outcome's container_state_by_name -- so this always sees the PREVIOUS check's
+    timestamp, never the one in progress), further capped by the Settings lookback limit
+    (db.get_release_notes_lookback) so a container that's gone unchecked for a very long time
+    doesn't pull an unbounded number of releases into one AI prompt. None (today's single-
+    latest behavior, no compilation) for a container's very first check ever, when there's no
+    prior check to measure a window from."""
+    if container_state is None or not container_state["last_checked_at"]:
+        return None
+    since = datetime.fromisoformat(container_state["last_checked_at"])
+    cap_days = db.get_release_notes_lookback_days()
+    if cap_days is not None:
+        since = max(since, datetime.now(timezone.utc) - timedelta(days=cap_days))
+    return since
+
+
+def _fetch_release_notes(container: dict, container_state_by_name: dict) -> tuple[str | None, str | None]:
     try:
+        since = _release_notes_since(container_state_by_name.get(container["container_name"]))
         return release_notes.get_release_notes(
             container["image_repo"], container["tag"],
             source_override=container.get("source_override"),
             changelog_url_override=container.get("changelog_url_override"),
+            since=since,
         )
     except Exception:
         logger.exception("Release notes fetch failed for %s", container["container_name"])
@@ -351,7 +382,8 @@ def _release_notes_dedup_key(container: dict) -> tuple:
     )
 
 
-def _fetch_release_notes_deduped(to_fetch: list[dict], on_progress: ProgressFunc | None) -> dict[str, object]:
+def _fetch_release_notes_deduped(to_fetch: list[dict], on_progress: ProgressFunc | None,
+                                  container_state_by_name: dict) -> dict[str, object]:
     """Stage 11: fetches release notes once per unique (image_repo, tag, source_override,
     changelog_url_override) among to_fetch, not once per container -- containers sharing an
     image (a real fleet, not a hypothetical: two instances of the same *arr app, a spare
@@ -390,7 +422,7 @@ def _fetch_release_notes_deduped(to_fetch: list[dict], on_progress: ProgressFunc
     def _fetch_group(key: tuple) -> None:
         nonlocal done_count
         members = groups[key]
-        result = _fetch_release_notes(members[0])
+        result = _fetch_release_notes(members[0], container_state_by_name)
         for member in members:
             results[member["container_name"]] = result
 
@@ -407,14 +439,21 @@ def _fetch_release_notes_deduped(to_fetch: list[dict], on_progress: ProgressFunc
     return results
 
 
-def _summarize_container(container: dict, release_notes_raw: str) -> tuple[str, str] | None:
-    """Returns (summary_markdown, severity), or None on any failure -- a failed summarization
-    is never fatal to the check itself; _persist_one() below just falls back to storing no
-    summary, and the detail page already falls back to showing the raw release notes whenever
-    summary_markdown is empty (Stage 6), so the operator still sees real content either way."""
+def _summarize_container(container: dict, release_notes_raw: str) -> tuple[str, str, str | None] | None:
+    """Returns (summary_markdown, severity, upgrade_guidance), or None on any failure -- a
+    failed summarization is never fatal to the check itself; _persist_one() below just falls
+    back to storing no summary, and the detail page already falls back to showing the raw
+    release notes whenever summary_markdown is empty (Stage 6), so the operator still sees
+    real content either way.
+
+    upgrade_guidance is Deep Analysis for Updates (opt-in, off by default, see
+    db.get_deep_analysis_enabled("updates")) -- a second, separate AI call for concrete
+    upgrade/migration steps, mirroring Logs/Compose's per-finding suggested fix. Only attempted
+    once the main summary already succeeded, and its own failure never invalidates that
+    summary -- same "never fatal" treatment, just logged and left as None."""
     try:
         compose_config = compose_lookup.find_service_config(container["container_name"])
-        return summarize_update(
+        summary_markdown, severity = summarize_update(
             container_name=container["container_name"],
             image_repo=container["image_repo"],
             old_tag_or_digest=container.get("current_digest"),
@@ -425,6 +464,21 @@ def _summarize_container(container: dict, release_notes_raw: str) -> tuple[str, 
     except Exception:
         logger.exception("AI summarization failed for %s", container["container_name"])
         return None
+
+    upgrade_guidance = None
+    if db.get_deep_analysis_enabled("updates"):
+        try:
+            upgrade_guidance = generate_upgrade_guidance(
+                container_name=container["container_name"],
+                image_repo=container["image_repo"],
+                release_notes=release_notes_raw,
+                compose_config=compose_config,
+                summary_markdown=summary_markdown,
+            ) or None
+        except Exception:
+            logger.exception("Upgrade guidance generation failed for %s", container["container_name"])
+
+    return summary_markdown, severity, upgrade_guidance
 
 
 def _persist_one(container: dict, existing, release_notes_result, summary_result, conn) -> dict | None:
@@ -469,17 +523,20 @@ def _persist_one(container: dict, existing, release_notes_result, summary_result
         release_notes_raw, source_url = None, None
 
     if summary_result:
-        summary_markdown, severity = summary_result
+        summary_markdown, severity, upgrade_guidance = summary_result
     elif same_transition:
-        summary_markdown, severity = existing["summary_markdown"], existing["severity"]
+        summary_markdown, severity, upgrade_guidance = (
+            existing["summary_markdown"], existing["severity"], existing["upgrade_guidance"]
+        )
     else:
-        summary_markdown, severity = None, ""
+        summary_markdown, severity, upgrade_guidance = None, "", None
 
     unchanged = (
         same_transition
         and existing["release_notes_raw"] == release_notes_raw
         and existing["summary_markdown"] == summary_markdown
         and existing["severity"] == severity
+        and existing["upgrade_guidance"] == upgrade_guidance
     )
     if unchanged:
         return None
@@ -492,6 +549,7 @@ def _persist_one(container: dict, existing, release_notes_result, summary_result
         summary_markdown=summary_markdown, source_url=source_url,
         error=error_text, severity=severity,
         release_notes_raw=release_notes_raw,
+        upgrade_guidance=upgrade_guidance,
         conn=conn,
     )
     return {
@@ -640,8 +698,11 @@ def run_and_persist_regenerate_summary(container_name: str) -> bool:
     if result is None:
         return False
 
-    summary_markdown, severity = result
-    db.update_existing_update(existing["id"], summary_markdown, severity, existing["error"], existing["source_url"])
+    summary_markdown, severity, upgrade_guidance = result
+    db.update_existing_update(
+        existing["id"], summary_markdown, severity, existing["error"], existing["source_url"],
+        upgrade_guidance=upgrade_guidance,
+    )
     return True
 
 

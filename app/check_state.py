@@ -36,6 +36,20 @@ def set_running(feature: str) -> None:
         _progress[feature] = {"stage": None, "done": 0, "total": 0}
 
 
+def try_start(feature: str) -> bool:
+    """Atomically claims the "a check is running" slot for this feature if it's free, same
+    shape as persist.try_start_updates_check() (kept there too, unchanged, since callers
+    already depend on its exact name) -- returns True if this caller now owns it, False if a
+    check was already in progress. Used directly by features (e.g. Logs' scoped stack-retry
+    actions) that don't have their own persist.py-level wrapper of this."""
+    with _lock:
+        if _state[feature]["running"]:
+            return False
+        _state[feature]["running"] = True
+        _progress[feature] = {"stage": None, "done": 0, "total": 0}
+    return True
+
+
 def release_running(feature: str) -> None:
     """Clears the running flag without touching last_result/last_run_at — for a caller (a
     scoped item-level recheck) that shares the same "only one check at a time" mutex as a
