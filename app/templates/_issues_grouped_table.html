@@ -30,7 +30,7 @@
       <th>{{ sh.sort_link('Container' if source == 'logs' else 'Compose file', 'name', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       {% if show_stack_column %}<th>{{ sh.sort_link('Stack', 'stack', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>{% endif %}
       <th>{{ sh.sort_link('Findings', 'findings', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
-      <th>{{ sh.sort_link('Last seen', 'lastseen', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th>{{ sh.sort_link('Detected', 'lastseen', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th class="cell-centered">{{ sh.sort_link('Severity', 'severity', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th class="cell-centered">{{ sh.sort_link('Read', 'unread', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th></th>

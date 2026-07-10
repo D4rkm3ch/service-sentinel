@@ -162,3 +162,56 @@ def test_compose_subject_findings_page_defaults_to_severity_sort_not_seen(client
 
     db.set_finding_status(fid_warn, "silenced")
     db.set_finding_status(fid_crit, "silenced")
+
+
+def test_issues_table_last_seen_column_renamed_to_detected_like_updates(client):
+    fid, _ = db.upsert_finding("logs", "detected-header-logs-test", "OOM", "crash", "critical", "desc")
+    db.set_finding_status(fid, "active")
+
+    resp = client.get("/logs")
+    table = resp.text[resp.text.index('id="logs-issues-table"'):]
+    header = table[:table.index("<tbody>")]
+    assert "Detected" in header
+    assert "Last seen" not in header
+
+    db.set_finding_status(fid, "silenced")
+
+
+def test_logs_stack_detail_last_seen_column_renamed_to_detected(client):
+    from pathlib import Path
+    text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "logs_stack_detail.html").read_text()
+    assert "<th>Detected</th>" in text
+    assert "Last seen" not in text
+
+
+def test_subject_findings_page_seen_column_renamed_to_detected_and_drops_occurrence_prefix(client):
+    # 2+ findings needed -- a subject with exactly one finding redirects straight to that
+    # finding's own detail page instead of rendering this table at all.
+    fid1, _ = db.upsert_finding("logs", "detected-format-test", "OOM", "crash", "critical", "desc")
+    fid2, _ = db.upsert_finding("logs", "detected-format-test", "Disk pressure", "resource", "warning", "desc2")
+    db.set_finding_status(fid1, "active")
+    db.set_finding_status(fid2, "active")
+
+    resp = client.get("/logs/container/detected-format-test")
+    table = resp.text[resp.text.index("findings-table"):]
+    header = table[:table.index("<tbody>")]
+    assert "sort=seen" in header  # internal sort param is unchanged, only the label
+    body = table[table.index("<tbody>"):]
+    assert "×" not in body
+    assert "last " not in body
+
+    db.set_finding_status(fid1, "silenced")
+    db.set_finding_status(fid2, "silenced")
+
+
+def test_collapse_state_persists_via_localstorage_across_page_loads():
+    """The collapsed/expanded state of the top table must survive navigating away and back
+    (or reloading), not just last for the current page view."""
+    from pathlib import Path
+    text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "base.html").read_text()
+    assert "localStorage.getItem" in text
+    assert "localStorage.setItem" in text
+    # Restoring on load must apply the collapsed state immediately (no transition), and must be
+    # keyed by the specific table (body.id), not a single sitewide flag -- collapsing Logs'
+    # table shouldn't also collapse Updates' or Compose's.
+    assert 'body.id' in text

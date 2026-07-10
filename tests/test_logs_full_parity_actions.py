@@ -627,7 +627,8 @@ def test_issues_table_severity_column_is_right_of_last_seen(client):
     resp = client.get("/logs")
     table = resp.text[resp.text.index('id="logs-issues-table"'):]
     header = table[:table.index("<tbody>")]
-    assert header.index("Last seen") < header.index("Severity")
+    # "Last seen" was renamed to "Detected" to match Updates' own column naming.
+    assert header.index("Detected") < header.index("Severity")
 
 
 def test_logs_stack_detail_severity_column_is_right_of_last_seen(client):
@@ -640,7 +641,8 @@ def test_logs_stack_detail_severity_column_is_right_of_last_seen(client):
         resp = client.get(f"/logs/stack?id={stack_id}")
         table = resp.text[resp.text.index("findings-table"):]
         header = table[:table.index("<tbody>")]
-        assert header.index(">Last seen<") < header.index(">Severity<")
+        # "Last seen" was renamed to "Detected" to match Updates' own column naming.
+        assert header.index(">Detected<") < header.index(">Severity<")
     finally:
         compose_file.unlink()
 

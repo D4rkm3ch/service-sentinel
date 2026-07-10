@@ -110,7 +110,7 @@
       <tr>
         <th>{{ sh.sort_link('Title', 'title', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
         <th>{{ sh.sort_link('Category', 'category', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th>{{ sh.sort_link('Seen', 'seen', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
+        <th>{{ sh.sort_link('Detected', 'seen', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
         <th class="cell-centered">{{ sh.sort_link('Severity', 'severity', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
         <th class="cell-centered">{{ sh.sort_link('Silenced', 'silenced', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
         <th class="cell-centered">{{ sh.sort_link('Read', 'read', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
@@ -122,7 +122,7 @@
       <tr class="row-clickable" onclick="window.location='/findings/{{ f.id }}'">
         <td><span class="truncate-cell" title="{{ f.title }}">{{ f.title }}</span></td>
         <td>{{ f.category|capitalize }}</td>
-        <td class="nowrap">{{ f.occurrence_count }}× · last {{ f.last_seen_at | local_dt }}</td>
+        <td class="nowrap">{{ f.last_seen_at | local_dt }}</td>
         <td class="cell-centered"><span class="badge badge-sev-{{ f.severity }}">{{ severity_label(source, f.severity) }}</span></td>
         <td class="cell-centered">
           {% if f.status == 'silenced' %}
