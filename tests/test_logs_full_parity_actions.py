@@ -665,3 +665,84 @@ def test_all_containers_table_shows_partially_silenced_badge(client):
     row = section[section.index("table-partial-a"):]
     row = row[:row.index("</tr>")]
     assert "badge-partially-silenced\">Partially Silenced</span>" in row
+
+
+# ---------------------------------------------------------------------------
+# Finding-level page: Back to Stack link + Check Now/Regenerate/Reset & re-check buttons
+# (mirroring detail.html's update-level action row), and an "Issue" heading above the
+# description body to match the "Suggested fix" heading's treatment.
+# ---------------------------------------------------------------------------
+
+def test_finding_page_shows_an_issue_heading_above_the_description(client):
+    fid, _ = db.upsert_finding("logs", "finding-heading-a", "OOM", "crash", "critical", "desc text")
+    resp = client.get(f"/findings/{fid}")
+    body = resp.text[resp.text.index('class="detail-body"'):]
+    assert "<h3>Issue</h3>" in body
+    assert body.index("<h3>Issue</h3>") < body.index("desc text")
+
+
+def test_finding_page_has_check_now_and_reset_buttons_scoped_to_its_subject(client):
+    fid, _ = db.upsert_finding("logs", "finding-buttons-a", "OOM", "crash", "critical", "desc")
+    db.upsert_finding("logs", "finding-buttons-a", "Disk full", "resource", "warning", "desc2")
+
+    resp = client.get(f"/findings/{fid}")
+    assert 'hx-post="/logs/container/finding-buttons-a/check-now"' in resp.text
+    assert 'hx-post="/logs/container/finding-buttons-a/reset-and-recheck"' in resp.text
+    assert 'hx-post="/logs/container/finding-buttons-a/regenerate"' in resp.text
+
+
+def test_finding_page_hides_regenerate_when_its_subject_has_fewer_than_two_findings(client):
+    fid, _ = db.upsert_finding("logs", "finding-single-a", "OOM", "crash", "critical", "desc")
+    resp = client.get(f"/findings/{fid}")
+    assert 'hx-post="/logs/container/finding-single-a/check-now"' in resp.text
+    assert 'hx-post="/logs/container/finding-single-a/regenerate"' not in resp.text
+
+
+def test_finding_page_action_buttons_do_not_appear_for_compose(client):
+    fid, _ = db.upsert_finding("compose", "finding-compose.yml", "Missing restart policy", "reliability", "critical", "d1")
+    db.upsert_finding("compose", "finding-compose.yml", "No healthcheck", "reliability", "warning", "d2")
+    resp = client.get(f"/findings/{fid}")
+    assert "/check-now" not in resp.text
+    assert "/reset-and-recheck" not in resp.text
+    assert "/regenerate" not in resp.text
+
+
+def test_finding_page_shows_back_to_stack_link_for_a_stack_member(client):
+    compose_file = _compose_file("finding-stack-link.yml", "finding-stack-svc-a", "finding-stack-svc-b")
+    try:
+        fid, _ = db.upsert_finding("logs", "finding-stack-svc-a", "OOM", "crash", "critical", "desc")
+        db.upsert_finding("logs", "finding-stack-svc-a", "Disk full", "resource", "warning", "desc2")
+        stack_id = _stack_id_for("finding-stack-svc-a")
+
+        resp = client.get(f"/findings/{fid}")
+        assert f'/logs/stack?id={stack_id}' in resp.text
+        assert "Back to Stack" in resp.text
+    finally:
+        compose_file.unlink()
+
+
+def test_finding_page_has_no_back_to_stack_link_for_an_ungrouped_container(client):
+    fid, _ = db.upsert_finding("logs", "finding-ungrouped-a", "OOM", "crash", "critical", "desc")
+    resp = client.get(f"/findings/{fid}")
+    assert "Back to Stack" not in resp.text
+
+
+def test_service_page_shows_back_to_stack_link_for_a_stack_member(client):
+    compose_file = _compose_file("service-stack-link.yml", "service-stack-svc-a", "service-stack-svc-b")
+    try:
+        db.upsert_finding("logs", "service-stack-svc-a", "OOM", "crash", "critical", "desc")
+        db.upsert_finding("logs", "service-stack-svc-a", "Disk full", "resource", "warning", "desc2")
+        stack_id = _stack_id_for("service-stack-svc-a")
+
+        resp = client.get("/logs/container/service-stack-svc-a")
+        assert f'/logs/stack?id={stack_id}' in resp.text
+        assert "Back to Stack" in resp.text
+    finally:
+        compose_file.unlink()
+
+
+def test_service_page_has_no_back_to_stack_link_for_an_ungrouped_container(client):
+    db.upsert_finding("logs", "service-ungrouped-a", "OOM", "crash", "critical", "desc")
+    db.upsert_finding("logs", "service-ungrouped-a", "Disk full", "resource", "warning", "desc2")
+    resp = client.get("/logs/container/service-ungrouped-a")
+    assert "Back to Stack" not in resp.text

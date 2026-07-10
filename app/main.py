@@ -1260,6 +1260,8 @@ def logs_container_detail(request: Request, container_name: str):
     overview = _get_or_build_overview("logs", container_name, container_name, findings)
     overview_html = render_markdown(overview) if overview else None
     summary = _findings_summary(findings)
+    stack_info = compose_lookup.get_stack_info(container_name)
+    stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
     return templates.TemplateResponse(
         "subject_findings.html",
         {
@@ -1269,6 +1271,7 @@ def logs_container_detail(request: Request, container_name: str):
             **summary,
             "silence_state": _silence_state(summary["active_count"], summary["silenced_count"]),
             "last_checked_at": db.get_log_watch_checkpoint(container_name),
+            "stack_id": stack_id,
             "active_tab": "logs",
         },
     )
@@ -1909,12 +1912,26 @@ def finding_detail(request: Request, finding_id: int):
     description_html = render_markdown(finding["description_markdown"] or "")
     suggested_fix_html = render_markdown(finding["suggested_fix"]) if finding["suggested_fix"] else None
     display_name = compose_lookup.subject_display_name(finding["source"], finding["subject"])
+
+    # Logs-only: a finding's Check Now/Regenerate/Reset & re-check operate on its own subject
+    # (container), same routes subject_findings.html uses -- there's no per-finding equivalent
+    # since a finding's own AI content can only ever come from a fresh log fetch for its whole
+    # container, not from something stored per-finding. Not offered for Compose, same as every
+    # other stack-shaped concept (see stacks.py).
+    stack_id = None
+    subject_findings_count = 0
+    if finding["source"] == "logs":
+        stack_info = compose_lookup.get_stack_info(finding["subject"])
+        stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
+        subject_findings_count = len(db.list_findings_for_subject("logs", finding["subject"], include_silenced=True))
+
     return templates.TemplateResponse(
         "finding_detail.html",
         {
             "request": request, "finding": finding, "description_html": description_html,
             "suggested_fix_html": suggested_fix_html,
             "display_name": display_name, "active_tab": finding["source"],
+            "stack_id": stack_id, "subject_findings_count": subject_findings_count,
         },
     )
 

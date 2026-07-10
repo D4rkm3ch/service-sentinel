@@ -4,6 +4,9 @@
 
 <div class="back-link-row">
   <a href="{{ back_url }}" class="back-link">← Back to {{ 'Logs' if back_url == '/logs' else 'Compose' }}</a>
+  {% if stack_id %}
+  <a href="/logs/stack?id={{ stack_id|urlencode }}" class="back-link">← Back to Stack</a>
+  {% endif %}
 </div>
 
 <section class="panel">

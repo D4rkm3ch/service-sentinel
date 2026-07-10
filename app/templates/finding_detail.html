@@ -4,6 +4,9 @@
 
 <div class="back-link-row">
   <a href="{{ '/logs' if finding.source == 'logs' else '/compose' }}" class="back-link">← Back to {{ 'Logs' if finding.source == 'logs' else 'Compose' }}</a>
+  {% if stack_id %}
+  <a href="/logs/stack?id={{ stack_id|urlencode }}" class="back-link">← Back to Stack</a>
+  {% endif %}
 </div>
 
 <section class="panel">
@@ -51,10 +54,32 @@
       </button>
       {% endif %}
     </span>
+    {% if finding.source == 'logs' %}
+    <button type="button" class="logs-action-btn"
+            hx-post="/logs/container/{{ finding.subject }}/check-now"
+            hx-target="#item-recheck-status" hx-swap="outerHTML">
+      Check Now
+    </button>
+    {% if subject_findings_count >= 2 %}
+    <button type="button" class="button-warn logs-action-btn"
+            hx-post="/logs/container/{{ finding.subject }}/regenerate"
+            hx-target="#item-recheck-status" hx-swap="outerHTML">
+      Regenerate AI Response
+    </button>
+    {% endif %}
+    <button type="button" class="button-danger logs-action-btn"
+            hx-post="/logs/container/{{ finding.subject }}/reset-and-recheck"
+            hx-target="#item-recheck-status" hx-swap="outerHTML"
+            hx-confirm="This wipes this container's finding history (including this finding) and re-checks it fresh. Continue?">
+      Reset &amp; re-check
+    </button>
+    <span id="item-recheck-status"></span>
+    {% endif %}
   </div>
 
   <div class="detail-body">
     <div class="summary">
+      <h3>Issue</h3>
       {{ description_html | safe }}
     </div>
 
