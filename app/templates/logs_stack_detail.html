@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_sort_header.html" as sh %}
 {% block title %}{{ display_name }} — release-radar{% endblock %}
 {% block content %}
 
@@ -85,11 +86,11 @@
     </colgroup>
     <thead>
       <tr>
-        <th>Container</th>
-        <th>Findings</th>
-        <th>Detected</th>
-        <th class="cell-centered">Severity</th>
-        <th class="cell-centered">Read</th>
+        <th>{{ sh.sort_link('Container', 'container', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th>{{ sh.sort_link('Findings', 'findings', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
+        <th>{{ sh.sort_link('Detected', 'detected', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
+        <th class="cell-centered">{{ sh.sort_link('Severity', 'severity', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="cell-centered">{{ sh.sort_link('Read', 'read', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
         <th></th>
       </tr>
     </thead>

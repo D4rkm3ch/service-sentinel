@@ -690,6 +690,23 @@ def _sort_subject_findings(findings: list[dict], sort: str, direction: str) -> l
     return sorted(findings, key=lambda f: f["last_seen_at"], reverse=reverse)
 
 
+def _sort_stack_members(members: list[dict], sort: str, direction: str) -> list[dict]:
+    """Sorts logs_stack_detail.html's per-stack members table -- a small, single-stack result
+    set, so plain full-page sort links are enough here (see _sort_header.html's macro used
+    without partial_url/target_id), same as _sort_subject_findings. Default ("severity", asc)
+    matches the Issues table and every other findings table in the app."""
+    reverse = direction == "desc"
+    if sort == "findings":
+        return sorted(members, key=lambda m: m["active_count"], reverse=reverse)
+    if sort == "detected":
+        return sorted(members, key=lambda m: m.get("last_checked_at") or "", reverse=reverse)
+    if sort == "severity":
+        return sorted(members, key=lambda m: _ISSUE_SEVERITY_RANK.get(m.get("top_severity"), 99), reverse=reverse)
+    if sort == "read":
+        return sorted(members, key=lambda m: m.get("unread_count") or 0, reverse=reverse)
+    return sorted(members, key=lambda m: m["container_name"].lower(), reverse=reverse)
+
+
 def _get_or_build_overview(source: str, subject: str, display_name: str, findings, force: bool = False) -> str | None:
     """Combined AI overview shown above a subject's findings list. Cached by a hash of the
     current finding set so it's only regenerated (costing an API call) when something about
@@ -1335,7 +1352,7 @@ def logs_container_detail(request: Request, container_name: str, sort: str = "se
 
 
 @app.get("/logs/stack")
-def logs_stack_detail(request: Request, id: str):
+def logs_stack_detail(request: Request, id: str, sort: str = "severity", dir: str = "asc"):
     """Logs' equivalent of /updates/stack -- groups every log-watched container belonging to
     the same compose stack onto one page, each row summarized the same way a row in the Issues
     table is (top severity, active/silenced counts, an aggregate unread indicator). Stack
@@ -1372,9 +1389,11 @@ def logs_stack_detail(request: Request, id: str):
         "logs_stack_detail.html",
         {
             "request": request, "stack_id": id, "display_name": display_name,
-            "members": members, "active_tab": "logs",
+            "members": _sort_stack_members(members, sort, dir), "active_tab": "logs",
             "cross_service_enabled": cross_service_enabled, "analysis_html": analysis_html,
             "silence_state": _silence_state(active_total, silenced_total),
+            "sort": sort, "dir": dir,
+            "sort_base_url": "/logs/stack", "sort_extra_qs": "&id=" + quote(id),
         },
     )
 

@@ -641,8 +641,9 @@ def test_logs_stack_detail_severity_column_is_right_of_last_seen(client):
         resp = client.get(f"/logs/stack?id={stack_id}")
         table = resp.text[resp.text.index("findings-table"):]
         header = table[:table.index("<tbody>")]
-        # "Last seen" was renamed to "Detected" to match Updates' own column naming.
-        assert header.index(">Detected<") < header.index(">Severity<")
+        # "Last seen" was renamed to "Detected" to match Updates' own column naming; headers
+        # are now sort links (see _sort_header.html), not bare <th> text.
+        assert header.index("sort=detected") < header.index("sort=severity")
     finally:
         compose_file.unlink()
 
@@ -1232,3 +1233,52 @@ def test_compose_file_findings_table_sort_links_preserve_the_path_query_param(cl
     finally:
         with db.get_conn() as conn:
             conn.execute("DELETE FROM compose_file_state WHERE file_path = 'silenced-sort-compose.yml'")
+
+
+# ---------------------------------------------------------------------------
+# The Logs stack detail members table is sortable too, same as every other findings table.
+# ---------------------------------------------------------------------------
+
+def test_logs_stack_detail_members_table_is_sortable_and_defaults_to_severity(client):
+    compose_file = _compose_file("stack-sortable.yml", "sortable-svc-a", "sortable-svc-b")
+    try:
+        db.set_log_watch_checkpoint("sortable-svc-a")
+        db.set_log_watch_checkpoint("sortable-svc-b")
+        db.upsert_finding("logs", "sortable-svc-a", "minor issue", "reliability", "warning", "d1")
+        db.upsert_finding("logs", "sortable-svc-b", "big crash", "crash", "critical", "d2")
+        stack_id = _stack_id_for("sortable-svc-a")
+
+        resp = client.get(f"/logs/stack?id={stack_id}")
+        table = resp.text[resp.text.index("findings-table"):]
+        header = table[:table.index("<tbody>")]
+        assert "sort-link" in header
+        # Default (no sort params) is severity-first, most severe on top -- same convention as
+        # the Issues table and every other findings table in the app.
+        body = table[table.index("<tbody>"):]
+        assert body.index("sortable-svc-b") < body.index("sortable-svc-a")
+
+        # Explicit sort by container name works too.
+        resp = client.get(f"/logs/stack?id={stack_id}&sort=container&dir=asc")
+        body = resp.text[resp.text.index("<tbody>"):]
+        assert body.index("sortable-svc-a") < body.index("sortable-svc-b")
+    finally:
+        compose_file.unlink()
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE subject IN ('sortable-svc-a', 'sortable-svc-b')")
+            conn.execute("DELETE FROM log_watch_state WHERE container_name IN ('sortable-svc-a', 'sortable-svc-b')")
+
+
+def test_logs_stack_detail_sort_links_preserve_the_id_query_param(client):
+    compose_file = _compose_file("stack-sort-qs.yml", "sort-qs-svc-a", "sort-qs-svc-b")
+    try:
+        db.set_log_watch_checkpoint("sort-qs-svc-a")
+        db.set_log_watch_checkpoint("sort-qs-svc-b")
+        stack_id = _stack_id_for("sort-qs-svc-a")
+
+        resp = client.get(f"/logs/stack?id={stack_id}")
+        assert f"id={stack_id}" in resp.text
+        assert "sort=container" in resp.text
+    finally:
+        compose_file.unlink()
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM log_watch_state WHERE container_name IN ('sort-qs-svc-a', 'sort-qs-svc-b')")

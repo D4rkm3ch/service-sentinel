@@ -107,8 +107,11 @@ def test_issues_table_severity_and_read_columns_are_centered(client):
 def test_logs_stack_detail_severity_and_read_columns_are_centered():
     from pathlib import Path
     text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "logs_stack_detail.html").read_text()
-    assert '<th class="cell-centered">Severity</th>' in text
-    assert '<th class="cell-centered">Read</th>' in text
+    # Headers are now sort links (see _sort_header.html), not bare <th>Label</th>.
+    header = text[text.index("<thead>"):text.index("</thead>")]
+    assert header.count('th class="cell-centered"') == 2
+    assert "'severity'" in header
+    assert "'read'" in header
 
 
 def test_collapse_arrow_is_a_larger_font_size_than_the_original_11px():
@@ -180,7 +183,8 @@ def test_issues_table_last_seen_column_renamed_to_detected_like_updates(client):
 def test_logs_stack_detail_last_seen_column_renamed_to_detected(client):
     from pathlib import Path
     text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "logs_stack_detail.html").read_text()
-    assert "<th>Detected</th>" in text
+    # Header is now a sort link (see _sort_header.html), not a bare <th>Detected</th>.
+    assert "sh.sort_link('Detected', 'detected'" in text
     assert "Last seen" not in text
 
 
