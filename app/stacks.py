@@ -11,7 +11,7 @@ from app import check_state, compose_lookup, db
 from app.config import settings
 from app.summarizer import analyze_log_stack_impact, analyze_stack_impact, generate_stack_name
 
-logger = logging.getLogger("release_radar.stacks")
+logger = logging.getLogger("service_sentinel.stacks")
 
 
 def get_or_generate_stack_name(stack_id: str, service_names: list[str]) -> str:

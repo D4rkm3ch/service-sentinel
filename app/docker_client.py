@@ -5,10 +5,22 @@ import docker
 
 from app.config import settings
 
-IGNORE_LABEL = "releaseradar.ignore"
-LOGS_IGNORE_LABEL = "releaseradar.logs.ignore"
-SOURCE_LABEL = "releaseradar.source"
-CHANGELOG_LABEL = "releaseradar.changelog_url"
+IGNORE_LABEL = "servicesentinel.ignore"
+LOGS_IGNORE_LABEL = "servicesentinel.logs.ignore"
+SOURCE_LABEL = "servicesentinel.source"
+CHANGELOG_LABEL = "servicesentinel.changelog_url"
+
+# Pre-rebrand (release-radar) label names. Checked as a fallback wherever a label above is
+# read, so a compose file that hasn't been updated to the new prefix yet keeps working exactly
+# as before instead of silently going unrecognized.
+_LEGACY_IGNORE_LABEL = "releaseradar.ignore"
+_LEGACY_LOGS_IGNORE_LABEL = "releaseradar.logs.ignore"
+_LEGACY_SOURCE_LABEL = "releaseradar.source"
+_LEGACY_CHANGELOG_LABEL = "releaseradar.changelog_url"
+
+
+def _label(labels: dict, key: str, legacy_key: str) -> str:
+    return labels.get(key) or labels.get(legacy_key, "")
 
 
 @dataclass
@@ -21,15 +33,15 @@ class TrackedContainer:
 
     @property
     def source_override(self) -> str | None:
-        return self.labels.get(SOURCE_LABEL)
+        return _label(self.labels, SOURCE_LABEL, _LEGACY_SOURCE_LABEL) or None
 
     @property
     def changelog_url_override(self) -> str | None:
-        return self.labels.get(CHANGELOG_LABEL)
+        return _label(self.labels, CHANGELOG_LABEL, _LEGACY_CHANGELOG_LABEL) or None
 
     @property
     def logs_ignored(self) -> bool:
-        return self.labels.get(LOGS_IGNORE_LABEL, "").lower() == "true"
+        return _label(self.labels, LOGS_IGNORE_LABEL, _LEGACY_LOGS_IGNORE_LABEL).lower() == "true"
 
 
 _DIGEST_SUFFIX = re.compile(r"@[a-zA-Z0-9]+:[0-9a-fA-F]{32,}$")
@@ -60,7 +72,7 @@ def list_tracked_containers() -> list[TrackedContainer]:
         result = []
         for c in containers:
             labels = c.labels or {}
-            if labels.get(IGNORE_LABEL, "").lower() == "true":
+            if _label(labels, IGNORE_LABEL, _LEGACY_IGNORE_LABEL).lower() == "true":
                 continue
 
             image_ref = c.attrs["Config"]["Image"]
@@ -96,7 +108,7 @@ def list_running_containers_for_logs() -> list[TrackedContainer]:
         result = []
         for c in containers:
             labels = c.labels or {}
-            if labels.get(LOGS_IGNORE_LABEL, "").lower() == "true":
+            if _label(labels, LOGS_IGNORE_LABEL, _LEGACY_LOGS_IGNORE_LABEL).lower() == "true":
                 continue
             image_ref = c.attrs["Config"]["Image"]
             repo, tag = _split_image_ref(image_ref)

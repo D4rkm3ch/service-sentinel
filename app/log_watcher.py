@@ -9,7 +9,7 @@ from app.log_filter import extract_suspicious_excerpt
 from app.notifications import notify_finding, notify_logs_check_errors
 from app.summarizer import analyze_logs_batch
 
-logger = logging.getLogger("release_radar.log_watcher")
+logger = logging.getLogger("service_sentinel.log_watcher")
 
 ProgressFunc = Optional[Callable[[str, int, int], None]]
 

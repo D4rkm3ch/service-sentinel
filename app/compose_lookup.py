@@ -139,7 +139,7 @@ def get_stack_info(container_name: str) -> dict | None:
     """Resolves which compose file (stack) a container belongs to, and who else lives in
     that same file. The stack's identity is the compose file's own path — stable as long
     as the file isn't moved, and naturally shared by every service defined in it. Returns
-    None for containers release-radar can't match to any compose file (not Dockge-managed,
+    None for containers Service Sentinel can't match to any compose file (not Dockge-managed,
     or the compose file lives somewhere it can't see) — these are left ungrouped.
 
     This does a fresh directory walk — for annotating many rows at once (e.g. a whole
@@ -179,7 +179,7 @@ def subject_display_name(source: str, subject: str) -> str:
 
 
 def list_compose_files() -> list:
-    """Returns every compose file release-radar can see under COMPOSE_ROOT."""
+    """Returns every compose file Service Sentinel can see under COMPOSE_ROOT."""
     if not settings.compose_root.exists():
         return []
     return list(settings.compose_root.rglob("*.yml")) + list(settings.compose_root.rglob("*.yaml"))

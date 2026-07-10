@@ -18,7 +18,7 @@ class Settings:
 
         self.compose_root: Path = Path(os.environ.get("COMPOSE_ROOT", "/compose"))
         self.data_dir: Path = Path(os.environ.get("DATA_DIR", "/data"))
-        self.db_path: Path = self.data_dir / "release_radar.db"
+        self.db_path: Path = self.data_dir / "service_sentinel.db"
 
         self.docker_socket: str = os.environ.get("DOCKER_SOCKET", "unix://var/run/docker.sock")
 

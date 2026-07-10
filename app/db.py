@@ -173,6 +173,12 @@ def _set_setting(key: str, value: str) -> None:
 
 def init_db() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    # Migration: pre-rebrand installs (release-radar) stored the database under the old
+    # filename. Move it forward under the new name on first startup after the upgrade so an
+    # existing install's history isn't orphaned.
+    _legacy_db_path = settings.data_dir / "release_radar.db"
+    if not settings.db_path.exists() and _legacy_db_path.exists():
+        _legacy_db_path.rename(settings.db_path)
     with get_conn() as conn:
         conn.executescript(SCHEMA)
         for key, value in DEFAULT_FEATURE_STATE.items():

@@ -9,7 +9,7 @@ from app.config import settings
 from app.log_watcher import run_log_check
 from app.schedule_spec import build_trigger
 
-logger = logging.getLogger("release_radar.scheduler")
+logger = logging.getLogger("service_sentinel.scheduler")
 
 # settings.tz (the TZ env var) only ever seeds the scheduler's own bootstrap default here,
 # used for the brief window before apply_schedules() first runs (which happens immediately

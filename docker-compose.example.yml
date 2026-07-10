@@ -1,7 +1,7 @@
 services:
-  release-radar:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/release-radar:latest
-    container_name: release-radar
+  service-sentinel:
+    image: ghcr.io/YOUR_GITHUB_USERNAME/service-sentinel:latest
+    container_name: service-sentinel
     restart: unless-stopped
     ports:
       - "8420:8000"
@@ -25,7 +25,7 @@ services:
       # Read-only: point this at wherever Dockge stores your stack compose files.
       - /opt/stacks:/compose:ro
       # Read-write: SQLite database of detected updates and generated notes.
-      - release-radar-data:/data
+      - service-sentinel-data:/data
 
 volumes:
-  release-radar-data:
+  service-sentinel-data:

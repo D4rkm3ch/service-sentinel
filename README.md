@@ -1,4 +1,9 @@
-# Release Radar
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="app/static/logo-white.svg">
+  <img src="app/static/logo-black.svg" alt="Service Sentinel" width="120">
+</picture>
+
+# Service Sentinel
 
 A companion to [Dockhand](https://github.com/izm1chael/Dockhand) (or any updater) that answers
 questions Dockhand doesn't: **what does this update actually change for *my* setup, is anything
@@ -36,11 +41,14 @@ Add these to a service in your compose file to override default behaviour:
 
 ```yaml
 labels:
-  releaseradar.ignore: "true"                     # skip this container for update-checking
-  releaseradar.logs.ignore: "true"                # skip this container for log watching
-  releaseradar.source: "owner/repo"                # force the GitHub repo to check for release notes
-  releaseradar.changelog_url: "https://example.com/changelog"  # skip auto-detection, use this URL directly
+  servicesentinel.ignore: "true"                     # skip this container for update-checking
+  servicesentinel.logs.ignore: "true"                # skip this container for log watching
+  servicesentinel.source: "owner/repo"                # force the GitHub repo to check for release notes
+  servicesentinel.changelog_url: "https://example.com/changelog"  # skip auto-detection, use this URL directly
 ```
+
+Upgrading from release-radar: the old `releaseradar.*` label names still work as a fallback, so
+there's no rush to update existing compose files.
 
 ## Running it
 

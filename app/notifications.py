@@ -36,7 +36,7 @@ from apprise import NotifyFormat, NotifyType
 from app import db
 from app.config import settings
 
-logger = logging.getLogger("release_radar.notifications")
+logger = logging.getLogger("service_sentinel.notifications")
 
 # app_id="" removes the small embed author line entirely (Apprise defaults it to "Apprise").
 # image_url_mask/image_url_logo="" makes Apprise's own asset.image_url() return None for every
@@ -218,7 +218,7 @@ def send_test_notification(urls: list[str] | None = None) -> tuple[bool, str]:
         if not all_valid:
             return False, "One or more Apprise URLs look malformed — check the format against https://github.com/caronc/apprise."
         success = a.notify(
-            title="Release Radar test notification",
+            title="Service Sentinel test notification",
             body="If you're seeing this, your Apprise URL is configured correctly.",
         )
         if success:

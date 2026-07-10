@@ -10,11 +10,11 @@ unconditional now because the whole point of the app is real release notes, and 
 that falls through every guess above without this step never gets any — silently defeating the
 purpose for exactly the images that need it most (ones that don't follow a guessable naming
 convention). Priority order get_release_notes() actually uses:
-1. A per-container 'releaseradar.changelog_url' label override — fetched as plain text/markdown.
+1. A per-container 'servicesentinel.changelog_url' label override — fetched as plain text/markdown.
 2. The cached location that worked last time for this exact image (see release_notes_cache
    in db.py) — skips straight past guessing if it still works, and falls through to full
    discovery below if it doesn't (e.g. the repo was renamed or moved).
-3. A per-container 'releaseradar.source' label override (owner/repo) — used against GitHub Releases.
+3. A per-container 'servicesentinel.source' label override (owner/repo) — used against GitHub Releases.
 4. Best-effort guesses based on naming convention: ghcr.io images map directly to a GitHub
    repo; LinuxServer images follow their docker-<name>/<name> convention; a plain Docker Hub
    image's namespace is often the same as the project's GitHub username too.
@@ -39,7 +39,7 @@ from app import ai_provider, db
 from app.ai_json import extract_json
 from app.config import settings
 
-logger = logging.getLogger("release_radar.release_notes")
+logger = logging.getLogger("service_sentinel.release_notes")
 
 # Hard ceiling on how many releases get compiled into one prompt regardless of the Settings
 # lookback window -- a container that's gone unchecked for a very long time (or one with a

@@ -28,10 +28,10 @@ from app.scheduler import (
 )
 from app.uptime import get_uptime_str
 
-RELEASE_RADAR_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger("release_radar")
+logger = logging.getLogger("service_sentinel")
 
 
 class NoStoreMiddleware(BaseHTTPMiddleware):
@@ -49,19 +49,19 @@ def _static_asset_version() -> str:
     (see base.html) -- StaticFiles is deliberately excluded from NoStoreMiddleware below so
     browsers can cache CSS/JS long-term, but that means a plain unversioned /static/style.css
     URL keeps serving an old cached copy after a deploy changes it. Hashing the file instead of
-    just using RELEASE_RADAR_VERSION means this bumps automatically on every CSS change, not
-    only on releases that remembered to bump the version string."""
+    just using APP_VERSION means this bumps automatically on every CSS change, not only on
+    releases that remembered to bump the version string."""
     css_path = Path(__file__).parent / "static" / "style.css"
     return hashlib.sha256(css_path.read_bytes()).hexdigest()[:10]
 
 
-app = FastAPI(title="release-radar")
+app = FastAPI(title="Service Sentinel")
 app.add_middleware(NoStoreMiddleware)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
-templates.env.globals["app_version"] = RELEASE_RADAR_VERSION
+templates.env.globals["app_version"] = APP_VERSION
 templates.env.globals["static_asset_version"] = _static_asset_version()
-templates.env.globals["github_url"] = "https://github.com/D4rkm3ch/release-radar"
+templates.env.globals["github_url"] = "https://github.com/D4rkm3ch/service-sentinel"
 templates.env.globals["app_timezone"] = db.get_timezone  # a callable, not a value -- Stage 5c
 templates.env.globals["get_uptime_str"] = get_uptime_str
 
@@ -114,7 +114,7 @@ templates.env.filters["local_dt"] = local_dt
 # Every markdown-rendered block in the app (release notes, AI summaries/overviews, finding
 # descriptions and suggested fixes) can contain links the user didn't put there themselves --
 # a GitHub release body linking to Watchtower, a CHANGELOG.md, an upstream issue. Those should
-# open in a new tab rather than navigating the user away from release-radar. The regex only
+# open in a new tab rather than navigating the user away from Service Sentinel. The regex only
 # matches http(s) URLs, so it never touches non-link markup this app generates itself.
 _EXTERNAL_LINK_RE = re.compile(r'<a href="(https?://[^"]*)"')
 
@@ -135,7 +135,7 @@ def on_startup():
         logger.warning(problem)
     db.init_db()
     start_scheduler()
-    logger.info("release-radar started")
+    logger.info("Service Sentinel started")
 
 
 @app.get("/healthz")

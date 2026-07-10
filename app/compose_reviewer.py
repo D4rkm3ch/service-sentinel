@@ -9,13 +9,13 @@ from app.compose_lookup import list_compose_files, redact_compose_file_text
 from app.notifications import notify_compose_check_errors, notify_finding
 from app.summarizer import review_compose_file
 
-logger = logging.getLogger("release_radar.compose_reviewer")
+logger = logging.getLogger("service_sentinel.compose_reviewer")
 
 ProgressFunc = Optional[Callable[[str, int, int], None]]
 
 
 def run_compose_check() -> dict:
-    """Runs one full pass over every compose file release-radar can see -- see
+    """Runs one full pass over every compose file Service Sentinel can see -- see
     run_compose_check_for below for the actual hash/review/triage logic this wraps.
     Deliberately does NOT check db.get_feature_enabled("compose") here -- see run_log_check's
     equivalent docstring note in log_watcher.py; the toggle only controls the automatic
@@ -48,7 +48,7 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     that's new (never hashed before) or changed (hash differs from what's stored) gets reviewed
     by Claude; anything unchanged is skipped entirely -- this is what keeps the feature cheap
     over time, since editing a stack is infrequent. Shared by the full check (run_compose_check,
-    every file release-radar can see) and every scoped Check now / Reset & re-check action
+    every file Service Sentinel can see) and every scoped Check now / Reset & re-check action
     (service-level -- Compose has no stack concept, see db.reset_compose_data's docstring),
     which call this directly with just their own subset.
 

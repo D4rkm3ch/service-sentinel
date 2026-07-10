@@ -37,7 +37,7 @@ from typing import Callable
 from app import ai_provider, check_state, compose_lookup, db, notifications, reconcile, release_notes, stacks
 from app.summarizer import generate_upgrade_guidance, summarize_update
 
-logger = logging.getLogger("release_radar.persist")
+logger = logging.getLogger("service_sentinel.persist")
 
 _REGISTRY_ERROR_TEXT = "Could not reach the registry to check for an update."
 
@@ -397,7 +397,7 @@ def _fetch_release_notes_deduped(to_fetch: list[dict], on_progress: ProgressFunc
     one is asking, since the notes describe what changed in the image itself, never anything
     about the individual container. The label overrides are part of the key rather than
     assumed identical across sharing containers -- rare, but two services on the same image
-    could genuinely point their releaseradar.source/changelog_url labels at different places,
+    could genuinely point their servicesentinel.source/changelog_url labels at different places,
     and deduping past that would silently hand one of them the wrong container's notes.
 
     This is deliberately scoped to fetching only -- AI summarization (see _summarize_container)

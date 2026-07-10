@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Release Radar{% endblock %}</title>
+  <title>{% block title %}Service Sentinel{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo-black.svg">
   <link rel="stylesheet" href="/static/style.css?v={{ static_asset_version }}">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js"></script>
 </head>
 <body>
   <header class="topbar">
-    <a href="/" class="brand">release-radar</a>
+    <a href="/" class="brand"><img src="/static/logo-white.svg" alt="" class="brand-logo">Service Sentinel</a>
     <nav class="tabs">
       <a href="/" class="{{ 'active' if active_tab == 'overview' else '' }}">Overview</a>
       <a href="/updates" class="{{ 'active' if active_tab == 'updates' else '' }}">Updates</a>
@@ -22,7 +23,7 @@
     {% block content %}{% endblock %}
   </main>
   <footer class="app-footer">
-    release-radar v{{ app_version }}
+    Service Sentinel v{{ app_version }}
     · <a href="{{ github_url }}" target="_blank" rel="noopener">GitHub</a>
     · {{ app_timezone() }}
     · uptime {{ get_uptime_str() }}

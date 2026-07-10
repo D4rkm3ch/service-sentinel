@@ -29,7 +29,7 @@ from app.config import settings
 from app.docker_client import TrackedContainer, list_tracked_containers
 from app.registry import get_latest_digest
 
-logger = logging.getLogger("release_radar.reconcile")
+logger = logging.getLogger("service_sentinel.reconcile")
 
 
 def _check_one(container: TrackedContainer, latest_digest: str | None) -> dict:
@@ -136,7 +136,7 @@ def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
     Each entry in "containers" is a plain dict: container_name, image_repo, tag, status (one
     of "update_available", "up_to_date", "error"), current_digest (what's actually running,
     per Docker inspect), latest_digest (what the registry currently serves for that tag, or
-    None if the check failed), and the two releaseradar.* label overrides (source,
+    None if the check failed), and the two servicesentinel.* label overrides (source,
     changelog_url) as plain strings or None. All of these exist here purely for app/persist.py
     (Stage 3) and app/release_notes.py (Stage 6) to use — this module itself does nothing with
     them beyond reading them off the container; no severity, no AI, no history of what was

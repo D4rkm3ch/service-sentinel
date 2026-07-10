@@ -5,7 +5,7 @@ import re
 from app import ai_provider
 from app.ai_json import extract_json
 
-logger = logging.getLogger("release_radar.summarizer")
+logger = logging.getLogger("service_sentinel.summarizer")
 
 SYSTEM_PROMPT = """You write short, practical release-note summaries for a homelab operator \
 deciding whether to update a self-hosted Docker container.

@@ -22,7 +22,7 @@ from google.genai import types as genai_types
 from app import db
 from app.config import settings
 
-logger = logging.getLogger("release_radar.ai_provider")
+logger = logging.getLogger("service_sentinel.ai_provider")
 
 # Gemini's free tier turned out to have two separate 429 causes, only one of which is worth
 # retrying: a per-minute burst limit (a handful of concurrent calls trips it instantly, but it
