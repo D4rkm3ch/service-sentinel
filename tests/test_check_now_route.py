@@ -92,12 +92,25 @@ def test_status_poll_does_not_re_render_the_spinner_node(client):
         _wait_until_not_running("updates")
 
 
-def test_status_poll_keeps_2s_cadence_for_logs_and_compose(client):
+def test_status_poll_keeps_2s_cadence_for_compose(client):
+    check_state._state["compose"] = {"running": True, "last_result": None, "last_run_at": None}
+    resp = client.get("/compose/status-poll")
+    check_state._state["compose"]["running"] = False  # don't leak "running" into other tests
+    assert "delay:2000ms" in resp.text
+    assert "/10" not in resp.text  # no progress text was ever wired up for compose
+
+
+def test_status_poll_uses_the_fast_cadence_for_logs_with_real_progress_text(client):
+    """Logs now reports real per-container progress (see log_watcher.run_log_check_for's
+    on_progress callback), so its status badge gets the same fast poll cadence Updates uses --
+    it no longer sits on a generic "Checking…" for the whole duration of a check."""
     check_state._state["logs"] = {"running": True, "last_result": None, "last_run_at": None}
+    check_state.set_progress("logs", "checking_logs", 3, 10)
     resp = client.get("/logs/status-poll")
     check_state._state["logs"]["running"] = False  # don't leak "running" into other tests
-    assert "delay:2000ms" in resp.text
-    assert "/10" not in resp.text  # no progress text was ever wired up for logs
+    check_state.set_progress("logs", None, 0, 0)
+    assert "delay:500ms" in resp.text
+    assert "(3/10)" in resp.text
 
 
 def test_running_state_endpoint_reflects_the_shared_updates_mutex(client):

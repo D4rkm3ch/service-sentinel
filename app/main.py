@@ -203,7 +203,7 @@ def feature_card_status(request: Request, feature: str, prev_running: bool = Fal
 # reports progress — currently just "updates" (Stage 2, staged Stage 6). Polling faster while
 # it's running gives meaningfully live-feeling updates now that a full check finishes in
 # seconds rather than up to a minute; logs/compose keep their original 2s cadence untouched.
-_FAST_POLL_FEATURES = {"updates"}
+_FAST_POLL_FEATURES = {"updates", "logs"}
 
 # Human label per pipeline stage (check_state.py's progress "stage" field) — every stage that
 # reports progress needs an entry here, or it silently falls back to the generic "Checking…"
@@ -218,6 +218,7 @@ _STAGE_LABELS = {
     "stack_analysis": "Analyzing cross-service impact",
     "checking_logs": "Checking container logs",
     "log_stack_analysis": "Analyzing cross-service impact",
+    "triage_logs": "Analyzing logs with AI",
 }
 
 
@@ -1267,6 +1268,7 @@ def logs_container_detail(request: Request, container_name: str):
             "back_url": "/logs", "overview_html": overview_html, "source": "logs",
             **summary,
             "silence_state": _silence_state(summary["active_count"], summary["silenced_count"]),
+            "last_checked_at": db.get_log_watch_checkpoint(container_name),
             "active_tab": "logs",
         },
     )

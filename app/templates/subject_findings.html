@@ -35,8 +35,9 @@
     {{ active_count }} active finding{{ 's' if active_count != 1 else '' }}{% if silenced_count %}, {{ silenced_count }} silenced{% endif %}
   </p>
 
-  {% if source == 'logs' and findings %}
+  {% if source == 'logs' %}
   <div class="action-row" style="display:flex; align-items:center; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
+    {% if findings %}
     <span id="subject-read-toggle-btn">
       {% if unread_count %}
       <button type="button" class="button-info" hx-post="/logs/container/{{ subject }}/read" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
@@ -59,19 +60,22 @@
       </button>
       {% endif %}
     </span>
+    {% endif %}
     <button type="button" class="logs-action-btn"
             hx-post="/logs/container/{{ subject }}/check-now"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Check Now
     </button>
     {# A lone finding never reaches this page at all (logs_container_detail redirects straight
-       to /findings/{id} when there's exactly one), so whenever this action row renders at all,
-       findings is always 2+ -- there's no reachable 0-or-1-finding case to disable this for. #}
+       to /findings/{id} when there's exactly one), so 2+ is the only reachable finding count
+       for which Regenerate has anything to build an overview from. #}
+    {% if findings|length >= 2 %}
     <button type="button" class="button-warn logs-action-btn"
             hx-post="/logs/container/{{ subject }}/regenerate"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Regenerate AI Response
     </button>
+    {% endif %}
     <button type="button" class="button-danger logs-action-btn"
             hx-post="/logs/container/{{ subject }}/reset-and-recheck"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
@@ -129,7 +133,12 @@
     </tbody>
   </table>
   {% else %}
-  <p class="empty">No findings for this one.</p>
+  <p class="empty">
+    No findings for this one.
+    {%- if source == 'logs' and last_checked_at %} Last checked {{ last_checked_at[:16].replace('T', ' ') }} -- logs were clean, so nothing was sent to the AI for triage.
+    {%- elif source == 'logs' %} Not checked yet -- click Check Now above.
+    {%- endif %}
+  </p>
   {% endif %}
 </section>
 

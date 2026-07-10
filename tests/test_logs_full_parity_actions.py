@@ -203,9 +203,21 @@ def test_run_claimed_log_item_check_now_releases_the_mutex_on_completion():
     check_state.start_item("logitem:claim-a", "claim-a")
     with patch("app.log_watcher.run_log_check_for") as mock_check:
         log_watcher.run_claimed_log_item_check_now("logitem:claim-a", "claim-a")
-    mock_check.assert_called_once_with(["claim-a"])
+    args, kwargs = mock_check.call_args
+    assert args == (["claim-a"],)
+    assert "on_progress" in kwargs  # real per-container progress, not a fake 0/1 bookend
     assert check_state.get_state("logs")["running"] is False
     assert check_state.get_item_state("logitem:claim-a")["running"] is False
+
+
+def test_run_claimed_log_item_check_now_reports_real_progress_on_the_item_channel():
+    check_state.start_item("logitem:progress-a", "progress-a")
+    with patch("app.log_watcher.get_container_logs_since", return_value=None):
+        log_watcher.run_claimed_log_item_check_now("logitem:progress-a", "progress-a")
+    # finish_item() flips running False but leaves the last-reported stage/progress in place.
+    item = check_state.get_item_state("logitem:progress-a")
+    assert item["stage"] == "checking_logs"
+    assert item["done"] == 1 and item["total"] == 1
 
 
 def test_run_claimed_log_item_reset_and_recheck_wipes_then_rechecks():
@@ -495,10 +507,25 @@ def test_service_regenerate_force_regenerates_the_overview(client):
     assert db.get_subject_summary("logs", "service-regen-a")["summary_markdown"] == "Fresh take."
 
 
-def test_service_action_row_does_not_appear_for_a_subject_with_no_findings(client):
+def test_service_page_still_offers_check_now_for_a_subject_with_no_findings(client):
+    """A container with clean logs (or never checked at all) must still be actionable from its
+    own page -- Check Now/Reset & re-check don't depend on any findings existing, only
+    Regenerate/Read/Silence (which need something to act on) do."""
     resp = client.get("/logs/container/service-regen-empty-subject")
-    assert "/check-now" not in resp.text
+    assert "/check-now" in resp.text
+    assert "/reset-and-recheck" in resp.text
     assert "/regenerate" not in resp.text
+    assert "/read" not in resp.text and "/unread" not in resp.text
+    assert "/silence" not in resp.text and "/unsilence" not in resp.text
+    assert "Not checked yet" in resp.text
+
+
+def test_service_page_shows_last_checked_time_when_clean(client):
+    db.set_log_watch_checkpoint("service-clean-checked")
+    resp = client.get("/logs/container/service-clean-checked")
+    assert "Last checked" in resp.text
+    assert "logs were clean" in resp.text
+    assert "/check-now" in resp.text
 
 
 def test_service_page_with_exactly_one_finding_redirects_straight_to_the_finding(client):

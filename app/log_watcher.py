@@ -1,4 +1,5 @@
 import logging
+from typing import Callable, Optional
 
 from app import check_state, db, stacks
 from app.check_state import set_finished, set_running
@@ -9,6 +10,8 @@ from app.notifications import notify_finding
 from app.summarizer import analyze_logs_batch
 
 logger = logging.getLogger("release_radar.log_watcher")
+
+ProgressFunc = Optional[Callable[[str, int, int], None]]
 
 
 def run_log_check() -> dict:
@@ -30,7 +33,10 @@ def run_log_check() -> dict:
         return result
 
     checked_names = [c.name for c in containers]
-    result = run_log_check_for(checked_names)
+    result = run_log_check_for(
+        checked_names,
+        on_progress=lambda stage, done, total: check_state.set_progress("logs", stage, done, total),
+    )
     logger.info(
         "Log check complete: %d containers checked, %d findings", result["checked"], result["findings_found"]
     )
@@ -39,7 +45,7 @@ def run_log_check() -> dict:
     return result
 
 
-def run_log_check_for(container_names: list[str]) -> dict:
+def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = None) -> dict:
     """The actual fetch/filter/triage pass, scoped to whichever container names are given --
     pull logs since each one's last checkpoint (or the configured lookback window, for a
     container with none), keep only lines that matched a suspicious keyword locally, and —
@@ -48,6 +54,13 @@ def run_log_check_for(container_names: list[str]) -> dict:
     all. Shared by the full check (run_log_check, every currently running container) and every
     scoped Check now / Reset & re-check action (stack- and service-level), which call this
     directly with just their own subset.
+
+    on_progress (stage, done, total), when given, is called once per container as it's checked
+    (stage="checking_logs") and once before/after the batched AI call if one happens
+    (stage="triage_logs") -- same shape as persist.py's Updates pipeline, so the status badge's
+    live "Checking container logs (N/M)…" text works the same way at every scope (main page,
+    stack, and service) instead of Logs' checks all silently sitting at a generic "Checking…"
+    the whole time.
 
     Checkpoints are read and written in two batched calls (db.get_log_watch_checkpoints /
     set_log_watch_checkpoints) rather than one small connection per container -- same
@@ -61,6 +74,7 @@ def run_log_check_for(container_names: list[str]) -> dict:
     excerpts_by_container: dict[str, str] = {}
     checkpoints = db.get_log_watch_checkpoints(container_names)
     checked_ok_names: list[str] = []
+    total = len(container_names)
 
     for name in container_names:
         checked += 1
@@ -69,24 +83,32 @@ def run_log_check_for(container_names: list[str]) -> dict:
             log_text = get_container_logs_since(name, checkpoint, settings.log_max_lines_per_container)
         except Exception:
             logger.exception("Could not fetch logs for %s", name)
+            if on_progress:
+                on_progress("checking_logs", checked, total)
             continue
 
         checked_ok_names.append(name)
         excerpt = extract_suspicious_excerpt(log_text) if log_text else None
         if excerpt:
             excerpts_by_container[name] = excerpt
+        if on_progress:
+            on_progress("checking_logs", checked, total)
 
     db.set_log_watch_checkpoints(checked_ok_names)
 
     if not excerpts_by_container:
         return {"checked": checked, "findings_found": 0, "errors": 0}
 
+    if on_progress:
+        on_progress("triage_logs", 0, 1)
     try:
         include_fix = db.get_deep_analysis_enabled("logs")
         findings = analyze_logs_batch(excerpts_by_container, include_fix=include_fix)
     except Exception:
         logger.exception("Log triage AI call failed")
         return {"checked": checked, "findings_found": 0, "errors": 1}
+    if on_progress:
+        on_progress("triage_logs", 1, 1)
 
     for finding in findings:
         container_name = finding.get("container")
@@ -120,16 +142,18 @@ def run_log_check_for(container_names: list[str]) -> dict:
 # the exact same container/stack page it started from.
 # ---------------------------------------------------------------------------
 
+def _item_progress(item_key: str) -> ProgressFunc:
+    return lambda stage, done, total: check_state.set_item_progress(item_key, stage, done, total)
+
+
 def run_claimed_log_item_check_now(item_key: str, container_name: str) -> None:
     """Service-scoped Check now: non-destructive, only fetches logs since this container's
     existing checkpoint -- exactly like every other Check now in the app."""
-    check_state.set_item_progress(item_key, "checking_logs", 0, 1)
     try:
-        run_log_check_for([container_name])
+        run_log_check_for([container_name], on_progress=_item_progress(item_key))
     except Exception:
         logger.exception("Scoped log check failed unexpectedly for %s", container_name)
     finally:
-        check_state.set_item_progress(item_key, "checking_logs", 1, 1)
         check_state.finish_item(item_key)
         check_state.release_running("logs")
 
@@ -139,14 +163,12 @@ def run_claimed_log_item_reset_and_recheck(item_key: str, container_name: str) -
     overview first (db.reset_logs_data), then re-checks it -- with no checkpoint left, that
     re-scan naturally covers the full configured lookback window fresh, as if seeing this
     container for the first time."""
-    check_state.set_item_progress(item_key, "checking_logs", 0, 1)
     try:
         db.reset_logs_data(subjects=[container_name])
-        run_log_check_for([container_name])
+        run_log_check_for([container_name], on_progress=_item_progress(item_key))
     except Exception:
         logger.exception("Scoped log reset & re-check failed unexpectedly for %s", container_name)
     finally:
-        check_state.set_item_progress(item_key, "checking_logs", 1, 1)
         check_state.finish_item(item_key)
         check_state.release_running("logs")
 
@@ -156,15 +178,13 @@ def run_claimed_log_stack_check_now(item_key: str, stack_id: str) -> None:
     then runs the Cross-Service Analysis pass so the stack's blurb reflects anything that just
     changed. Member names are re-resolved fresh right before the check (not whatever the page
     had loaded), same reasoning as Updates' run_claimed_stack_check_now."""
-    check_state.set_item_progress(item_key, "checking_logs", 0, 1)
     try:
         member_names = stacks.stack_member_names_for_logs(stack_id)
-        run_log_check_for(member_names)
+        run_log_check_for(member_names, on_progress=_item_progress(item_key))
         stacks.run_log_stack_analysis_pass(member_names)
     except Exception:
         logger.exception("Scoped log stack check failed unexpectedly for %s", stack_id)
     finally:
-        check_state.set_item_progress(item_key, "checking_logs", 1, 1)
         check_state.finish_item(item_key)
         check_state.release_running("logs")
 
@@ -175,16 +195,14 @@ def run_claimed_log_stack_reset_and_recheck(item_key: str, stack_id: str) -> Non
     as the service-level version), and force-regenerates the stack's Cross-Service Analysis
     blurb afterward -- same "an explicit 'start over' click must never leave the exact same
     blurb on screen" reasoning as Updates' run_claimed_stack_reset_and_recheck."""
-    check_state.set_item_progress(item_key, "checking_logs", 0, 1)
     try:
         member_names = stacks.stack_member_names_for_logs(stack_id)
         db.reset_logs_data(subjects=member_names)
-        run_log_check_for(member_names)
+        run_log_check_for(member_names, on_progress=_item_progress(item_key))
         stacks.run_log_stack_analysis_pass(member_names, force=True)
     except Exception:
         logger.exception("Scoped log stack reset & re-check failed unexpectedly for %s", stack_id)
     finally:
-        check_state.set_item_progress(item_key, "checking_logs", 1, 1)
         check_state.finish_item(item_key)
         check_state.release_running("logs")
 
