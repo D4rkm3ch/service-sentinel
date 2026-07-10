@@ -380,6 +380,7 @@ button:disabled, button:disabled:hover {
 .button-danger:hover {
   background: var(--error);
   color: #1a0e0e;
+  border-color: var(--error);
 }
 
 /* Same outlined shape as .button-danger, amber instead of red -- for an action that isn't
@@ -394,6 +395,7 @@ button:disabled, button:disabled:hover {
 .button-warn:hover {
   background: var(--warn);
   color: #1a1508;
+  border-color: var(--warn);
 }
 
 /* Silence/Unsilence -- deliberately not green (the default) or red/amber (danger/caution,
@@ -407,6 +409,7 @@ button:disabled, button:disabled:hover {
 .button-silence:hover {
   background: var(--info);
   color: #0d1420;
+  border-color: var(--info);
 }
 
 /* Mark as Read/Unread -- its own color too, separate from Silence's blue, so the two toggles
@@ -419,6 +422,7 @@ button:disabled, button:disabled:hover {
 .button-info:hover {
   background: var(--violet);
   color: #17121f;
+  border-color: var(--violet);
 }
 
 .row-chevron {
@@ -684,10 +688,10 @@ tr:hover .row-chevron {
   font-weight: 500;
   border: 1px solid var(--border);
   color: var(--text-dim);
-  background: var(--bg);
+  background: transparent;
   cursor: pointer;
   opacity: 0.5;
-  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
 }
 /* Selected state uses each severity's own color (matching its badge elsewhere in the app --
    see .badge-sev-* below) rather than one flat accent color for every tier, so the button
