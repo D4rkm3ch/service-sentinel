@@ -54,7 +54,8 @@ def test_subject_findings_page_shows_a_read_column(client):
     db.set_finding_read_status(fid2, "read")
 
     resp = client.get("/compose/file?path=/read-unread-test/compose.yml")
-    assert "<th>Read</th>" in resp.text
+    # Read column header is a sortable link (see _sort_header.html), not a bare <th>.
+    assert "sort=read" in resp.text
     assert "badge-unread\">Unread</span>" in resp.text
     assert "badge-read\">Read</span>" in resp.text
 

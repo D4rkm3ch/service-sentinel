@@ -670,6 +670,27 @@ def _findings_summary(findings: list[dict]) -> dict:
     }
 
 
+def _sort_subject_findings(findings: list[dict], sort: str, direction: str) -> list[dict]:
+    """Sorts subject_findings.html's per-finding table (one subject's own findings, Logs or
+    Compose) -- a small, single-subject result set, so plain full-page sort links are enough
+    here (see _sort_header.html's macro used without partial_url/target_id), unlike the
+    self-refreshing htmx tables elsewhere. Default ("seen", desc) reproduces
+    list_findings_for_subject's own ORDER BY last_seen_at DESC, so loading the page with no
+    sort params looks identical to before this existed."""
+    reverse = direction == "desc"
+    if sort == "title":
+        return sorted(findings, key=lambda f: f["title"].lower(), reverse=reverse)
+    if sort == "category":
+        return sorted(findings, key=lambda f: f["category"].lower(), reverse=reverse)
+    if sort == "severity":
+        return sorted(findings, key=lambda f: _ISSUE_SEVERITY_RANK.get(f["severity"], 99), reverse=reverse)
+    if sort == "silenced":
+        return sorted(findings, key=lambda f: 0 if f["status"] == "silenced" else 1, reverse=reverse)
+    if sort == "read":
+        return sorted(findings, key=lambda f: 0 if f["read_status"] == "unread" else 1, reverse=reverse)
+    return sorted(findings, key=lambda f: f["last_seen_at"], reverse=reverse)
+
+
 def _get_or_build_overview(source: str, subject: str, display_name: str, findings, force: bool = False) -> str | None:
     """Combined AI overview shown above a subject's findings list. Cached by a hash of the
     current finding set so it's only regenerated (costing an API call) when something about
@@ -1283,7 +1304,7 @@ def logs_page(request: Request, show_silenced: bool = False,
 
 
 @app.get("/logs/container/{container_name}")
-def logs_container_detail(request: Request, container_name: str):
+def logs_container_detail(request: Request, container_name: str, sort: str = "seen", dir: str = "desc"):
     # Always shows every finding for this container, active and silenced alike -- unlike the
     # Issues table (where hiding silenced rows keeps the list focused on what's actionable),
     # once you've drilled into one specific container there's no reason to hide part of its
@@ -1301,13 +1322,14 @@ def logs_container_detail(request: Request, container_name: str):
     return templates.TemplateResponse(
         "subject_findings.html",
         {
-            "request": request, "findings": findings, "display_name": container_name,
-            "subject": container_name,
+            "request": request, "findings": _sort_subject_findings(findings, sort, dir),
+            "display_name": container_name, "subject": container_name,
             "back_url": "/logs", "overview_html": overview_html, "source": "logs",
             **summary,
             "silence_state": _silence_state(summary["active_count"], summary["silenced_count"]),
             "last_checked_at": db.get_log_watch_checkpoint(container_name),
-            "stack_id": stack_id,
+            "stack_id": stack_id, "sort": sort, "dir": dir,
+            "sort_base_url": f"/logs/container/{container_name}", "sort_extra_qs": "",
             "active_tab": "logs",
         },
     )
@@ -1488,7 +1510,7 @@ def compose_page(request: Request, show_silenced: bool = False,
 
 
 @app.get("/compose/file")
-def compose_file_detail(request: Request, path: str):
+def compose_file_detail(request: Request, path: str, sort: str = "seen", dir: str = "desc"):
     # See logs_container_detail's comment -- always shows every finding for this file.
     findings = db.list_findings_for_subject("compose", path, include_silenced=True)
 
@@ -1501,9 +1523,12 @@ def compose_file_detail(request: Request, path: str):
     return templates.TemplateResponse(
         "subject_findings.html",
         {
-            "request": request, "findings": findings, "display_name": display_name,
+            "request": request, "findings": _sort_subject_findings(findings, sort, dir),
+            "display_name": display_name,
             "back_url": "/compose", "overview_html": overview_html, "source": "compose",
             **_findings_summary(findings),
+            "sort": sort, "dir": dir,
+            "sort_base_url": "/compose/file", "sort_extra_qs": "&path=" + quote(path),
             "active_tab": "compose",
         },
     )

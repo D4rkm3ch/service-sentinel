@@ -652,7 +652,8 @@ def test_service_findings_table_severity_column_is_right_of_seen(client):
     resp = client.get("/logs/container/service-sev-order")
     table = resp.text[resp.text.index("findings-table"):]
     header = table[:table.index("<tbody>")]
-    assert header.index(">Seen<") < header.index(">Severity<")
+    # Headers are now sort links (see _sort_header.html), not bare <th> text.
+    assert header.index("sort=seen") < header.index("sort=severity")
 
 
 # ---------------------------------------------------------------------------
@@ -1168,3 +1169,64 @@ def test_compose_all_files_table_shows_partially_silenced_badge(client):
     finally:
         with db.get_conn() as conn:
             conn.execute("DELETE FROM compose_file_state WHERE file_path = 'compose-partial-table.yml'")
+
+
+# ---------------------------------------------------------------------------
+# A dedicated, sortable Silenced column on the per-subject findings table
+# (subject_findings.html), replacing the old inline badge next to the title
+# that wrapped onto a second line on narrow viewports.
+# ---------------------------------------------------------------------------
+
+def test_subject_findings_table_has_a_dedicated_silenced_column(client):
+    fid1, _ = db.upsert_finding("logs", "silenced-col-test", "OOM", "crash", "critical", "d1")
+    db.upsert_finding("logs", "silenced-col-test", "Disk full", "resource", "warning", "d2")
+    db.set_finding_status(fid1, "silenced")
+
+    resp = client.get("/logs/container/silenced-col-test")
+    table = resp.text[resp.text.index("findings-table"):]
+    header = table[:table.index("<tbody>")]
+    body = table[table.index("<tbody>"):]
+
+    # Header is a real sort link, not a bare <th>Silenced</th>.
+    assert "sort=silenced" in header
+
+    # The title cell no longer carries an inline Silenced badge next to it (the old
+    # two-row-wrap bug) -- the badge now only appears in its own column.
+    title_row = body[body.index("OOM"):]
+    title_cell = title_row[:title_row.index("</td>")]
+    assert "badge-silenced" not in title_cell
+
+    assert body.count("badge-silenced\">Silenced</span>") == 1
+    assert "<span class=\"meta\">—</span>" in body
+
+
+def test_subject_findings_table_sorts_by_silenced_column(client):
+    fid1, _ = db.upsert_finding("logs", "silenced-col-sort", "Active issue", "crash", "critical", "d1")
+    fid2, _ = db.upsert_finding("logs", "silenced-col-sort", "Silenced issue", "resource", "warning", "d2")
+    db.set_finding_status(fid2, "silenced")
+
+    resp = client.get("/logs/container/silenced-col-sort?sort=silenced&dir=asc")
+    body = resp.text[resp.text.index("<tbody>"):]
+    assert body.index("Silenced issue") < body.index("Active issue")
+
+    resp = client.get("/logs/container/silenced-col-sort?sort=silenced&dir=desc")
+    body = resp.text[resp.text.index("<tbody>"):]
+    assert body.index("Active issue") < body.index("Silenced issue")
+
+
+def test_compose_file_findings_table_sort_links_preserve_the_path_query_param(client):
+    fid1, _ = db.upsert_finding("compose", "silenced-sort-compose.yml", "Missing restart policy", "reliability", "critical", "d1")
+    db.upsert_finding("compose", "silenced-sort-compose.yml", "No healthcheck", "reliability", "warning", "d2")
+    db.set_finding_status(fid1, "silenced")
+
+    try:
+        resp = client.get("/compose/file?path=silenced-sort-compose.yml")
+        assert "sort=silenced" in resp.text
+        assert "path=silenced-sort-compose.yml" in resp.text
+
+        resp = client.get("/compose/file?path=silenced-sort-compose.yml&sort=silenced&dir=asc")
+        body = resp.text[resp.text.index("<tbody>"):]
+        assert body.index("Missing restart policy") < body.index("No healthcheck")
+    finally:
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM compose_file_state WHERE file_path = 'silenced-sort-compose.yml'")

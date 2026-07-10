@@ -89,8 +89,8 @@ table {
    ellipsis truncation actually reliable in table cells across browsers — without it, cells
    containing inline-block content (badges, links) can refuse to shrink below their content's
    natural width even with overflow:hidden set. */
-.updates-table td, .containers-table td,
-.updates-table th, .containers-table th {
+.updates-table td, .containers-table td, .findings-table td,
+.updates-table th, .containers-table th, .findings-table th {
   overflow: hidden;
 }
 .importance-cell, .read-cell, .cell-centered {
