@@ -159,6 +159,24 @@ def notify_logs_check_errors(errors: list[dict]) -> None:
     _send_error_group(errors)
 
 
+def notify_compose_check_errors(errors: list[dict]) -> None:
+    """Compose's counterpart to notify_logs_check_errors -- a file that couldn't be read or
+    reviewed this check doesn't have a severity to threshold against the way a real finding
+    does, so it's opt-in only via the same 'notify on check errors' shape Updates/Logs have
+    (db.get_notify_compose_include_errors), independent of Compose's own severity threshold.
+
+    errors: [{"container_name": file_path, "error"}, ...] -- reuses _send_error_group's own
+    "container_name" key (it just needs SOME identifying name per row to bold in the message,
+    the file path fits that exactly the same way a container name does)."""
+    if not errors:
+        return
+    if not db.get_notifications_enabled() or not db.get_feature_notify_enabled("compose"):
+        return
+    if not db.get_notify_compose_include_errors():
+        return
+    _send_error_group(errors)
+
+
 def notify_finding(source: str, subject: str, title: str, severity: str, category: str, finding_id: int) -> None:
     """Notifies about a newly created finding, if notifications are on, this feature's
     notifications are on, and the severity meets the effective threshold (master or this

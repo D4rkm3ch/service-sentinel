@@ -1,10 +1,12 @@
+{% set base_url = '/logs/container/' ~ subject if source == 'logs' else '/compose/file' %}
+{% set qs = '' if source == 'logs' else '?path=' ~ (subject|urlencode) %}
 <span id="subject-read-toggle-btn">
 {% if unread_count %}
-<button type="button" class="button-info" hx-post="/logs/container/{{ subject }}/read" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
+<button type="button" class="button-info" hx-post="{{ base_url }}/read{{ qs }}" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
   Mark all as Read
 </button>
 {% else %}
-<button type="button" class="button-info" hx-post="/logs/container/{{ subject }}/unread" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
+<button type="button" class="button-info" hx-post="{{ base_url }}/unread{{ qs }}" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
   Mark all as Unread
 </button>
 {% endif %}

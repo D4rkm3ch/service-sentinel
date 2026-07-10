@@ -209,6 +209,9 @@ last actual check either way.</p>
       {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
     </div>
     {% else %}
+    <div style="margin-top:8px">
+      {{ ts.toggle_switch('notify_compose_include_errors', notify.compose_include_errors, '/settings/notify/compose-include-errors', "Also notify when a compose file can't be checked") }}
+    </div>
     <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
     <div>
       {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}

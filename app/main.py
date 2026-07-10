@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import check_state, compose_lookup, db, log_watcher, persist, stacks
+from app import check_state, compose_lookup, compose_reviewer, db, log_watcher, persist, stacks
 from app.check_state import format_summary, get_progress, get_state, set_running
 from app.config import settings
 from app.notifications import send_test_notification
@@ -230,7 +230,7 @@ def feature_card_status(request: Request, feature: str, prev_running: bool = Fal
 # reports progress — currently just "updates" (Stage 2, staged Stage 6). Polling faster while
 # it's running gives meaningfully live-feeling updates now that a full check finishes in
 # seconds rather than up to a minute; logs/compose keep their original 2s cadence untouched.
-_FAST_POLL_FEATURES = {"updates", "logs"}
+_FAST_POLL_FEATURES = {"updates", "logs", "compose"}
 
 # Human label per pipeline stage (check_state.py's progress "stage" field) — every stage that
 # reports progress needs an entry here, or it silently falls back to the generic "Checking…"
@@ -246,6 +246,7 @@ _STAGE_LABELS = {
     "checking_logs": "Checking container logs",
     "log_stack_analysis": "Analyzing cross-service impact",
     "triage_logs": "Analyzing logs with AI",
+    "checking_compose_files": "Checking compose files",
 }
 
 
@@ -806,6 +807,7 @@ def _build_notify_context() -> dict:
         "apprise_urls": ", ".join(db.get_apprise_urls()),
         "updates_include_errors": db.get_notify_updates_include_errors(),
         "logs_include_errors": db.get_notify_logs_include_errors(),
+        "compose_include_errors": db.get_notify_compose_include_errors(),
         "features": {
             feature: {
                 "enabled": db.get_feature_notify_enabled(feature),
@@ -1022,6 +1024,13 @@ async def save_notify_logs_include_errors(request: Request):
     return _saved(request)
 
 
+@app.post("/settings/notify/compose-include-errors")
+async def save_notify_compose_include_errors(request: Request):
+    form = await request.form()
+    db.set_notify_compose_include_errors(form.get("enabled") == "on")
+    return _saved(request)
+
+
 def _normalize_apprise_url(url: str) -> str:
     """Discord webhook URLs need ?format=markdown for Apprise to build a colored embed at all
     (see notifications.py's own module docstring) -- a bare discord:// URL otherwise falls back
@@ -1118,6 +1127,49 @@ def regenerate_all_logs():
     if check_state.try_start("logs"):
         threading.Thread(target=_run_claimed_logs_bulk_regenerate, daemon=True).start()
     return RedirectResponse(url="/logs", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Compose's own global Reset & re-check / bulk Regenerate AI Response -- same shape as Logs'
+# pair above, minus the Cross-Service Analysis pass (Compose has no stack concept, see
+# db.reset_compose_data's docstring): "reset" means wiping findings + the per-file content-hash
+# checkpoint so the next check reviews every file fresh regardless of whether it actually
+# changed, and "regenerate" means force-refreshing every file's already-cached AI overview
+# blurb rather than re-reviewing the file's config again.
+# ---------------------------------------------------------------------------
+
+@app.post("/compose/reset-and-recheck")
+def reset_and_recheck_compose():
+    db.reset_compose_data()
+    set_running("compose")
+    TRIGGER_FUNCS["compose"]()
+    return RedirectResponse(url="/compose", status_code=303)
+
+
+def _run_claimed_compose_bulk_regenerate() -> None:
+    """The main Compose page's bulk "Regenerate AI Response" -- force-regenerates every file's
+    cached overview blurb (for files with 2+ findings), bypassing its content-hash cache, same
+    "an explicit click always gets a fresh take" semantics as every other Regenerate button in
+    the app. Claims the Compose mutex so it can't overlap with a real check or another scoped
+    action."""
+    try:
+        file_paths = [row["name"] for row in db.all_compose_file_states_with_status()]
+        for path in file_paths:
+            findings = db.list_findings_for_subject("compose", path, include_silenced=True)
+            if len(findings) >= 2:
+                display_name = compose_lookup.subject_display_name("compose", path)
+                _get_or_build_overview("compose", path, display_name, findings, force=True)
+    except Exception:
+        logger.exception("Bulk Regenerate AI Response failed unexpectedly for Compose")
+    finally:
+        check_state.release_running("compose")
+
+
+@app.post("/compose/regenerate-all")
+def regenerate_all_compose():
+    if check_state.try_start("compose"):
+        threading.Thread(target=_run_claimed_compose_bulk_regenerate, daemon=True).start()
+    return RedirectResponse(url="/compose", status_code=303)
 
 
 def _emphasize_stack_mentions(text: str, service_names: list[str]) -> str:
@@ -1538,13 +1590,16 @@ def compose_file_detail(request: Request, path: str, sort: str = "severity", dir
     display_name = compose_lookup.subject_display_name("compose", path)
     overview = _get_or_build_overview("compose", path, display_name, findings)
     overview_html = render_markdown(overview) if overview else None
+    summary = _findings_summary(findings)
     return templates.TemplateResponse(
         "subject_findings.html",
         {
             "request": request, "findings": _sort_subject_findings(findings, sort, dir),
-            "display_name": display_name,
+            "display_name": display_name, "subject": path,
             "back_url": "/compose", "overview_html": overview_html, "source": "compose",
-            **_findings_summary(findings),
+            **summary,
+            "silence_state": _silence_state(summary["active_count"], summary["silenced_count"]),
+            "last_checked_at": db.get_compose_file_checkpoint(path),
             "sort": sort, "dir": dir,
             "sort_base_url": "/compose/file", "sort_extra_qs": "&path=" + quote(path),
             "active_tab": "compose",
@@ -1904,6 +1959,133 @@ def unsilence_log_subject(request: Request, container_name: str):
     return _subject_silence_toggle_response(request, "logs", container_name)
 
 
+# ---------------------------------------------------------------------------
+# Compose's own service-scoped (per-file) Check now / Reset & re-check / Regenerate AI Response
+# and bulk Read/Unread / Silence/Unsilence -- same shape as Logs' equivalents above, keyed by
+# check_state's "compose" channel. Compose file paths are passed as a query string (?path=...),
+# not a URL path segment, since they can contain slashes -- same reasoning as the existing
+# GET /compose/file?path=... route.
+# ---------------------------------------------------------------------------
+
+def _compose_item_key(path: str) -> str:
+    return f"composeitem:{path}"
+
+
+def _render_compose_item_status(request: Request, path: str, item_key: str, busy_message: str | None = None):
+    item = check_state.get_item_state(item_key)
+    return templates.TemplateResponse(
+        "_compose_item_status.html",
+        {
+            "request": request, "path": path, "item": item,
+            "progress_text": _progress_text(item) if item else "",
+            "busy_message": busy_message,
+        },
+    )
+
+
+def _launch_scoped_compose_item_check(request: Request, path: str, target) -> object:
+    """Service-scoped counterpart to _launch_scoped_log_item_check -- a compose file's own path
+    never changes underneath a running action, so this always lands back on the exact same
+    /compose/file?path=... page it started from."""
+    item_key = _compose_item_key(path)
+    if not check_state.try_start("compose"):
+        return _render_compose_item_status(
+            request, path, item_key,
+            busy_message="A check just started elsewhere — try again shortly.",
+        )
+
+    check_state.start_item(item_key, path)
+    threading.Thread(target=target, args=(item_key,), daemon=True).start()
+    return _render_compose_item_status(request, path, item_key)
+
+
+def _run_claimed_compose_item_regenerate(item_key: str, path: str) -> None:
+    """Service-scoped Regenerate AI Response -- force-recomputes this one file's cached
+    overview blurb (see _get_or_build_overview), bypassing the content-hash cache. Same
+    "one AI call, reported as a single (0,1) -> (1,1) step" shape as Logs' own per-item
+    regenerate (_run_claimed_log_item_regenerate)."""
+    check_state.set_item_progress(item_key, "regenerating", 0, 1)
+    try:
+        findings = db.list_findings_for_subject("compose", path, include_silenced=True)
+        if len(findings) >= 2:
+            display_name = compose_lookup.subject_display_name("compose", path)
+            _get_or_build_overview("compose", path, display_name, findings, force=True)
+    except Exception:
+        logger.exception("Regenerate AI Response failed unexpectedly for %s", path)
+    finally:
+        check_state.set_item_progress(item_key, "regenerating", 1, 1)
+        check_state.finish_item(item_key)
+        check_state.release_running("compose")
+
+
+@app.post("/compose/file/check-now")
+def check_now_compose_item_route(request: Request, path: str):
+    return _launch_scoped_compose_item_check(
+        request, path,
+        lambda item_key: compose_reviewer.run_claimed_compose_item_check_now(item_key, path),
+    )
+
+
+@app.post("/compose/file/reset-and-recheck")
+def reset_and_recheck_compose_item_route(request: Request, path: str):
+    return _launch_scoped_compose_item_check(
+        request, path,
+        lambda item_key: compose_reviewer.run_claimed_compose_item_reset_and_recheck(item_key, path),
+    )
+
+
+@app.post("/compose/file/regenerate")
+def regenerate_compose_item_route(request: Request, path: str):
+    return _launch_scoped_compose_item_check(
+        request, path,
+        lambda item_key: _run_claimed_compose_item_regenerate(item_key, path),
+    )
+
+
+@app.get("/compose/file/status-poll")
+def compose_item_status_poll(request: Request, path: str):
+    item_key = _compose_item_key(path)
+    item = check_state.get_item_state(item_key)
+
+    if item is not None and item["running"]:
+        return templates.TemplateResponse(
+            "_compose_item_status_poll.html",
+            {"request": request, "path": path, "item": item, "progress_text": _progress_text(item)},
+        )
+
+    check_state.clear_item(item_key)
+    resp = templates.TemplateResponse(
+        "_compose_item_status_poll.html",
+        {"request": request, "path": path, "item": None, "progress_text": ""},
+    )
+    resp.headers["HX-Redirect"] = f"/compose/file?path={quote(path)}"
+    return resp
+
+
+@app.post("/compose/file/read")
+def mark_compose_subject_read(request: Request, path: str):
+    db.set_findings_read_status_for_subject("compose", path, "read")
+    return _subject_read_toggle_response(request, "compose", path)
+
+
+@app.post("/compose/file/unread")
+def mark_compose_subject_unread(request: Request, path: str):
+    db.set_findings_read_status_for_subject("compose", path, "unread")
+    return _subject_read_toggle_response(request, "compose", path)
+
+
+@app.post("/compose/file/silence")
+def silence_compose_subject(request: Request, path: str):
+    db.silence_all_findings_for_subjects("compose", [path])
+    return _subject_silence_toggle_response(request, "compose", path)
+
+
+@app.post("/compose/file/unsilence")
+def unsilence_compose_subject(request: Request, path: str):
+    db.unsilence_all_findings_for_subjects("compose", [path])
+    return _subject_silence_toggle_response(request, "compose", path)
+
+
 @app.post("/updates/{update_id}/check-now")
 def check_now_update_route(request: Request, update_id: int):
     """Non-destructive scoped re-check: re-checks just this container (digest + release notes
@@ -2004,11 +2186,11 @@ def finding_detail(request: Request, finding_id: int):
     else:
         subject_url = f"/compose/file?path={quote(finding['subject'])}"
 
-    # Logs-only: a finding's Check Now/Regenerate/Reset & re-check operate on its own subject
-    # (container), same routes subject_findings.html uses -- there's no per-finding equivalent
-    # since a finding's own AI content can only ever come from a fresh log fetch for its whole
-    # container, not from something stored per-finding. Not offered for Compose, same as every
-    # other stack-shaped concept (see stacks.py).
+    # A finding's Check Now/Regenerate/Reset & re-check operate on its own subject (container or
+    # compose file), same routes subject_findings.html uses for either source -- there's no
+    # per-finding equivalent since a finding's own AI content can only ever come from a fresh
+    # log fetch/file review of its whole subject, not from something stored per-finding. The
+    # Stack concept itself (below) really is Logs/Updates-only -- see stacks.py.
     stack_id = None
     if finding["source"] == "logs":
         stack_info = compose_lookup.get_stack_info(finding["subject"])

@@ -468,14 +468,21 @@ def test_service_page_has_the_full_action_row_for_logs(client):
            'hx-post="/logs/container/service-parity-a/unsilence"' in resp.text
 
 
-def test_service_page_action_row_does_not_appear_for_compose(client):
+def test_service_page_action_row_appears_for_compose_with_scoped_urls(client):
+    """Compose file pages used to have NO action row at all -- a real, confirmed parity gap
+    versus Logs, since fixed. Every button now hits the query-string-scoped /compose/file/...
+    routes (a compose file's path can contain slashes, so it's ?path=..., not a URL segment)."""
     db.set_compose_file_hash("service-parity-compose.yml", "hash1")
     db.upsert_finding("compose", "service-parity-compose.yml", "Missing restart policy", "reliability", "critical", "d1")
     db.upsert_finding("compose", "service-parity-compose.yml", "No healthcheck", "reliability", "warning", "d2")
 
     resp = client.get("/compose/file?path=service-parity-compose.yml")
-    assert "/check-now" not in resp.text
-    assert "/regenerate" not in resp.text
+    assert "compose-action-btn" in resp.text
+    assert "/compose/file/check-now?path=service-parity-compose.yml" in resp.text
+    assert "/compose/file/regenerate?path=service-parity-compose.yml" in resp.text
+    assert "/compose/file/reset-and-recheck?path=service-parity-compose.yml" in resp.text
+    assert "/compose/file/read?path=service-parity-compose.yml" in resp.text
+    assert "/compose/file/silence?path=service-parity-compose.yml" in resp.text
 
 
 def test_service_check_now_route_works(client):
@@ -713,13 +720,13 @@ def test_finding_page_disables_regenerate_when_its_subject_has_fewer_than_two_fi
     assert 'button-warn" disabled' in resp.text
 
 
-def test_finding_page_action_buttons_do_not_appear_for_compose(client):
+def test_finding_page_action_buttons_appear_for_compose_with_scoped_urls(client):
     fid, _ = db.upsert_finding("compose", "finding-compose.yml", "Missing restart policy", "reliability", "critical", "d1")
     db.upsert_finding("compose", "finding-compose.yml", "No healthcheck", "reliability", "warning", "d2")
     resp = client.get(f"/findings/{fid}")
-    assert "/check-now" not in resp.text
-    assert "/reset-and-recheck" not in resp.text
-    assert "/regenerate" not in resp.text
+    assert "/compose/file/check-now?path=finding-compose.yml" in resp.text
+    assert "/compose/file/reset-and-recheck?path=finding-compose.yml" in resp.text
+    assert "/compose/file/regenerate?path=finding-compose.yml" in resp.text
 
 
 # ---------------------------------------------------------------------------

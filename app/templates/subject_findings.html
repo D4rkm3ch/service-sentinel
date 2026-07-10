@@ -16,7 +16,6 @@
     {% if top_severity %}
     <span class="badge badge-lg badge-sev-{{ top_severity }}">{{ severity_label(source, top_severity) }}</span>
     {% endif %}
-    {% if source == 'logs' %}
     <span id="subject-read-status-badge">
       {% if active_count %}
         {% if unread_count %}
@@ -33,62 +32,62 @@
       <span class="badge badge-lg badge-partially-silenced">Partially Silenced</span>
       {% endif %}
     </span>
-    {% endif %}
   </div>
   <p class="meta">
     {{ active_count }} active finding{{ 's' if active_count != 1 else '' }}{% if silenced_count %}, {{ silenced_count }} silenced{% endif %}
   </p>
 
-  {% if source == 'logs' %}
+  {% set base_url = '/logs/container/' ~ subject if source == 'logs' else '/compose/file' %}
+  {% set qs = '' if source == 'logs' else '?path=' ~ (subject|urlencode) %}
+  {% set noun = 'container' if source == 'logs' else 'compose file' %}
   <div class="action-row" style="display:flex; align-items:center; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
     {% if findings %}
     <span id="subject-read-toggle-btn">
       {% if unread_count %}
-      <button type="button" class="button-info" hx-post="/logs/container/{{ subject }}/read" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
+      <button type="button" class="button-info" hx-post="{{ base_url }}/read{{ qs }}" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
         Mark all as Read
       </button>
       {% else %}
-      <button type="button" class="button-info" hx-post="/logs/container/{{ subject }}/unread" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
+      <button type="button" class="button-info" hx-post="{{ base_url }}/unread{{ qs }}" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
         Mark all as Unread
       </button>
       {% endif %}
     </span>
     <span id="subject-silence-toggle-btn">
       {% if silence_state == 'silenced' %}
-      <button type="button" class="button-silence" hx-post="/logs/container/{{ subject }}/unsilence" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
+      <button type="button" class="button-silence" hx-post="{{ base_url }}/unsilence{{ qs }}" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
         Unsilence
       </button>
       {% else %}
-      <button type="button" class="button-silence" hx-post="/logs/container/{{ subject }}/silence" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
+      <button type="button" class="button-silence" hx-post="{{ base_url }}/silence{{ qs }}" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
         Silence
       </button>
       {% endif %}
     </span>
     {% endif %}
-    <button type="button" class="logs-action-btn"
-            hx-post="/logs/container/{{ subject }}/check-now"
+    <button type="button" class="{{ source }}-action-btn"
+            hx-post="{{ base_url }}/check-now{{ qs }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Check Now
     </button>
-    {# A lone finding never reaches this page at all (logs_container_detail redirects straight
-       to /findings/{id} when there's exactly one), so 2+ is the only reachable finding count
-       for which Regenerate has anything to build an overview from. #}
+    {# A lone finding never reaches this page at all (logs_container_detail/compose_file_detail
+       redirect straight to /findings/{id} when there's exactly one), so 2+ is the only
+       reachable finding count for which Regenerate has anything to build an overview from. #}
     {% if findings|length >= 2 %}
-    <button type="button" class="button-warn logs-action-btn"
-            hx-post="/logs/container/{{ subject }}/regenerate"
+    <button type="button" class="button-warn {{ source }}-action-btn"
+            hx-post="{{ base_url }}/regenerate{{ qs }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Regenerate AI Response
     </button>
     {% endif %}
-    <button type="button" class="button-danger logs-action-btn"
-            hx-post="/logs/container/{{ subject }}/reset-and-recheck"
+    <button type="button" class="button-danger {{ source }}-action-btn"
+            hx-post="{{ base_url }}/reset-and-recheck{{ qs }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
-            hx-confirm="This wipes this container's finding history and re-checks it fresh. Continue?">
+            hx-confirm="This wipes this {{ noun }}'s finding history and re-checks it fresh. Continue?">
       Reset &amp; re-check
     </button>
     <span id="item-recheck-status"></span>
   </div>
-  {% endif %}
 
   {% if overview_html %}
   <div class="overview-summary">{{ overview_html | safe }}</div>
@@ -146,8 +145,8 @@
   {% else %}
   <p class="empty">
     No findings for this one.
-    {%- if source == 'logs' and last_checked_at %} Last checked {{ last_checked_at | local_dt }} -- logs were clean, so nothing was sent to the AI for triage.
-    {%- elif source == 'logs' %} Not checked yet -- click Check Now above.
+    {%- if last_checked_at %} Last checked {{ last_checked_at | local_dt }} -- {{ 'logs were clean' if source == 'logs' else 'the file looked clean' }}, so nothing was sent to the AI for triage.
+    {%- else %} Not checked yet -- click Check Now above.
     {%- endif %}
   </p>
   {% endif %}

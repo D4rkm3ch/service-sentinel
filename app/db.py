@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS compose_file_state (
     last_reviewed_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS compose_check_errors (
+    -- Compose's counterpart to log_check_errors -- same reasoning: kept separate from
+    -- compose_file_state rather than a nullable column on it, since a failed check must never
+    -- advance that file's stored content_hash (the "skip if unchanged" checkpoint the next
+    -- check compares against), and a file that has NEVER once succeeded (unreadable from the
+    -- very first check) still needs to show up as needing attention despite having no
+    -- compose_file_state row at all.
+    file_path TEXT PRIMARY KEY,
+    error TEXT NOT NULL,
+    last_error_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS subject_summaries (
     source TEXT NOT NULL,
     subject TEXT NOT NULL,
@@ -543,6 +555,17 @@ def get_notify_logs_include_errors() -> bool:
 
 def set_notify_logs_include_errors(enabled: bool) -> None:
     _set_setting("notify_logs_include_errors", "true" if enabled else "false")
+
+
+def get_notify_compose_include_errors() -> bool:
+    # Same opt-in-only reasoning as get_notify_logs_include_errors -- a compose file that
+    # couldn't be read or reviewed is a noisier, different kind of event than a real finding,
+    # and doesn't have a severity to threshold on.
+    return _get_setting("notify_compose_include_errors", "false") == "true"
+
+
+def set_notify_compose_include_errors(enabled: bool) -> None:
+    _set_setting("notify_compose_include_errors", "true" if enabled else "false")
 
 
 def get_feature_severity(feature: str) -> str:
@@ -1096,28 +1119,62 @@ def all_log_watch_states_with_status() -> list[dict]:
         return result
 
 
-def all_compose_file_states_with_status() -> list[dict]:
-    """Every compose file the reviewer has ever checked, with a healthy/issue status —
-    used for the 'All files' list at the bottom of the Compose tab. See all_log_watch_states_
-    with_status above for why "silence_state" is derived rather than an explicit toggle."""
+def record_compose_check_errors(errors: dict[str, str]) -> None:
+    """errors: {file_path: error_message}. Compose's counterpart to record_log_check_errors --
+    upserts one row per file that failed this check in a single connection."""
+    if not errors:
+        return
+    now = now_iso()
     with get_conn() as conn:
-        cur = conn.execute("SELECT file_path, last_reviewed_at FROM compose_file_state ORDER BY file_path")
-        rows = cur.fetchall()
+        conn.executemany(
+            """
+            INSERT INTO compose_check_errors (file_path, error, last_error_at) VALUES (?, ?, ?)
+            ON CONFLICT(file_path) DO UPDATE SET error = excluded.error, last_error_at = excluded.last_error_at
+            """,
+            [(path, error, now) for path, error in errors.items()],
+        )
+
+
+def clear_compose_check_errors(file_paths: list[str]) -> None:
+    """Clears a previously-recorded check error the moment a file is read successfully again --
+    called for every file that DID succeed this pass, batched."""
+    if not file_paths:
+        return
+    with get_conn() as conn:
+        qs = ",".join("?" * len(file_paths))
+        conn.execute(f"DELETE FROM compose_check_errors WHERE file_path IN ({qs})", file_paths)
+
+
+def all_compose_file_states_with_status() -> list[dict]:
+    """Every compose file the reviewer has ever checked OR ever failed to check, with a
+    healthy/issue/error status — used for the 'All files' list at the bottom of the Compose
+    tab. See all_log_watch_states_with_status above for why "silence_state" is derived rather
+    than an explicit toggle, and why "error" wins over "issue"/"healthy" regardless of finding
+    count -- a file that can't even be read needs attention just as much as one with active
+    findings."""
+    with get_conn() as conn:
+        cur = conn.execute("SELECT file_path, last_reviewed_at FROM compose_file_state")
+        checked = {r["file_path"]: r["last_reviewed_at"] for r in cur.fetchall()}
+        cur = conn.execute("SELECT file_path, error, last_error_at FROM compose_check_errors")
+        errors = {r["file_path"]: dict(r) for r in cur.fetchall()}
+
         result = []
-        for r in rows:
+        for path in sorted(set(checked) | set(errors)):
             cur2 = conn.execute(
                 "SELECT "
                 "SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active, "
                 "COUNT(*) AS total "
                 "FROM findings WHERE source = 'compose' AND subject = ?",
-                (r["file_path"],),
+                (path,),
             )
             counts = cur2.fetchone()
             active, total = counts["active"] or 0, counts["total"] or 0
+            err = errors.get(path)
             result.append({
-                "name": r["file_path"],
-                "last_at": r["last_reviewed_at"],
-                "status": "issue" if active else "healthy",
+                "name": path,
+                "last_at": checked.get(path) or (err["last_error_at"] if err else None),
+                "status": "error" if err else ("issue" if active else "healthy"),
+                "error": err["error"] if err else None,
                 "silence_state": _row_silence_state(active, total),
             })
         return result
@@ -1200,6 +1257,28 @@ def reset_logs_data(subjects: list[str] | None = None) -> None:
             conn.execute(f"DELETE FROM log_check_errors WHERE container_name IN ({qs})", subjects)
 
 
+def reset_compose_data(subjects: list[str] | None = None) -> None:
+    """Compose's equivalent of reset_logs_data(): wipes persisted findings, the per-file
+    content-hash checkpoint, and any cached overview blurb, so the next check reviews that
+    file fresh regardless of whether its content actually changed (which is what an ordinary
+    Check now would otherwise skip via the hash-unchanged short-circuit). subjects=None (the
+    global Reset & re-check button) wipes every Compose subject; a given list scopes the wipe
+    to just those file paths (service-level Reset & re-check -- Compose has no stack concept,
+    see the Cross-Service Analysis docstring above, so there's no stack-level scope here)."""
+    with get_conn() as conn:
+        if subjects is None:
+            conn.execute("DELETE FROM findings WHERE source = 'compose'")
+            conn.execute("DELETE FROM compose_file_state")
+            conn.execute("DELETE FROM subject_summaries WHERE source = 'compose'")
+            conn.execute("DELETE FROM compose_check_errors")
+        elif subjects:
+            qs = ",".join("?" * len(subjects))
+            conn.execute(f"DELETE FROM findings WHERE source = 'compose' AND subject IN ({qs})", subjects)
+            conn.execute(f"DELETE FROM compose_file_state WHERE file_path IN ({qs})", subjects)
+            conn.execute(f"DELETE FROM subject_summaries WHERE source = 'compose' AND subject IN ({qs})", subjects)
+            conn.execute(f"DELETE FROM compose_check_errors WHERE file_path IN ({qs})", subjects)
+
+
 def silence_all_findings_for_subjects(source: str, subjects: list[str]) -> None:
     """Bulk silence -- every currently active finding for the given subjects becomes silenced.
     A finding that appears later starts active again regardless, which is what correctly
@@ -1250,6 +1329,17 @@ def get_compose_file_hash(file_path: str) -> str | None:
         )
         row = cur.fetchone()
         return row["content_hash"] if row else None
+
+
+def get_compose_file_checkpoint(file_path: str) -> str | None:
+    """Compose's equivalent of get_log_watch_checkpoint -- when this file was last actually
+    reviewed, for the subject page's "Last checked ..." empty-state line."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "SELECT last_reviewed_at FROM compose_file_state WHERE file_path = ?", (file_path,)
+        )
+        row = cur.fetchone()
+        return row["last_reviewed_at"] if row else None
 
 
 def set_compose_file_hash(file_path: str, content_hash: str) -> None:

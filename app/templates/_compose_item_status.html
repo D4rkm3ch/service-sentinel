@@ -1,0 +1,11 @@
+<span id="item-recheck-status">
+{% if busy_message %}
+<span class="meta">{{ busy_message }}</span>
+{% elif item and item.running %}
+<span class="status-badge status-running">
+  <span class="spinner" aria-hidden="true"></span>
+  <span id="item-recheck-text">{{ progress_text }}</span>
+</span>
+<span class="status-poller" hx-get="/compose/file/status-poll?path={{ path|urlencode }}" hx-trigger="load delay:400ms" hx-target="this" hx-swap="outerHTML"></span>
+{% endif %}
+</span>

@@ -57,32 +57,33 @@
       </button>
       {% endif %}
     </span>
-    {% if finding.source == 'logs' %}
-    <button type="button" class="logs-action-btn"
-            hx-post="/logs/container/{{ finding.subject }}/check-now"
+    {% set base_url = '/logs/container/' ~ finding.subject if finding.source == 'logs' else '/compose/file' %}
+    {% set qs = '' if finding.source == 'logs' else '?path=' ~ (finding.subject|urlencode) %}
+    {% set noun = 'container' if finding.source == 'logs' else 'compose file' %}
+    <button type="button" class="{{ finding.source }}-action-btn"
+            hx-post="{{ base_url }}/check-now{{ qs }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Check Now
     </button>
     {% if subject_findings_count >= 2 %}
-    <button type="button" class="button-warn logs-action-btn"
-            hx-post="/logs/container/{{ finding.subject }}/regenerate"
+    <button type="button" class="button-warn {{ finding.source }}-action-btn"
+            hx-post="{{ base_url }}/regenerate{{ qs }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Regenerate AI Response
     </button>
     {% else %}
     <button type="button" class="button-warn" disabled
-            title="Needs 2+ findings for this container for an AI overview to regenerate">
+            title="Needs 2+ findings for this {{ noun }} for an AI overview to regenerate">
       Regenerate AI Response
     </button>
     {% endif %}
-    <button type="button" class="button-danger logs-action-btn"
-            hx-post="/logs/container/{{ finding.subject }}/reset-and-recheck"
+    <button type="button" class="button-danger {{ finding.source }}-action-btn"
+            hx-post="{{ base_url }}/reset-and-recheck{{ qs }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
-            hx-confirm="This wipes this container's finding history (including this finding) and re-checks it fresh. Continue?">
+            hx-confirm="This wipes this {{ noun }}'s finding history (including this finding) and re-checks it fresh. Continue?">
       Reset &amp; re-check
     </button>
     <span id="item-recheck-status"></span>
-    {% endif %}
   </div>
 
   <div class="detail-body">

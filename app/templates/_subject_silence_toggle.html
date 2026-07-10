@@ -1,10 +1,12 @@
+{% set base_url = '/logs/container/' ~ subject if source == 'logs' else '/compose/file' %}
+{% set qs = '' if source == 'logs' else '?path=' ~ (subject|urlencode) %}
 <span id="subject-silence-toggle-btn">
 {% if silence_state == 'silenced' %}
-<button type="button" class="button-silence" hx-post="/logs/container/{{ subject }}/unsilence" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
+<button type="button" class="button-silence" hx-post="{{ base_url }}/unsilence{{ qs }}" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
   Unsilence
 </button>
 {% else %}
-<button type="button" class="button-silence" hx-post="/logs/container/{{ subject }}/silence" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
+<button type="button" class="button-silence" hx-post="{{ base_url }}/silence{{ qs }}" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
   Silence
 </button>
 {% endif %}

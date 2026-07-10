@@ -48,6 +48,19 @@
         Reset &amp; re-check
       </button>
     </form>
+    {% elif feature == "compose" %}
+    <form method="post" action="/compose/regenerate-all"
+          onsubmit="return confirm('This regenerates every AI-written overview currently shown on the Compose pages. Continue?')">
+      <button type="submit" class="button-warn compose-action-btn" title="Regenerate every AI-written overview currently shown">
+        Regenerate AI Response
+      </button>
+    </form>
+    <form method="post" action="/compose/reset-and-recheck"
+          onsubmit="return confirm('This wipes all Compose health history and tracking state, then re-checks everything fresh. Continue?')">
+      <button type="submit" class="button-danger compose-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
+        Reset &amp; re-check
+      </button>
+    </form>
     {% endif %}
   </div>
 </div>

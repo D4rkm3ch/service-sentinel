@@ -39,10 +39,11 @@ def test_subject_page_shows_real_severity_badge_and_plain_silenced_wording(clien
     resp = client.get(f"/compose/file?path={_COMPOSE_PATH}&show_silenced=1")
     assert resp.status_code == 200
     assert 'badge-lg badge-sev-critical' in resp.text
-    # The title-row "Silenced" badge was removed as a redundant duplicate of the Silenced
-    # column now shown on the bottom "All containers"/"All compose files" tables -- the "0
-    # active, 2 silenced" wording in the meta line right below is the only indicator left here.
-    assert '<span class="badge badge-lg badge-silenced">Silenced</span>' not in resp.text
+    # The title-row badge says plain "Silenced" (not "Silenced only"), same as Logs' own subject
+    # page already does for a fully-silenced subject -- this WAS gated off for Compose (a
+    # since-fixed parity gap, see subject_findings.html's action-row un-gating), so it's
+    # expected here now, not absent.
+    assert '<span class="badge badge-lg badge-silenced">Silenced</span>' in resp.text
     assert "Silenced only" not in resp.text
     assert "2 silenced" in resp.text
 
