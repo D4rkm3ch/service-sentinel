@@ -92,9 +92,14 @@ def test_weekly_schedule_row_has_a_separator_between_weekdays_and_time():
     text = (ROOT / "app" / "templates" / "_schedule_fields.html").read_text()
     weekly_block = text[text.index('data-mode="weekly"'):text.index('data-mode="monthly"')]
     assert "schedule-field-separator" in weekly_block
-    assert "|" in weekly_block
     # The separator must sit after the weekday group and before the "at" time label.
     assert weekly_block.index("schedule-weekday-group") < weekly_block.index("schedule-field-separator") < weekly_block.index(">at <input")
+
+    css = (ROOT / "app" / "static" / "style.css").read_text()
+    block = css[css.index(".schedule-field-separator"):]
+    block = block[:block.index("}")]
+    # Drawn as a CSS bar (not a "|" glyph) so its height can be set to match the time input.
+    assert "height: 30px" in block
 
 
 def test_schedule_mode_field_label_font_size_matches_weekday_option():

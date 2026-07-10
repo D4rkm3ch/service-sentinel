@@ -832,9 +832,14 @@ tr:hover .row-chevron {
   gap: 6px;
   font-size: 13px;
 }
+/* A CSS-drawn bar rather than a "|" glyph -- a text character's actual ink height is
+   inconsistent and font-size doesn't map predictably onto it, so height is set directly to
+   slightly exceed the ~28px total height of the adjacent time <input> (13px font + 5px vertical
+   padding + 1px border on each side). */
 .schedule-field-separator {
-  color: var(--text-dim);
-  font-size: 13px;
+  width: 1px;
+  height: 30px;
+  background: var(--text-dim);
 }
 .schedule-fields select, .schedule-fields input[type="text"], .schedule-fields input[type="time"], .schedule-fields input[type="number"],
 .field-input {

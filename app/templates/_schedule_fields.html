@@ -36,7 +36,7 @@
       </label>
       {% endfor %}
     </span>
-    <span class="schedule-field-separator">|</span>
+    <span class="schedule-field-separator" aria-hidden="true"></span>
     <label>at <input type="time" name="{{ scope }}_time"
                         value="{{ '%02d:%02d'|format(spec.get('hour', 6), spec.get('minute', 0)) }}" {{ 'disabled' if disabled else '' }}></label>
   </div>
