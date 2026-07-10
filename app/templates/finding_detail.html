@@ -7,6 +7,9 @@
   {% if stack_id %}
   <a href="/logs/stack?id={{ stack_id|urlencode }}" class="back-link">← Back to Stack</a>
   {% endif %}
+  {% if subject_findings_count >= 2 %}
+  <a href="{{ subject_url }}" class="back-link">← Back to {{ display_name }}</a>
+  {% endif %}
 </div>
 
 <section class="panel">
@@ -64,6 +67,11 @@
     <button type="button" class="button-warn logs-action-btn"
             hx-post="/logs/container/{{ finding.subject }}/regenerate"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
+      Regenerate AI Response
+    </button>
+    {% else %}
+    <button type="button" class="button-warn" disabled
+            title="Needs 2+ findings for this container for an AI overview to regenerate">
       Regenerate AI Response
     </button>
     {% endif %}

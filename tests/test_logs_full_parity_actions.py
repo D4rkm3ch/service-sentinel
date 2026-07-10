@@ -691,11 +691,17 @@ def test_finding_page_has_check_now_and_reset_buttons_scoped_to_its_subject(clie
     assert 'hx-post="/logs/container/finding-buttons-a/regenerate"' in resp.text
 
 
-def test_finding_page_hides_regenerate_when_its_subject_has_fewer_than_two_findings(client):
+def test_finding_page_disables_regenerate_when_its_subject_has_fewer_than_two_findings(client):
+    """This is actually the common case reachable here (a subject with exactly one finding
+    redirects straight to this page), so Regenerate is disabled with an explanatory tooltip --
+    same "always show all 3 buttons" shape as Updates' detail.html -- rather than hidden the
+    way subject_findings.html's genuinely-unreachable <2 case is."""
     fid, _ = db.upsert_finding("logs", "finding-single-a", "OOM", "crash", "critical", "desc")
     resp = client.get(f"/findings/{fid}")
     assert 'hx-post="/logs/container/finding-single-a/check-now"' in resp.text
     assert 'hx-post="/logs/container/finding-single-a/regenerate"' not in resp.text
+    assert "Regenerate AI Response" in resp.text
+    assert 'button-warn" disabled' in resp.text
 
 
 def test_finding_page_action_buttons_do_not_appear_for_compose(client):
@@ -705,6 +711,37 @@ def test_finding_page_action_buttons_do_not_appear_for_compose(client):
     assert "/check-now" not in resp.text
     assert "/reset-and-recheck" not in resp.text
     assert "/regenerate" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Finding-level page: "Back to {service/file}" -- the 4th (Logs) / 3rd (Compose) hierarchy
+# level was being skipped entirely on the way back up from an individual finding, landing
+# straight on the top-level Logs/Compose page instead of the subject's own findings list.
+# ---------------------------------------------------------------------------
+
+def test_finding_page_shows_back_to_service_link_when_its_subject_has_multiple_findings(client):
+    fid, _ = db.upsert_finding("logs", "finding-back-svc-a", "OOM", "crash", "critical", "desc")
+    db.upsert_finding("logs", "finding-back-svc-a", "Disk full", "resource", "warning", "desc2")
+
+    resp = client.get(f"/findings/{fid}")
+    assert '/logs/container/finding-back-svc-a"' in resp.text
+    assert "Back to finding-back-svc-a" in resp.text
+
+
+def test_finding_page_hides_back_to_service_link_when_its_subject_has_only_this_one_finding(client):
+    fid, _ = db.upsert_finding("logs", "finding-back-svc-solo", "OOM", "crash", "critical", "desc")
+    resp = client.get(f"/findings/{fid}")
+    back_link_row = resp.text[resp.text.index('class="back-link-row"'):resp.text.index("</div>")]
+    assert "Back to finding-back-svc-solo" not in back_link_row
+
+
+def test_finding_page_shows_back_to_file_link_for_compose_when_its_subject_has_multiple_findings(client):
+    fid, _ = db.upsert_finding("compose", "back-to-file.yml", "Missing restart policy", "reliability", "critical", "d1")
+    db.upsert_finding("compose", "back-to-file.yml", "No healthcheck", "reliability", "warning", "d2")
+
+    resp = client.get(f"/findings/{fid}")
+    assert "/compose/file?path=back-to-file.yml" in resp.text
+    assert "Back to" in resp.text
 
 
 def test_finding_page_shows_back_to_stack_link_for_a_stack_member(client):

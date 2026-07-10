@@ -1913,17 +1913,27 @@ def finding_detail(request: Request, finding_id: int):
     suggested_fix_html = render_markdown(finding["suggested_fix"]) if finding["suggested_fix"] else None
     display_name = compose_lookup.subject_display_name(finding["source"], finding["subject"])
 
+    # A finding is the bottom of a 4-level hierarchy for Logs (main -> stack -> service ->
+    # finding) and a 3-level one for Compose (main -> file -> finding, no stack concept) --
+    # subject_findings_count backs both the "Back to {service/file}" link below (only useful
+    # when 2+ findings share this subject; with exactly one, that page would just redirect
+    # straight back here) and the Regenerate button's own gate, same reasoning as
+    # subject_findings.html's.
+    subject_findings_count = len(db.list_findings_for_subject(finding["source"], finding["subject"], include_silenced=True))
+    if finding["source"] == "logs":
+        subject_url = f"/logs/container/{finding['subject']}"
+    else:
+        subject_url = f"/compose/file?path={quote(finding['subject'])}"
+
     # Logs-only: a finding's Check Now/Regenerate/Reset & re-check operate on its own subject
     # (container), same routes subject_findings.html uses -- there's no per-finding equivalent
     # since a finding's own AI content can only ever come from a fresh log fetch for its whole
     # container, not from something stored per-finding. Not offered for Compose, same as every
     # other stack-shaped concept (see stacks.py).
     stack_id = None
-    subject_findings_count = 0
     if finding["source"] == "logs":
         stack_info = compose_lookup.get_stack_info(finding["subject"])
         stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
-        subject_findings_count = len(db.list_findings_for_subject("logs", finding["subject"], include_silenced=True))
 
     return templates.TemplateResponse(
         "finding_detail.html",
@@ -1932,6 +1942,7 @@ def finding_detail(request: Request, finding_id: int):
             "suggested_fix_html": suggested_fix_html,
             "display_name": display_name, "active_tab": finding["source"],
             "stack_id": stack_id, "subject_findings_count": subject_findings_count,
+            "subject_url": subject_url,
         },
     )
 
