@@ -57,6 +57,23 @@ def test_severity_buttons_are_hollow_by_default():
     assert "background: var(--bg)" not in rule
 
 
+def test_the_selected_severity_button_is_also_hollow_not_solid_filled():
+    """A real-world correction: the first pass only fixed the unselected buttons -- the
+    SELECTED one still had a solid var(--warn)/var(--error)/etc. fill. It should look like
+    every other button's default (unhovered) state: transparent background, colored border and
+    text, same shape as e.g. Send test notification -- just colored per severity instead of
+    the unselected buttons' dim grey."""
+    for variant, color_var in [
+        ("severity-btn-bugfix", "--text-dim"),
+        ("severity-btn-warning", "--warn"),
+        ("severity-btn-critical", "--error"),
+        ("severity-btn-feature", "--accent"),
+    ]:
+        rule = _rule_block(f"input:checked + .{variant}")
+        assert f"border-color: var({color_var})" in rule
+        assert "background:" not in rule  # no solid fill override for the checked state
+
+
 def _rule(class_name: str) -> str:
     marker = f".{class_name} {{"
     start = STYLE.index(marker)

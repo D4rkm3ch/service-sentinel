@@ -696,28 +696,31 @@ tr:hover .row-chevron {
 /* Selected state uses each severity's own color (matching its badge elsewhere in the app --
    see .badge-sev-* below) rather than one flat accent color for every tier, so the button
    that's currently selected reads as "which severity" at a glance, the same way the badges do
-   on the Updates table. */
+   on the Updates table. Hollow (transparent background, colored border + text) rather than a
+   solid fill -- same "outline in its own color" shape as every other button in the app (e.g.
+   Send test notification), just with opacity 1 and its own color instead of the dimmed grey
+   the unselected buttons use. */
 .severity-group input:checked + .severity-btn {
   opacity: 1;
-  color: #fff;
+  background: transparent;
 }
 .severity-group input:checked + .severity-btn-suggestion,
 .severity-group input:checked + .severity-btn-bugfix {
-  background: var(--text-dim);
+  color: var(--text-dim);
   border-color: var(--text-dim);
 }
 .severity-group input:checked + .severity-btn-warning,
 .severity-group input:checked + .severity-btn-action_needed {
-  background: var(--warn);
+  color: var(--warn);
   border-color: var(--warn);
 }
 .severity-group input:checked + .severity-btn-critical,
 .severity-group input:checked + .severity-btn-breaking {
-  background: var(--error);
+  color: var(--error);
   border-color: var(--error);
 }
 .severity-group input:checked + .severity-btn-feature {
-  background: var(--accent);
+  color: var(--accent);
   border-color: var(--accent);
 }
 .severity-group.faded .severity-btn {
