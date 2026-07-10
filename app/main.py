@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import check_state, compose_lookup, compose_reviewer, db, log_watcher, persist, stacks
+from app import ai_provider, check_state, compose_lookup, compose_reviewer, db, log_watcher, persist, release_notes, stacks
 from app.check_state import format_summary, get_progress, get_state, set_running
 from app.config import settings
 from app.notifications import send_test_notification
@@ -850,6 +850,7 @@ def settings_page(request: Request):
             "gemini_key_configured": bool(db.get_gemini_api_key()),
             "gemini_model": db.get_gemini_model(),
             "gemini_models": GEMINI_MODELS,
+            "github_token_configured": bool(db.get_github_token()),
             "active_tab": "settings",
         },
     )
@@ -914,11 +915,12 @@ async def save_ai_provider(request: Request):
 async def save_anthropic_key(request: Request):
     form = await request.form()
     key = (form.get("api_key") or "").strip()
-    # Blank submission means "leave it as-is" (the field's placeholder already says so once a
-    # key is on file) -- never overwrite a working key with an accidental empty save.
-    if key:
+    if not key:
+        return {"ok": False, "message": "Enter a key first."}
+    ok, message = ai_provider.test_anthropic_key(key)
+    if ok:
         db.set_anthropic_api_key(key)
-    return {"status": "ok"}
+    return {"ok": ok, "message": message}
 
 
 @app.post("/settings/ai/anthropic-model")
@@ -935,9 +937,24 @@ async def save_anthropic_model(request: Request):
 async def save_gemini_key(request: Request):
     form = await request.form()
     key = (form.get("api_key") or "").strip()
-    if key:
+    if not key:
+        return {"ok": False, "message": "Enter a key first."}
+    ok, message = ai_provider.test_gemini_key(key)
+    if ok:
         db.set_gemini_api_key(key)
-    return {"status": "ok"}
+    return {"ok": ok, "message": message}
+
+
+@app.post("/settings/ai/github-token")
+async def save_github_token(request: Request):
+    form = await request.form()
+    token = (form.get("api_key") or "").strip()
+    if not token:
+        return {"ok": False, "message": "Enter a token first."}
+    ok, message = release_notes.test_github_token(token)
+    if ok:
+        db.set_github_token(token)
+    return {"ok": ok, "message": message}
 
 
 @app.post("/settings/ai/gemini-model")

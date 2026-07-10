@@ -673,6 +673,14 @@ tr:hover .row-chevron {
   min-width: 0;
   max-width: 360px;
 }
+.api-key-row input:disabled {
+  opacity: 0.6;
+}
+.key-configured-badge {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+}
 .toggle-with-label {
   display: flex;
   align-items: center;

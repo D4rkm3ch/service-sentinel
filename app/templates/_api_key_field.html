@@ -1,0 +1,12 @@
+{% macro api_key_field(provider, key_configured, placeholder_new, save_url) %}
+<div class="api-key-row">
+  <input type="password" id="{{ provider }}_api_key_field" class="mono field-input" autocomplete="off"
+         data-placeholder-new="{{ placeholder_new }}" data-save-url="{{ save_url }}"
+         placeholder="{{ '•••••••• (configured)' if key_configured else placeholder_new }}"
+         {{ 'disabled' if key_configured else '' }}>
+  <button type="button" id="{{ provider }}_key_action_btn" onclick="handleApiKeyButtonClick('{{ provider }}')">
+    {{ 'Change' if key_configured else 'Test & Save' }}
+  </button>
+  <span id="{{ provider }}_api_key_test_result">{% if key_configured %}<span class="key-configured-badge">✓ Configured</span>{% endif %}</span>
+</div>
+{% endmacro %}

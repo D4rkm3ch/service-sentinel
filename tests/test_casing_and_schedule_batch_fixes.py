@@ -59,15 +59,11 @@ def test_notes_not_found_and_up_to_date_badges_are_title_cased():
     assert "Up to date" not in stack_detail
 
 
-def test_save_name_and_save_key_buttons_are_title_cased():
+def test_save_name_buttons_are_title_cased():
     for name in ("logs_stack_detail.html", "stack_detail.html"):
         text = (ROOT / "app" / "templates" / name).read_text()
         assert "Save Name" in text
         assert "Save name" not in text
-
-    settings = (ROOT / "app" / "templates" / "settings.html").read_text()
-    assert settings.count("Save Key") == 2
-    assert "Save key" not in settings
 
 
 def test_dead_dashboard_template_was_removed():

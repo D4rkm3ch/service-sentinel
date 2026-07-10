@@ -37,7 +37,6 @@ import httpx
 
 from app import ai_provider, db
 from app.ai_json import extract_json
-from app.config import settings
 
 logger = logging.getLogger("service_sentinel.release_notes")
 
@@ -49,9 +48,34 @@ _MAX_COMPILED_RELEASES = 20
 
 def _github_headers() -> dict:
     headers = {"Accept": "application/vnd.github+json"}
-    if settings.github_token:
-        headers["Authorization"] = f"Bearer {settings.github_token}"
+    token = db.get_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     return headers
+
+
+def test_github_token(token: str) -> tuple[bool, str]:
+    """Validates a candidate GitHub token against /rate_limit -- a free call that doesn't count
+    against the rate limit itself, and its response (60/hr unauthenticated vs 5000/hr
+    authenticated) doubles as proof the token is actually being used, not just well-formed."""
+    try:
+        resp = httpx.get(
+            "https://api.github.com/rate_limit",
+            headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"},
+            timeout=10.0,
+        )
+    except httpx.HTTPError as exc:
+        return False, f"Couldn't reach GitHub: {exc}"
+
+    if resp.status_code == 401:
+        return False, "Invalid token."
+    if resp.status_code != 200:
+        return False, f"GitHub returned an unexpected error (HTTP {resp.status_code})."
+
+    limit = resp.json().get("resources", {}).get("core", {}).get("limit")
+    if limit and limit > 60:
+        return True, f"Token works. Rate limit: {limit}/hour."
+    return False, "Token accepted, but the rate limit is still unauthenticated-level -- double-check it has no expired/missing scope."
 
 
 def _fetch_github_release_notes(owner_repo: str, tag: str) -> tuple[str | None, str | None]:

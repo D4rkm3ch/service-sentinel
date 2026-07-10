@@ -308,6 +308,15 @@ def init_db() -> None:
                 (env_model,),
             )
 
+        # Migration: GITHUB_TOKEN used to be compose-file-only too -- same one-time carry-over,
+        # never overwriting a token already saved from the Settings page.
+        env_github_token = os.environ.get("GITHUB_TOKEN", "")
+        if env_github_token:
+            conn.execute(
+                "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
+                ("github_token", env_github_token),
+            )
+
         # Migration: an existing install may already have notify_severity_updates seeded with
         # a value from the old shared 3-tier scale — correct it to the new scale's default.
         row = conn.execute(
@@ -1466,6 +1475,14 @@ def get_gemini_model() -> str:
 
 def set_gemini_model(model: str) -> None:
     _set_setting("gemini_model", model)
+
+
+def get_github_token() -> str:
+    return _get_setting("github_token", "")
+
+
+def set_github_token(token: str) -> None:
+    _set_setting("github_token", token)
 
 
 # ---------------------------------------------------------------------------

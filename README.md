@@ -33,7 +33,8 @@ manually silenced from the dashboard if you've seen it and don't need to be told
 - Read-only access to the folder where your compose files live (e.g. Dockge's stacks directory)
 - An API key for Anthropic (Claude) or Google Gemini — your tokens, your usage. Configured from
   the Settings page in the app itself (AI Provider panel), not the compose file.
-- Optionally, a GitHub token to raise the GitHub API rate limit (unauthenticated is 60 req/hr)
+- Optionally, a GitHub token to raise the GitHub API rate limit (unauthenticated is 60 req/hr) —
+  also configured from the Settings page's AI Provider panel, not the compose file.
 
 ## Per-container labels
 

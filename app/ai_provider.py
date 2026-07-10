@@ -106,6 +106,31 @@ def _call_gemini(fn):
             time.sleep(min(retry_after, 30.0))
 
 
+def test_anthropic_key(key: str) -> tuple[bool, str]:
+    """Validates a candidate Anthropic key with a free metadata call (lists models, no tokens
+    billed) rather than a real completion -- cheap enough to run on every save attempt."""
+    try:
+        anthropic.Anthropic(api_key=key).models.list(limit=1)
+        return True, "API key works."
+    except anthropic.AuthenticationError:
+        return False, "Invalid API key."
+    except anthropic.APIError as exc:
+        return False, f"Couldn't verify key: {exc}"
+
+
+def test_gemini_key(key: str) -> tuple[bool, str]:
+    """Same idea as test_anthropic_key -- list() is a free metadata call. Wrapped in list() to
+    force the (possibly lazily-paginated) result to actually be fetched, since the error only
+    surfaces once the request is made."""
+    try:
+        list(genai.Client(api_key=key).models.list())
+        return True, "API key works."
+    except genai_errors.ClientError:
+        return False, "Invalid API key."
+    except genai_errors.APIError as exc:
+        return False, f"Couldn't verify key: {exc}"
+
+
 def is_configured() -> bool:
     """True if the currently-selected provider has an API key on file. Every call site in
     summarizer.py/release_notes.py already early-outs on this before spending any effort

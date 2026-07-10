@@ -10,12 +10,11 @@ class Settings:
     """
 
     def __init__(self) -> None:
-        # AI provider/key/model moved to Settings (see app/ai_provider.py, app/db.py) so they
-        # can change without a redeploy -- no longer read from env vars here. ANTHROPIC_API_KEY
-        # and CLAUDE_MODEL are still read once, at db.init_db() time only, to carry over an
-        # existing install's compose-file values into the database on upgrade.
-        self.github_token: str = os.environ.get("GITHUB_TOKEN", "")
-
+        # AI provider/key/model, and the GitHub token, moved to Settings (see app/ai_provider.py,
+        # app/db.py) so they can change without a redeploy -- no longer read from env vars here.
+        # ANTHROPIC_API_KEY, CLAUDE_MODEL, and GITHUB_TOKEN are still read once, at db.init_db()
+        # time only, to carry over an existing install's compose-file values into the database
+        # on upgrade.
         self.compose_root: Path = Path(os.environ.get("COMPOSE_ROOT", "/compose"))
         self.data_dir: Path = Path(os.environ.get("DATA_DIR", "/data"))
         self.db_path: Path = self.data_dir / "service_sentinel.db"
