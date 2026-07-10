@@ -8,19 +8,30 @@
 {% if issues %}
 <table class="findings-table">
   <colgroup>
-    <col style="width: 26%">
+    {% if show_stack_column %}
+    <col style="width: 22%">
+    <col style="width: 16%">
+    <col style="width: 14%">
     <col style="width: 16%">
     <col style="width: 16%">
-    <col style="width: 18%">
     <col style="width: 12%">
     <col style="width: 4%">
+    {% else %}
+    <col style="width: 26%">
+    <col style="width: 16%">
+    <col style="width: 18%">
+    <col style="width: 16%">
+    <col style="width: 12%">
+    <col style="width: 4%">
+    {% endif %}
   </colgroup>
   <thead>
     <tr>
       <th>{{ sh.sort_link('Container' if source == 'logs' else 'Compose file', 'name', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      {% if show_stack_column %}<th>{{ sh.sort_link('Stack', 'stack', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>{% endif %}
       <th>{{ sh.sort_link('Findings', 'findings', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
-      <th>{{ sh.sort_link('Severity', 'severity', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th>{{ sh.sort_link('Last seen', 'lastseen', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th>{{ sh.sort_link('Severity', 'severity', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th>{{ sh.sort_link('Read', 'unread', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
       <th></th>
     </tr>
@@ -35,14 +46,23 @@
     {% endif %}
     <tr class="row-clickable" onclick="window.location='{{ href }}'">
       <td class="mono"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
+      {% if show_stack_column %}
+      <td>
+        {% if issue.stack_name %}
+        <a href="/logs/stack?id={{ issue.stack_id|urlencode }}" class="stack-cell" title="{{ issue.stack_name }}" onclick="event.stopPropagation()">{{ issue.stack_name }}</a>
+        {% else %}
+        <span class="meta">—</span>
+        {% endif %}
+      </td>
+      {% endif %}
       <td>
         {{ issue.active_count }} active
         {%- if show_silenced and issue.silenced_count %}, {{ issue.silenced_count }} silenced{% endif %}
       </td>
+      <td class="nowrap">{{ issue.last_seen_at[:16].replace('T', ' ') }}</td>
       <td>
         <span class="badge badge-sev-{{ issue.top_severity }}">{{ severity_label(source, issue.top_severity) }}</span>
       </td>
-      <td class="nowrap">{{ issue.last_seen_at[:16].replace('T', ' ') }}</td>
       <td>
         {% if issue.unread_count %}
         <span class="badge badge-unread">Unread</span>

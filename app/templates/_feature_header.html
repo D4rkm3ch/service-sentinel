@@ -32,6 +32,19 @@
         Reset &amp; re-check
       </button>
     </form>
+    {% elif feature == "logs" %}
+    <form method="post" action="/logs/regenerate-all"
+          onsubmit="return confirm('This regenerates every AI-written overview and cross-service analysis blurb currently shown on the Logs pages. Continue?')">
+      <button type="submit" class="button-warn logs-action-btn" title="Regenerate every AI-written overview/cross-service blurb currently shown">
+        Regenerate AI Response
+      </button>
+    </form>
+    <form method="post" action="/logs/reset-and-recheck"
+          onsubmit="return confirm('This wipes all Log health history and tracking state, then re-checks everything fresh. Continue?')">
+      <button type="submit" class="button-danger logs-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
+        Reset &amp; re-check
+      </button>
+    </form>
     {% endif %}
   </div>
 </div>

@@ -1,0 +1,18 @@
+<span id="subject-silence-toggle-btn">
+{% if silence_state == 'silenced' %}
+<button type="button" class="button-silence" hx-post="/logs/container/{{ subject }}/unsilence" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
+  Unsilence
+</button>
+{% else %}
+<button type="button" class="button-silence" hx-post="/logs/container/{{ subject }}/silence" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
+  Silence
+</button>
+{% endif %}
+</span>
+<span id="subject-silence-status-badge" hx-swap-oob="true">
+{% if silence_state == 'silenced' %}
+<span class="badge badge-lg badge-silenced">Silenced</span>
+{% elif silence_state == 'partially_silenced' %}
+<span class="badge badge-lg badge-partially-silenced">Partially Silenced</span>
+{% endif %}
+</span>

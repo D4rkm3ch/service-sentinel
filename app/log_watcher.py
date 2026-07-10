@@ -1,6 +1,6 @@
 import logging
 
-from app import db, stacks
+from app import check_state, db, stacks
 from app.check_state import set_finished, set_running
 from app.config import settings
 from app.docker_client import get_container_logs_since, list_running_containers_for_logs
@@ -12,20 +12,14 @@ logger = logging.getLogger("release_radar.log_watcher")
 
 
 def run_log_check() -> dict:
-    """Runs one full log-health pass: for every non-ignored running container, pull logs
-    since the last check (or the configured lookback window on first run), keep only lines
-    that matched a suspicious keyword locally, and — only for containers that actually had
-    something worth showing — send those excerpts to Claude for triage. Containers with
-    clean logs never reach the API at all.
-
-    Deliberately does NOT check db.get_feature_enabled("logs") here -- this function backs
-    both the scheduled job and the manual Check now button (see scheduler.py), and the
-    feature toggle is only meant to control the automatic schedule, not the manual button.
+    """Runs one full log-health pass over every non-ignored running container -- see
+    run_log_check_for below for the actual fetch/filter/triage logic this wraps. Deliberately
+    does NOT check db.get_feature_enabled("logs") here -- this function backs both the
+    scheduled job and the manual Check now button (see scheduler.py), and the feature toggle is
+    only meant to control the automatic schedule, not the manual button.
     scheduler.apply_schedules() is what actually skips scheduling this when the feature is
     disabled."""
     set_running("logs")
-    checked = 0
-    findings_found = 0
 
     try:
         containers = list_running_containers_for_logs()
@@ -35,41 +29,64 @@ def run_log_check() -> dict:
         set_finished("logs", result)
         return result
 
+    checked_names = [c.name for c in containers]
+    result = run_log_check_for(checked_names)
+    logger.info(
+        "Log check complete: %d containers checked, %d findings", result["checked"], result["findings_found"]
+    )
+    _run_log_stack_analysis_pass_safely(checked_names)
+    set_finished("logs", result)
+    return result
+
+
+def run_log_check_for(container_names: list[str]) -> dict:
+    """The actual fetch/filter/triage pass, scoped to whichever container names are given --
+    pull logs since each one's last checkpoint (or the configured lookback window, for a
+    container with none), keep only lines that matched a suspicious keyword locally, and —
+    only for containers that actually had something worth showing — send those excerpts to
+    Claude for triage in one batched call. Containers with clean logs never reach the API at
+    all. Shared by the full check (run_log_check, every currently running container) and every
+    scoped Check now / Reset & re-check action (stack- and service-level), which call this
+    directly with just their own subset.
+
+    Checkpoints are read and written in two batched calls (db.get_log_watch_checkpoints /
+    set_log_watch_checkpoints) rather than one small connection per container -- same
+    "two-phase, fixed connection count regardless of item count" discipline persist.py's
+    Updates pipeline uses. Does NOT call set_running/set_finished (that's the full-check-only
+    feature-level status badge) and does NOT run the Cross-Service Analysis pass itself --
+    callers that want it call stacks.run_log_stack_analysis_pass afterward, same as
+    run_log_check does above."""
+    checked = 0
+    findings_found = 0
     excerpts_by_container: dict[str, str] = {}
-    for container in containers:
+    checkpoints = db.get_log_watch_checkpoints(container_names)
+    checked_ok_names: list[str] = []
+
+    for name in container_names:
         checked += 1
-        checkpoint = db.get_log_watch_checkpoint(container.name)
+        checkpoint = checkpoints.get(name)
         try:
-            log_text = get_container_logs_since(
-                container.name, checkpoint, settings.log_max_lines_per_container
-            )
+            log_text = get_container_logs_since(name, checkpoint, settings.log_max_lines_per_container)
         except Exception:
-            logger.exception("Could not fetch logs for %s", container.name)
+            logger.exception("Could not fetch logs for %s", name)
             continue
 
-        db.set_log_watch_checkpoint(container.name)
-
+        checked_ok_names.append(name)
         excerpt = extract_suspicious_excerpt(log_text) if log_text else None
         if excerpt:
-            excerpts_by_container[container.name] = excerpt
+            excerpts_by_container[name] = excerpt
 
-    checked_names = [c.name for c in containers]
+    db.set_log_watch_checkpoints(checked_ok_names)
 
     if not excerpts_by_container:
-        logger.info("Log check complete: %d containers checked, all clean", checked)
-        result = {"checked": checked, "findings_found": 0, "errors": 0}
-        _run_log_stack_analysis_pass_safely(checked_names)
-        set_finished("logs", result)
-        return result
+        return {"checked": checked, "findings_found": 0, "errors": 0}
 
     try:
         include_fix = db.get_deep_analysis_enabled("logs")
         findings = analyze_logs_batch(excerpts_by_container, include_fix=include_fix)
     except Exception:
         logger.exception("Log triage AI call failed")
-        result = {"checked": checked, "findings_found": 0, "errors": 1}
-        set_finished("logs", result)
-        return result
+        return {"checked": checked, "findings_found": 0, "errors": 1}
 
     for finding in findings:
         container_name = finding.get("container")
@@ -90,11 +107,86 @@ def run_log_check() -> dict:
             notify_finding("logs", container_name, title, finding.get("severity", "warning"),
                             finding.get("category", "error"), finding_id)
 
-    logger.info("Log check complete: %d containers checked, %d findings", checked, findings_found)
-    result = {"checked": checked, "findings_found": findings_found, "errors": 0}
-    _run_log_stack_analysis_pass_safely(checked_names)
-    set_finished("logs", result)
-    return result
+    return {"checked": checked, "findings_found": findings_found, "errors": 0}
+
+
+# ---------------------------------------------------------------------------
+# Scoped Check now / Reset & re-check (service- and stack-level) -- same claimed-mutex shape as
+# persist.py's Updates equivalents, keyed by check_state's "logs" channel rather than "updates"
+# since these are Logs-scoped actions. A container/stack's own identity never changes underneath
+# a running action the way an Updates row's id can, so unlike persist.py's per-item functions
+# there's no "did this get superseded mid-check" redirect logic needed here -- the caller (see
+# main.py's _launch_scoped_log_item_check / _launch_scoped_log_stack_check) always lands back on
+# the exact same container/stack page it started from.
+# ---------------------------------------------------------------------------
+
+def run_claimed_log_item_check_now(item_key: str, container_name: str) -> None:
+    """Service-scoped Check now: non-destructive, only fetches logs since this container's
+    existing checkpoint -- exactly like every other Check now in the app."""
+    check_state.set_item_progress(item_key, "checking_logs", 0, 1)
+    try:
+        run_log_check_for([container_name])
+    except Exception:
+        logger.exception("Scoped log check failed unexpectedly for %s", container_name)
+    finally:
+        check_state.set_item_progress(item_key, "checking_logs", 1, 1)
+        check_state.finish_item(item_key)
+        check_state.release_running("logs")
+
+
+def run_claimed_log_item_reset_and_recheck(item_key: str, container_name: str) -> None:
+    """Service-scoped Reset & re-check: wipes this container's findings/checkpoint/cached
+    overview first (db.reset_logs_data), then re-checks it -- with no checkpoint left, that
+    re-scan naturally covers the full configured lookback window fresh, as if seeing this
+    container for the first time."""
+    check_state.set_item_progress(item_key, "checking_logs", 0, 1)
+    try:
+        db.reset_logs_data(subjects=[container_name])
+        run_log_check_for([container_name])
+    except Exception:
+        logger.exception("Scoped log reset & re-check failed unexpectedly for %s", container_name)
+    finally:
+        check_state.set_item_progress(item_key, "checking_logs", 1, 1)
+        check_state.finish_item(item_key)
+        check_state.release_running("logs")
+
+
+def run_claimed_log_stack_check_now(item_key: str, stack_id: str) -> None:
+    """Stack-scoped Check now: re-checks every current member of this stack (non-destructive),
+    then runs the Cross-Service Analysis pass so the stack's blurb reflects anything that just
+    changed. Member names are re-resolved fresh right before the check (not whatever the page
+    had loaded), same reasoning as Updates' run_claimed_stack_check_now."""
+    check_state.set_item_progress(item_key, "checking_logs", 0, 1)
+    try:
+        member_names = stacks.stack_member_names_for_logs(stack_id)
+        run_log_check_for(member_names)
+        stacks.run_log_stack_analysis_pass(member_names)
+    except Exception:
+        logger.exception("Scoped log stack check failed unexpectedly for %s", stack_id)
+    finally:
+        check_state.set_item_progress(item_key, "checking_logs", 1, 1)
+        check_state.finish_item(item_key)
+        check_state.release_running("logs")
+
+
+def run_claimed_log_stack_reset_and_recheck(item_key: str, stack_id: str) -> None:
+    """Stack-scoped Reset & re-check: wipes findings/checkpoint/cached overview for every
+    current member of this stack, then re-checks all of them (a fresh full-lookback scan, same
+    as the service-level version), and force-regenerates the stack's Cross-Service Analysis
+    blurb afterward -- same "an explicit 'start over' click must never leave the exact same
+    blurb on screen" reasoning as Updates' run_claimed_stack_reset_and_recheck."""
+    check_state.set_item_progress(item_key, "checking_logs", 0, 1)
+    try:
+        member_names = stacks.stack_member_names_for_logs(stack_id)
+        db.reset_logs_data(subjects=member_names)
+        run_log_check_for(member_names)
+        stacks.run_log_stack_analysis_pass(member_names, force=True)
+    except Exception:
+        logger.exception("Scoped log stack reset & re-check failed unexpectedly for %s", stack_id)
+    finally:
+        check_state.set_item_progress(item_key, "checking_logs", 1, 1)
+        check_state.finish_item(item_key)
+        check_state.release_running("logs")
 
 
 def _run_log_stack_analysis_pass_safely(checked_names: list[str]) -> None:

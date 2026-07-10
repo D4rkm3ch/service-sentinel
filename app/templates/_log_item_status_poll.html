@@ -1,0 +1,6 @@
+{% if item and item.running %}
+<span id="item-recheck-text" hx-swap-oob="true">{{ progress_text }}</span>
+<span class="status-poller" hx-get="/logs/container/{{ container_name }}/status-poll" hx-trigger="load delay:400ms" hx-target="this" hx-swap="outerHTML"></span>
+{% else %}
+<span id="item-recheck-status" hx-swap-oob="true"></span>
+{% endif %}

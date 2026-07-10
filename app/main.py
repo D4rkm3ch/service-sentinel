@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import check_state, compose_lookup, db, persist, stacks
+from app import check_state, compose_lookup, db, log_watcher, persist, stacks
 from app.check_state import format_summary, get_progress, get_state, set_running
 from app.config import settings
 from app.notifications import send_test_notification
@@ -216,6 +216,8 @@ _STAGE_LABELS = {
     "summarizing": "Summarizing with AI",
     "regenerating": "Regenerating AI response",
     "stack_analysis": "Analyzing cross-service impact",
+    "checking_logs": "Checking container logs",
+    "log_stack_analysis": "Analyzing cross-service impact",
 }
 
 
@@ -349,12 +351,13 @@ def logs_status_poll(request: Request, prev_running: bool = False):
 
 @app.get("/logs/partial/issues")
 def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str = "severity", dir: str = "asc"):
-    issues = _sort_issue_rows(db.list_subjects_with_findings("logs", include_silenced=show_silenced), sort, dir)
+    issues = _attach_stack_info(db.list_subjects_with_findings("logs", include_silenced=show_silenced), "subject")
+    issues = _sort_issue_rows(issues, sort, dir)
     return templates.TemplateResponse(
         "_issues_grouped_table.html",
         {
             "request": request, "issues": issues, "source": "logs", "show_silenced": show_silenced,
-            "sort": sort, "dir": dir, "is_partial": True,
+            "sort": sort, "dir": dir, "is_partial": True, "show_stack_column": True,
         },
     )
 
@@ -569,6 +572,18 @@ def _sort_issue_rows(rows: list[dict], sort: str, direction: str) -> list[dict]:
         return sorted(rows, key=lambda r: r.get("last_seen_at") or "", reverse=reverse)
     if sort == "unread":
         return sorted(rows, key=lambda r: r.get("unread_count") or 0, reverse=reverse)
+    if sort == "stack":
+        # Same "ungrouped always sorts last regardless of direction" tie-breaking as
+        # _sort_and_filter_rows/_sort_status_list_rows' own stack sorts.
+        annotated = sorted(
+            rows, key=lambda r: (r.get("stack_name") is None, (r.get("stack_name") or "").lower(), name_key(r)),
+            reverse=reverse,
+        )
+        if reverse:
+            grouped = [r for r in annotated if r.get("stack_name") is not None]
+            ungrouped = [r for r in annotated if r.get("stack_name") is None]
+            return grouped + ungrouped
+        return annotated
     return sorted(rows, key=name_key, reverse=reverse)
 
 
@@ -596,8 +611,11 @@ def _sort_status_list_rows(rows: list[dict], sort: str, direction: str) -> list[
             return grouped + ungrouped
         return annotated
     if sort == "silenced":
+        # "silenced" ranks above "partially_silenced" ranks above unsilenced/None -- same
+        # severity-style tiering _ISSUE_SEVERITY_RANK uses, just for the 3-state silence model.
+        _rank = {"silenced": 0, "partially_silenced": 1}
         annotated = sorted(rows, key=name_key)
-        return sorted(annotated, key=lambda r: 0 if r.get("silenced") else 1, reverse=reverse)
+        return sorted(annotated, key=lambda r: _rank.get(r.get("silence_state"), 2), reverse=reverse)
     return sorted(rows, key=name_key, reverse=reverse)
 
 
@@ -623,11 +641,15 @@ def _findings_summary(findings: list[dict]) -> dict:
     }
 
 
-def _get_or_build_overview(source: str, subject: str, display_name: str, findings) -> str | None:
+def _get_or_build_overview(source: str, subject: str, display_name: str, findings, force: bool = False) -> str | None:
     """Combined AI overview shown above a subject's findings list. Cached by a hash of the
     current finding set so it's only regenerated (costing an API call) when something about
     the findings actually changes, not on every page view. Never called for 0 or 1 findings —
-    those cases either show nothing or get redirected straight to the single finding."""
+    those cases either show nothing or get redirected straight to the single finding.
+
+    force=True (the service-level and bulk Regenerate AI Response buttons) bypasses the
+    content-hash cache and always calls the AI fresh, same "an explicit click always gets a
+    fresh take" semantics as every other Regenerate button in the app."""
     if len(findings) < 2:
         return None
 
@@ -635,7 +657,7 @@ def _get_or_build_overview(source: str, subject: str, display_name: str, finding
     findings_hash = hashlib.sha256(fingerprint_input.encode()).hexdigest()[:16]
 
     cached = db.get_subject_summary(source, subject)
-    if cached and cached["findings_hash"] == findings_hash:
+    if not force and cached and cached["findings_hash"] == findings_hash:
         return cached["summary_markdown"]
 
     try:
@@ -980,6 +1002,50 @@ def regenerate_all_updates():
     return RedirectResponse(url="/updates", status_code=303)
 
 
+# ---------------------------------------------------------------------------
+# Logs' own global Reset & re-check / bulk Regenerate AI Response -- same shape as Updates'
+# pair above, adapted for Logs' checkpoint-based (not digest-based) architecture: "reset" means
+# wiping findings + the per-container checkpoint so the next check re-scans a fresh lookback
+# window, and "regenerate" means force-refreshing every AI-written blurb already on the Logs
+# pages (each subject's overview + every qualifying stack's Cross-Service Analysis blurb)
+# rather than re-triaging live logs again, since there's no separately-stored "raw" text to
+# resummarize a finding from the way Updates has release_notes_raw.
+# ---------------------------------------------------------------------------
+
+@app.post("/logs/reset-and-recheck")
+def reset_and_recheck_logs():
+    db.reset_logs_data()
+    set_running("logs")
+    TRIGGER_FUNCS["logs"]()
+    return RedirectResponse(url="/logs", status_code=303)
+
+
+def _run_claimed_logs_bulk_regenerate() -> None:
+    """The main Logs page's bulk "Regenerate AI Response" -- force-regenerates every subject's
+    cached overview blurb (for subjects with 2+ findings) and every qualifying stack's
+    Cross-Service Analysis blurb, bypassing their content-hash caches, same "an explicit click
+    always gets a fresh take" semantics as every other Regenerate button in the app. Claims the
+    Logs mutex so it can't overlap with a real check or another scoped action."""
+    try:
+        container_names = [row["name"] for row in db.all_log_watch_states_with_status()]
+        for name in container_names:
+            findings = db.list_findings_for_subject("logs", name, include_silenced=True)
+            if len(findings) >= 2:
+                _get_or_build_overview("logs", name, name, findings, force=True)
+        stacks.run_log_stack_analysis_pass(container_names, force=True)
+    except Exception:
+        logger.exception("Bulk Regenerate AI Response failed unexpectedly for Logs")
+    finally:
+        check_state.release_running("logs")
+
+
+@app.post("/logs/regenerate-all")
+def regenerate_all_logs():
+    if check_state.try_start("logs"):
+        threading.Thread(target=_run_claimed_logs_bulk_regenerate, daemon=True).start()
+    return RedirectResponse(url="/logs", status_code=303)
+
+
 def _emphasize_stack_mentions(text: str, service_names: list[str]) -> str:
     """Bolds exact mentions of a stack's own service names within the analysis text, purely to
     make them easier to pick out while reading -- these used to be jump-links to that service's
@@ -1164,7 +1230,8 @@ def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
 @app.get("/logs")
 def logs_page(request: Request, show_silenced: bool = False,
               sort: str = "severity", dir: str = "asc", csort: str = "status", cdir: str = "asc"):
-    issues = _sort_issue_rows(db.list_subjects_with_findings("logs", include_silenced=show_silenced), sort, dir)
+    issues = _attach_stack_info(db.list_subjects_with_findings("logs", include_silenced=show_silenced), "subject")
+    issues = _sort_issue_rows(issues, sort, dir)
     containers = _attach_stack_info(db.all_log_watch_states_with_status(), "name")
     containers = _sort_status_list_rows(containers, csort, cdir)
     return templates.TemplateResponse(
@@ -1173,7 +1240,7 @@ def logs_page(request: Request, show_silenced: bool = False,
             **_status_context(request, "logs"),
             "issues": issues, "containers": containers, "show_silenced": show_silenced,
             "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
-            "active_tab": "logs",
+            "active_tab": "logs", "show_stack_column": True,
         },
     )
 
@@ -1191,12 +1258,15 @@ def logs_container_detail(request: Request, container_name: str):
 
     overview = _get_or_build_overview("logs", container_name, container_name, findings)
     overview_html = render_markdown(overview) if overview else None
+    summary = _findings_summary(findings)
     return templates.TemplateResponse(
         "subject_findings.html",
         {
             "request": request, "findings": findings, "display_name": container_name,
+            "subject": container_name,
             "back_url": "/logs", "overview_html": overview_html, "source": "logs",
-            **_findings_summary(findings),
+            **summary,
+            "silence_state": _silence_state(summary["active_count"], summary["silenced_count"]),
             "active_tab": "logs",
         },
     )
@@ -1223,12 +1293,17 @@ def logs_stack_detail(request: Request, id: str):
         analysis_html = render_markdown(emphasized_text)
 
     members = []
+    active_total = 0
+    silenced_total = 0
     for name in member_names:
         findings = db.list_findings_for_subject("logs", name, include_silenced=True)
+        summary = _findings_summary(findings)
+        active_total += summary["active_count"]
+        silenced_total += summary["silenced_count"]
         members.append({
             "container_name": name,
             "last_checked_at": db.get_log_watch_checkpoint(name),
-            **_findings_summary(findings),
+            **summary,
         })
 
     return templates.TemplateResponse(
@@ -1237,6 +1312,7 @@ def logs_stack_detail(request: Request, id: str):
             "request": request, "stack_id": id, "display_name": display_name,
             "members": members, "active_tab": "logs",
             "cross_service_enabled": cross_service_enabled, "analysis_html": analysis_html,
+            "silence_state": _silence_state(active_total, silenced_total),
         },
     )
 
@@ -1253,6 +1329,76 @@ def retry_log_stack_route(request: Request, stack_id: str = ""):
         request, stack_id,
         lambda item_key: stacks.run_claimed_log_stack_retry(item_key, stack_id),
     )
+
+
+@app.post("/logs/stack/check-now")
+def check_now_log_stack_route(request: Request, stack_id: str = ""):
+    """Non-destructive scoped re-check for every member of this Logs stack -- mirrors Updates'
+    stack Check now, hence no confirmation dialog on the button."""
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    return _launch_scoped_log_stack_check(
+        request, stack_id,
+        lambda item_key: log_watcher.run_claimed_log_stack_check_now(item_key, stack_id),
+    )
+
+
+@app.post("/logs/stack/reset-and-recheck")
+def reset_and_recheck_log_stack_route(request: Request, stack_id: str = ""):
+    """Stack-scoped equivalent of the per-service Reset & re-check: wipes and re-checks every
+    service belonging to this stack, and no others, then force-regenerates the stack's
+    Cross-Service Analysis on top."""
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    return _launch_scoped_log_stack_check(
+        request, stack_id,
+        lambda item_key: log_watcher.run_claimed_log_stack_reset_and_recheck(item_key, stack_id),
+    )
+
+
+def _silence_state(active_count: int, silenced_count: int) -> str | None:
+    """The shared 3-state silence model for any scope that aggregates a set of findings' active/
+    silenced counts (a service's own findings, or every finding across a stack's services):
+    None (nothing silenced, or nothing to silence at all), "partially_silenced" (some but not
+    all silenced), or "silenced" (at least one finding, and every one of them silenced).
+    A brand new finding appearing later naturally starts active, which is what correctly demotes
+    a fully "silenced" service/stack back to "partially_silenced" -- silence here is an action
+    applied to today's active rows, not a persistent mute flag layered on top (see
+    db.silence_all_findings_for_subjects)."""
+    total = active_count + silenced_count
+    if total == 0 or silenced_count == 0:
+        return None
+    return "silenced" if active_count == 0 else "partially_silenced"
+
+
+def _stack_silence_toggle_response(request: Request, stack_id: str):
+    member_names = stacks.stack_member_names_for_logs(stack_id)
+    active_total = 0
+    silenced_total = 0
+    for name in member_names:
+        summary = _findings_summary(db.list_findings_for_subject("logs", name, include_silenced=True))
+        active_total += summary["active_count"]
+        silenced_total += summary["silenced_count"]
+    return templates.TemplateResponse(
+        "_stack_silence_toggle.html",
+        {"request": request, "stack_id": stack_id, "silence_state": _silence_state(active_total, silenced_total)},
+    )
+
+
+@app.post("/logs/stack/silence")
+def silence_log_stack_route(request: Request, stack_id: str = ""):
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    db.silence_all_findings_for_subjects("logs", stacks.stack_member_names_for_logs(stack_id))
+    return _stack_silence_toggle_response(request, stack_id)
+
+
+@app.post("/logs/stack/unsilence")
+def unsilence_log_stack_route(request: Request, stack_id: str = ""):
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    db.unsilence_all_findings_for_subjects("logs", stacks.stack_member_names_for_logs(stack_id))
+    return _stack_silence_toggle_response(request, stack_id)
 
 
 @app.get("/logs/stack/status-poll")
@@ -1536,6 +1682,142 @@ def _launch_scoped_log_stack_check(request: Request, stack_id: str, target) -> o
     check_state.start_item(item_key, stack_id)
     threading.Thread(target=target, args=(item_key,), daemon=True).start()
     return _render_log_stack_item_status(request, stack_id, item_key)
+
+
+def _log_item_key(container_name: str) -> str:
+    return f"logitem:{container_name}"
+
+
+def _render_log_item_status(request: Request, container_name: str, item_key: str, busy_message: str | None = None):
+    item = check_state.get_item_state(item_key)
+    return templates.TemplateResponse(
+        "_log_item_status.html",
+        {
+            "request": request, "container_name": container_name, "item": item,
+            "progress_text": _progress_text(item) if item else "",
+            "busy_message": busy_message,
+        },
+    )
+
+
+def _launch_scoped_log_item_check(request: Request, container_name: str, target) -> object:
+    """Service-scoped counterpart to _launch_scoped_log_stack_check above -- a container's own
+    identity never changes underneath a running action (unlike an Updates row's id), so this
+    always lands back on the exact same /logs/container/{container_name} page it started from."""
+    item_key = _log_item_key(container_name)
+    if not check_state.try_start("logs"):
+        return _render_log_item_status(
+            request, container_name, item_key,
+            busy_message="A check just started elsewhere — try again shortly.",
+        )
+
+    check_state.start_item(item_key, container_name)
+    threading.Thread(target=target, args=(item_key,), daemon=True).start()
+    return _render_log_item_status(request, container_name, item_key)
+
+
+def _run_claimed_log_item_regenerate(item_key: str, container_name: str) -> None:
+    """Service-scoped Regenerate AI Response -- force-recomputes this one container's cached
+    overview blurb (see _get_or_build_overview), bypassing the content-hash cache. Same
+    "one AI call, reported as a single (0,1) -> (1,1) step" shape as Updates' per-item
+    regenerate (persist.run_claimed_regenerate_summary)."""
+    check_state.set_item_progress(item_key, "regenerating", 0, 1)
+    try:
+        findings = db.list_findings_for_subject("logs", container_name, include_silenced=True)
+        if len(findings) >= 2:
+            _get_or_build_overview("logs", container_name, container_name, findings, force=True)
+    except Exception:
+        logger.exception("Regenerate AI Response failed unexpectedly for %s", container_name)
+    finally:
+        check_state.set_item_progress(item_key, "regenerating", 1, 1)
+        check_state.finish_item(item_key)
+        check_state.release_running("logs")
+
+
+@app.post("/logs/container/{container_name}/check-now")
+def check_now_log_item_route(request: Request, container_name: str):
+    return _launch_scoped_log_item_check(
+        request, container_name,
+        lambda item_key: log_watcher.run_claimed_log_item_check_now(item_key, container_name),
+    )
+
+
+@app.post("/logs/container/{container_name}/reset-and-recheck")
+def reset_and_recheck_log_item_route(request: Request, container_name: str):
+    return _launch_scoped_log_item_check(
+        request, container_name,
+        lambda item_key: log_watcher.run_claimed_log_item_reset_and_recheck(item_key, container_name),
+    )
+
+
+@app.post("/logs/container/{container_name}/regenerate")
+def regenerate_log_item_route(request: Request, container_name: str):
+    return _launch_scoped_log_item_check(
+        request, container_name,
+        lambda item_key: _run_claimed_log_item_regenerate(item_key, container_name),
+    )
+
+
+@app.get("/logs/container/{container_name}/status-poll")
+def log_item_status_poll(request: Request, container_name: str):
+    item_key = _log_item_key(container_name)
+    item = check_state.get_item_state(item_key)
+
+    if item is not None and item["running"]:
+        return templates.TemplateResponse(
+            "_log_item_status_poll.html",
+            {"request": request, "container_name": container_name, "item": item, "progress_text": _progress_text(item)},
+        )
+
+    check_state.clear_item(item_key)
+    resp = templates.TemplateResponse(
+        "_log_item_status_poll.html",
+        {"request": request, "container_name": container_name, "item": None, "progress_text": ""},
+    )
+    resp.headers["HX-Redirect"] = f"/logs/container/{container_name}"
+    return resp
+
+
+def _subject_read_toggle_response(request: Request, source: str, subject: str):
+    summary = _findings_summary(db.list_findings_for_subject(source, subject, include_silenced=True))
+    return templates.TemplateResponse(
+        "_subject_read_toggle.html", {"request": request, "source": source, "subject": subject, **summary},
+    )
+
+
+@app.post("/logs/container/{container_name}/read")
+def mark_log_subject_read(request: Request, container_name: str):
+    db.set_findings_read_status_for_subject("logs", container_name, "read")
+    return _subject_read_toggle_response(request, "logs", container_name)
+
+
+@app.post("/logs/container/{container_name}/unread")
+def mark_log_subject_unread(request: Request, container_name: str):
+    db.set_findings_read_status_for_subject("logs", container_name, "unread")
+    return _subject_read_toggle_response(request, "logs", container_name)
+
+
+def _subject_silence_toggle_response(request: Request, source: str, subject: str):
+    summary = _findings_summary(db.list_findings_for_subject(source, subject, include_silenced=True))
+    return templates.TemplateResponse(
+        "_subject_silence_toggle.html",
+        {
+            "request": request, "source": source, "subject": subject,
+            "silence_state": _silence_state(summary["active_count"], summary["silenced_count"]),
+        },
+    )
+
+
+@app.post("/logs/container/{container_name}/silence")
+def silence_log_subject(request: Request, container_name: str):
+    db.silence_all_findings_for_subjects("logs", [container_name])
+    return _subject_silence_toggle_response(request, "logs", container_name)
+
+
+@app.post("/logs/container/{container_name}/unsilence")
+def unsilence_log_subject(request: Request, container_name: str):
+    db.unsilence_all_findings_for_subjects("logs", [container_name])
+    return _subject_silence_toggle_response(request, "logs", container_name)
 
 
 @app.post("/updates/{update_id}/check-now")

@@ -992,11 +992,24 @@ def list_subjects_with_findings(source: str, include_silenced: bool = False) -> 
         return rows
 
 
+def _row_silence_state(active: int, total: int) -> str | None:
+    """None / "partially_silenced" / "silenced" -- same 3-state model as main._silence_state,
+    duplicated here (rather than imported) since db.py has no dependency on main.py. "silenced"
+    only when there's at least one finding and every one of them is silenced; "partially_
+    silenced" when some but not all are (e.g. one finding silenced individually while another
+    stays active)."""
+    silenced = total - active
+    if total == 0 or silenced == 0:
+        return None
+    return "silenced" if active == 0 else "partially_silenced"
+
+
 def all_log_watch_states_with_status() -> list[dict]:
     """Every container the log watcher has ever checked, with a healthy/issue status —
-    used for the 'All containers' list at the bottom of the Logs tab. "silenced" is derived
-    (has findings, but every one of them is currently silenced) rather than an explicit
-    per-container toggle like Updates has -- Logs/Compose only silence at the finding level."""
+    used for the 'All containers' list at the bottom of the Logs tab. "silence_state" is
+    derived from the findings themselves (see _row_silence_state) rather than an explicit
+    per-container toggle like Updates has -- Logs/Compose silence at the finding, service
+    (subject), or stack level, all ultimately just bulk actions over these same rows."""
     with get_conn() as conn:
         cur = conn.execute("SELECT container_name, last_checked_at FROM log_watch_state ORDER BY container_name")
         rows = cur.fetchall()
@@ -1015,7 +1028,7 @@ def all_log_watch_states_with_status() -> list[dict]:
                 "name": r["container_name"],
                 "last_at": r["last_checked_at"],
                 "status": "issue" if active else "healthy",
-                "silenced": total > 0 and active == 0,
+                "silence_state": _row_silence_state(active, total),
             })
         return result
 
@@ -1023,7 +1036,7 @@ def all_log_watch_states_with_status() -> list[dict]:
 def all_compose_file_states_with_status() -> list[dict]:
     """Every compose file the reviewer has ever checked, with a healthy/issue status —
     used for the 'All files' list at the bottom of the Compose tab. See all_log_watch_states_
-    with_status above for why "silenced" is derived rather than an explicit toggle."""
+    with_status above for why "silence_state" is derived rather than an explicit toggle."""
     with get_conn() as conn:
         cur = conn.execute("SELECT file_path, last_reviewed_at FROM compose_file_state ORDER BY file_path")
         rows = cur.fetchall()
@@ -1042,7 +1055,7 @@ def all_compose_file_states_with_status() -> list[dict]:
                 "name": r["file_path"],
                 "last_at": r["last_reviewed_at"],
                 "status": "issue" if active else "healthy",
-                "silenced": total > 0 and active == 0,
+                "silence_state": _row_silence_state(active, total),
             })
         return result
 
@@ -1069,6 +1082,95 @@ def set_log_watch_checkpoint(container_name: str) -> None:
             ON CONFLICT(container_name) DO UPDATE SET last_checked_at = excluded.last_checked_at
             """,
             (container_name, now),
+        )
+
+
+def get_log_watch_checkpoints(container_names: list[str]) -> dict[str, str]:
+    """Batched equivalent of get_log_watch_checkpoint -- one connection for the whole list
+    instead of one per container, same "read once into a dict, thread it through" shape as
+    persist.py's container_state_by_name batching for Updates."""
+    if not container_names:
+        return {}
+    with get_conn() as conn:
+        qs = ",".join("?" * len(container_names))
+        cur = conn.execute(
+            f"SELECT container_name, last_checked_at FROM log_watch_state WHERE container_name IN ({qs})",
+            container_names,
+        )
+        return {r["container_name"]: r["last_checked_at"] for r in cur.fetchall()}
+
+
+def set_log_watch_checkpoints(container_names: list[str]) -> None:
+    """Batched equivalent of set_log_watch_checkpoint -- stamps every given container's
+    checkpoint to "now" in a single connection/transaction."""
+    if not container_names:
+        return
+    now = now_iso()
+    with get_conn() as conn:
+        conn.executemany(
+            """
+            INSERT INTO log_watch_state (container_name, last_checked_at) VALUES (?, ?)
+            ON CONFLICT(container_name) DO UPDATE SET last_checked_at = excluded.last_checked_at
+            """,
+            [(name, now) for name in container_names],
+        )
+
+
+def reset_logs_data(subjects: list[str] | None = None) -> None:
+    """Logs' equivalent of reset_updates_data(): wipes persisted findings, the per-container
+    checkpoint, and any cached overview blurb, so the next check re-scans that container's full
+    configured lookback window fresh -- as if seeing it for the first time -- rather than
+    "since last checkpoint" (which is what an ordinary Check now always does). subjects=None
+    (the global Reset & re-check button) wipes every Logs subject; a given list scopes the wipe
+    to just those container names (stack- or service-level Reset & re-check)."""
+    with get_conn() as conn:
+        if subjects is None:
+            conn.execute("DELETE FROM findings WHERE source = 'logs'")
+            conn.execute("DELETE FROM log_watch_state")
+            conn.execute("DELETE FROM subject_summaries WHERE source = 'logs'")
+        elif subjects:
+            qs = ",".join("?" * len(subjects))
+            conn.execute(f"DELETE FROM findings WHERE source = 'logs' AND subject IN ({qs})", subjects)
+            conn.execute(f"DELETE FROM log_watch_state WHERE container_name IN ({qs})", subjects)
+            conn.execute(f"DELETE FROM subject_summaries WHERE source = 'logs' AND subject IN ({qs})", subjects)
+
+
+def silence_all_findings_for_subjects(source: str, subjects: list[str]) -> None:
+    """Bulk silence -- every currently active finding for the given subjects becomes silenced.
+    A finding that appears later starts active again regardless, which is what correctly
+    demotes a fully-"Silenced" service/stack back to "Partially Silenced" once something new
+    shows up -- this is an action applied to today's active rows, not a persistent mute flag."""
+    if not subjects:
+        return
+    with get_conn() as conn:
+        qs = ",".join("?" * len(subjects))
+        conn.execute(
+            f"UPDATE findings SET status = 'silenced' WHERE source = ? AND subject IN ({qs}) AND status = 'active'",
+            (source, *subjects),
+        )
+
+
+def unsilence_all_findings_for_subjects(source: str, subjects: list[str]) -> None:
+    """Bulk unsilence -- the reverse of silence_all_findings_for_subjects above."""
+    if not subjects:
+        return
+    with get_conn() as conn:
+        qs = ",".join("?" * len(subjects))
+        conn.execute(
+            f"UPDATE findings SET status = 'active' WHERE source = ? AND subject IN ({qs}) AND status = 'silenced'",
+            (source, *subjects),
+        )
+
+
+def set_findings_read_status_for_subject(source: str, subject: str, read_status: str) -> None:
+    """Bulk read/unread -- flips every currently active finding for one subject at once, the
+    service-level counterpart to set_finding_read_status's per-finding toggle. Silenced findings
+    are left alone: they're not part of what the unread badge counts (see main._findings_summary),
+    so there's nothing meaningful to mark read/unread on them."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE findings SET read_status = ? WHERE source = ? AND subject = ? AND status = 'active'",
+            (read_status, source, subject),
         )
 
 

@@ -662,6 +662,10 @@ tr:hover .row-chevron {
 .badge-sev-breaking { background: rgba(217, 112, 94, 0.15); color: var(--error); }
 /* Matches the blue Silence/Unsilence buttons (--info, see .button-silence). */
 .badge-silenced { background: rgba(91, 147, 217, 0.15); color: var(--info); }
+/* Same --info blue family as badge-silenced (still about muting), lighter tint + a dashed
+   border so "some but not all silenced" reads as visually distinct at a glance, not just by
+   its wording. */
+.badge-partially-silenced { background: rgba(91, 147, 217, 0.08); color: var(--info); border: 1px dashed rgba(91, 147, 217, 0.4); }
 .badge-healthy { background: rgba(94, 201, 166, 0.12); color: var(--accent); }
 
 /* Severity segmented buttons — replaces the old dropdown */

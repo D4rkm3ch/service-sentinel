@@ -13,6 +13,13 @@
       <input type="hidden" name="return_to" value="/logs/stack?id={{ stack_id|urlencode }}">
       <button type="submit" class="icon-button" title="Reset to the AI-generated name">⟲</button>
     </form>
+    <span id="stack-silence-status-badge">
+      {% if silence_state == 'silenced' %}
+      <span class="badge badge-lg badge-silenced">Silenced</span>
+      {% elif silence_state == 'partially_silenced' %}
+      <span class="badge badge-lg badge-partially-silenced">Partially Silenced</span>
+      {% endif %}
+    </span>
   </div>
 
   <form id="stack-rename-form" method="post" action="/updates/stack/rename" class="hidden stack-rename-form">
@@ -24,7 +31,23 @@
 
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
 
-  <div class="action-row" style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+  <div class="action-row" style="display:flex; align-items:center; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
+    <span id="stack-silence-toggle-btn">
+      {% if silence_state == 'silenced' %}
+      <button type="button" class="button-silence" hx-post="/logs/stack/unsilence?stack_id={{ stack_id|urlencode }}" hx-target="#stack-silence-toggle-btn" hx-swap="outerHTML">
+        Unsilence
+      </button>
+      {% else %}
+      <button type="button" class="button-silence" hx-post="/logs/stack/silence?stack_id={{ stack_id|urlencode }}" hx-target="#stack-silence-toggle-btn" hx-swap="outerHTML">
+        Silence
+      </button>
+      {% endif %}
+    </span>
+    <button type="button" class="logs-action-btn"
+            hx-post="/logs/stack/check-now?stack_id={{ stack_id|urlencode }}"
+            hx-target="#item-recheck-status" hx-swap="outerHTML">
+      Check Now
+    </button>
     {% if cross_service_enabled %}
     <button type="button" class="button-warn logs-action-btn"
             hx-post="/logs/stack/retry?stack_id={{ stack_id|urlencode }}"
@@ -37,6 +60,12 @@
       Regenerate AI Response
     </button>
     {% endif %}
+    <button type="button" class="button-danger logs-action-btn"
+            hx-post="/logs/stack/reset-and-recheck?stack_id={{ stack_id|urlencode }}"
+            hx-target="#item-recheck-status" hx-swap="outerHTML"
+            hx-confirm="This wipes every service in this stack's finding history and re-checks them fresh. Continue?">
+      Reset &amp; re-check
+    </button>
     <span id="item-recheck-status"></span>
   </div>
 
@@ -49,8 +78,8 @@
     <colgroup>
       <col style="width: 26%">
       <col style="width: 22%">
-      <col style="width: 16%">
       <col style="width: 18%">
+      <col style="width: 16%">
       <col style="width: 12%">
       <col style="width: 6%">
     </colgroup>
@@ -58,8 +87,8 @@
       <tr>
         <th>Container</th>
         <th>Findings</th>
-        <th>Severity</th>
         <th>Last seen</th>
+        <th>Severity</th>
         <th>Read</th>
         <th></th>
       </tr>
@@ -75,6 +104,7 @@
           <span class="meta">—</span>
           {% endif %}
         </td>
+        <td class="nowrap">{{ m.last_checked_at[:16].replace('T', ' ') if m.last_checked_at else '—' }}</td>
         <td>
           {% if m.top_severity %}
           <span class="badge badge-sev-{{ m.top_severity }}">{{ severity_label('logs', m.top_severity) }}</span>
@@ -82,7 +112,6 @@
           <span class="badge badge-healthy">Healthy</span>
           {% endif %}
         </td>
-        <td class="nowrap">{{ m.last_checked_at[:16].replace('T', ' ') if m.last_checked_at else '—' }}</td>
         <td>
           {% if m.unread_count %}
           <span class="badge badge-unread">Unread</span>
