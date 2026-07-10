@@ -37,14 +37,14 @@ def test_updates_show_silenced_hides_the_non_silenced_ones_instead_of_just_addin
     _seed_update("swap-test-active", silenced=False)
 
     resp = client.get("/updates?show_silenced=1")
-    updates_section = resp.text[:resp.text.index("Tracked containers")]
+    updates_section = resp.text[:resp.text.index("Tracked Containers")]
     assert "swap-test-silenced" in updates_section
     # The whole point: a genuinely non-silenced pending update must NOT still be present once
     # "show silenced" is toggled on -- the old additive behavior left it there.
     assert "swap-test-active" not in updates_section
 
     resp = client.get("/updates")
-    updates_section = resp.text[:resp.text.index("Tracked containers")]
+    updates_section = resp.text[:resp.text.index("Tracked Containers")]
     assert "swap-test-active" in updates_section
     assert "swap-test-silenced" not in updates_section
 
@@ -53,10 +53,11 @@ def test_updates_show_silenced_hides_the_non_silenced_ones_instead_of_just_addin
 
 
 def _issues_section(resp_text: str) -> str:
-    """Scopes assertions to just the Issues table -- "All containers"/"All files" below it
-    always lists everything regardless of the toggle (same as Updates' Tracked containers), so
-    a plain full-page substring check would false-pass here."""
-    return resp_text[:resp_text.index("All containers")]
+    """Scopes assertions to just the Issues table -- the "Tracked Containers"/"All Tracked
+    Compose Files" table below it always lists everything regardless of the toggle (same as
+    Updates' own Tracked Containers table), so a plain full-page substring check would
+    false-pass here."""
+    return resp_text[:resp_text.index("Tracked Containers")]
 
 
 def test_logs_issues_show_silenced_hides_subjects_with_an_active_finding(client):

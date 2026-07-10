@@ -4,17 +4,19 @@
 
 <section class="panel">
   {% include "_feature_header.html" %}
-  <div class="section-header">
-    <span></span>
-    <a href="/updates{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
-      {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
-    </a>
+  <div id="updates-collapse-body" class="collapse-body">
+    <div class="section-header">
+      <span></span>
+      <a href="/updates{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
+        {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
+      </a>
+    </div>
+    {% include "_updates_table.html" %}
   </div>
-  {% include "_updates_table.html" %}
 </section>
 
 <section class="panel">
-  <h1>Tracked containers <span class="heading-count" id="containers-count-badge">({{ containers_count }})</span></h1>
+  <h1>Tracked Containers <span class="heading-count" id="containers-count-badge">({{ containers_count }})</span></h1>
   {% include "_containers_table.html" %}
 </section>
 

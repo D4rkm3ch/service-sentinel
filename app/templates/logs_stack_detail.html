@@ -88,8 +88,8 @@
         <th>Container</th>
         <th>Findings</th>
         <th>Last seen</th>
-        <th>Severity</th>
-        <th>Read</th>
+        <th class="cell-centered">Severity</th>
+        <th class="cell-centered">Read</th>
         <th></th>
       </tr>
     </thead>
@@ -105,14 +105,14 @@
           {% endif %}
         </td>
         <td class="nowrap">{{ m.last_checked_at | local_dt }}</td>
-        <td>
+        <td class="cell-centered">
           {% if m.top_severity %}
           <span class="badge badge-sev-{{ m.top_severity }}">{{ severity_label('logs', m.top_severity) }}</span>
           {% else %}
           <span class="badge badge-healthy">Healthy</span>
           {% endif %}
         </td>
-        <td>
+        <td class="cell-centered">
           {% if m.unread_count %}
           <span class="badge badge-unread">Unread</span>
           {% elif m.active_count %}

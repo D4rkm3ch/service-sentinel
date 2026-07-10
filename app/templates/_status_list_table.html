@@ -26,7 +26,7 @@
       {% if show_stack_column %}<th>{{ sh.sort_link('Stack', 'stack', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>{% endif %}
       <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, base_url, 'desc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
       <th class="cell-centered">{{ sh.sort_link('Status', 'status', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
-      <th>{{ sh.sort_link('Silenced', 'silenced', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
+      <th class="cell-centered">{{ sh.sort_link('Silenced', 'silenced', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
       <th></th>
     </tr>
   </thead>
@@ -59,7 +59,7 @@
         <span class="badge badge-healthy">healthy</span>
         {% endif %}
       </td>
-      <td>
+      <td class="cell-centered">
         {% if item.silence_state == 'silenced' %}
         <span class="badge badge-silenced">Silenced</span>
         {% elif item.silence_state == 'partially_silenced' %}

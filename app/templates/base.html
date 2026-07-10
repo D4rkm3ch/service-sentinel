@@ -78,6 +78,39 @@
       poll();
       setInterval(poll, 1000);
     })();
+
+    // Collapsible top table (Updates/Issues) on the Updates/Logs/Compose main pages -- clicking
+    // anywhere on the feature-header row (but not its Check now/Regenerate/Reset buttons, see
+    // .topbar-right in the CSS) slides the table below it open or shut. Animates via max-height
+    // rather than display:none so it's a real slide, not an instant snap; the height is
+    // measured fresh on every toggle (not hardcoded) so it keeps working as rows are added,
+    // removed, or swapped in by the table's own 20s htmx poll. Snapping back to max-height:none
+    // once fully open (rather than leaving it pinned at the measured px value) means a later
+    // poll-driven content change while expanded doesn't get clipped or need a re-measure.
+    (function () {
+      document.body.addEventListener("click", function (evt) {
+        var header = evt.target.closest(".collapsible-header");
+        if (!header || evt.target.closest(".topbar-right")) return;
+
+        var body = document.getElementById(header.getAttribute("data-collapse-target"));
+        if (!body) return;
+
+        if (header.classList.contains("collapsed")) {
+          header.classList.remove("collapsed");
+          body.style.maxHeight = body.scrollHeight + "px";
+          body.addEventListener("transitionend", function onEnd(e) {
+            if (e.propertyName !== "max-height") return;
+            body.style.maxHeight = "none";
+            body.removeEventListener("transitionend", onEnd);
+          });
+        } else {
+          body.style.maxHeight = body.scrollHeight + "px";
+          body.offsetHeight; // force reflow so the next line animates from this height, not 0
+          header.classList.add("collapsed");
+          body.style.maxHeight = "0px";
+        }
+      });
+    })();
   </script>
 </body>
 </html>

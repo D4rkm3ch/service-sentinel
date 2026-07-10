@@ -1,10 +1,11 @@
-<div class="feature-header">
+<div class="feature-header collapsible-header" data-collapse-target="{{ feature }}-collapse-body">
   <h1>
-    {%- if feature == "updates" -%}Updates
-    {%- elif feature == "logs" -%}Log health
-    {%- elif feature == "compose" -%}Compose health
+    {%- if feature == "updates" -%}Updates Found
+    {%- elif feature == "logs" -%}Log Health
+    {%- elif feature == "compose" -%}Compose Health
     {%- endif -%}
     {%- if updates_count is defined %} <span class="heading-count" id="updates-count-badge">({{ updates_count }})</span>{% endif -%}
+    <span class="collapse-arrow" aria-hidden="true">▾</span>
   </h1>
   <div class="topbar-right">
     <div id="check-status">{% include "_status.html" %}</div>

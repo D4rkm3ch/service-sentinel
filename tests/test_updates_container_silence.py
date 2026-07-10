@@ -36,17 +36,17 @@ def test_silencing_a_container_hides_it_from_the_updates_list_by_default(client)
     db.set_container_silenced("silence-test-eol", True)
 
     resp = client.get("/updates")
-    # Scoped to just the Updates section -- it always shows in Tracked containers regardless
+    # Scoped to just the Updates section -- it always shows in Tracked Containers regardless
     # (see test_silenced_container_still_shows_in_tracked_containers_regardless), same as
-    # Logs/Compose's "All containers" table always shows everything.
-    updates_section = resp.text[:resp.text.index("Tracked containers")]
+    # Logs/Compose's own Tracked Containers/Compose Files table always shows everything.
+    updates_section = resp.text[:resp.text.index("Tracked Containers")]
     assert "silence-test-eol" not in updates_section
 
     resp = client.get("/updates?show_silenced=1")
-    updates_section = resp.text[:resp.text.index("Tracked containers")]
+    updates_section = resp.text[:resp.text.index("Tracked Containers")]
     assert "silence-test-eol" in updates_section
     # No inline badge in the pending-updates list itself -- that's what caused the two-line
-    # rows the user didn't want. The badge only lives in the Tracked containers column now
+    # rows the user didn't want. The badge only lives in the Tracked Containers column now
     # (see test_silenced_container_still_shows_in_tracked_containers_regardless).
     assert "badge-silenced" not in updates_section
 
@@ -58,7 +58,7 @@ def test_silenced_container_still_shows_in_tracked_containers_regardless(client)
     db.set_container_silenced("silence-test-tracked", True)
 
     resp = client.get("/updates")
-    tracked_section = resp.text[resp.text.index("Tracked containers"):]
+    tracked_section = resp.text[resp.text.index("Tracked Containers"):]
     assert "silence-test-tracked" in tracked_section
     assert "badge-silenced\">Silenced</span>" in tracked_section
 
@@ -67,13 +67,13 @@ def test_silenced_container_still_shows_in_tracked_containers_regardless(client)
 
 def test_tracked_containers_table_has_a_dedicated_silenced_column(client):
     """Replaces the old inline per-row badge (which made rows two lines tall) with a real
-    column at the end of the Tracked containers table -- a dash for anything not silenced."""
+    column at the end of the Tracked Containers table -- a dash for anything not silenced."""
     _seed_container_with_update("silence-test-column")
 
     resp = client.get("/updates")
     assert "sort-link" in resp.text and "Silenced" in resp.text
     assert "csort=silenced" in resp.text
-    tracked_section = resp.text[resp.text.index("Tracked containers"):]
+    tracked_section = resp.text[resp.text.index("Tracked Containers"):]
     row = tracked_section[tracked_section.index("silence-test-column"):]
     row = row[:row.index("</tr>")]
     assert "badge-silenced" not in row
@@ -81,7 +81,7 @@ def test_tracked_containers_table_has_a_dedicated_silenced_column(client):
 
     db.set_container_silenced("silence-test-column", True)
     resp = client.get("/updates")
-    tracked_section = resp.text[resp.text.index("Tracked containers"):]
+    tracked_section = resp.text[resp.text.index("Tracked Containers"):]
     row = tracked_section[tracked_section.index("silence-test-column"):]
     row = row[:row.index("</tr>")]
     assert "badge-silenced\">Silenced</span>" in row

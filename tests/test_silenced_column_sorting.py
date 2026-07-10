@@ -1,6 +1,6 @@
-"""Follow-up: the new Silenced column (Tracked containers / All containers / All compose
-files) rendered as a bare <th>, not a real sort link -- clicking it did nothing, same class of
-bug the Stack column had before it was fixed."""
+"""Follow-up: the new Silenced column (Tracked Containers on Updates, or the equivalent bottom
+table on Logs/Compose) rendered as a bare <th>, not a real sort link -- clicking it did nothing,
+same class of bug the Stack column had before it was fixed."""
 
 from app import db
 
@@ -24,7 +24,7 @@ def test_tracked_containers_actually_sorts_by_silenced(client):
 
     resp = client.get("/updates?csort=silenced&cdir=asc")
     assert resp.status_code == 200
-    section = resp.text[resp.text.index("Tracked containers"):]
+    section = resp.text[resp.text.index("Tracked Containers"):]
     z_pos = section.index("silence-sort-z")
     a_pos = section.index("silence-sort-a")
     # Silenced sorts first ascending, so the silenced one (z) should appear before the

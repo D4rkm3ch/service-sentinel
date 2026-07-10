@@ -4,17 +4,19 @@
 
 <section class="panel">
   {% include "_feature_header.html" %}
-  <div class="section-header">
-    <h2>Issues <span class="heading-count" id="compose-issues-count-badge">({{ issues|length }})</span></h2>
-    <a href="/compose{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
-      {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
-    </a>
+  <div id="compose-collapse-body" class="collapse-body">
+    <div class="section-header">
+      <span></span>
+      <a href="/compose{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
+        {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
+      </a>
+    </div>
+    {% with source = "compose" %}{% include "_issues_grouped_table.html" %}{% endwith %}
   </div>
-  {% with source = "compose" %}{% include "_issues_grouped_table.html" %}{% endwith %}
 </section>
 
 <section class="panel">
-  <h1>All compose files <span class="heading-count" id="compose-files-table-count-badge">({{ files|length }})</span></h1>
+  <h1>All Tracked Compose Files <span class="heading-count" id="compose-files-table-count-badge">({{ files|length }})</span></h1>
   {% with items = files, detail_base = "/compose/file", use_query_param = true,
           partial_url = "/compose/partial/files", target_id = "compose-files-table", base_url = "/compose" %}
   {% include "_status_list_table.html" %}

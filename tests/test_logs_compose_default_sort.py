@@ -58,7 +58,7 @@ def test_logs_page_lists_issue_containers_before_healthy_ones(client):
 
     resp = client.get("/logs")
     assert resp.status_code == 200
-    all_containers_section = resp.text[resp.text.index("All containers"):]
+    all_containers_section = resp.text[resp.text.index("Tracked Containers"):]
     issue_pos = all_containers_section.index("default-sort-test-issue-container")
     healthy_pos = all_containers_section.index("default-sort-test-healthy-container")
     assert issue_pos < healthy_pos

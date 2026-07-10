@@ -528,6 +528,25 @@ tr:hover .row-chevron {
 }
 .feature-header h1 { margin: 0; }
 
+/* Collapsible top table (Updates/Issues) -- the header row toggles a slide animation on the
+   table below it. .topbar-right opts back out of the pointer cursor/click-to-toggle since it
+   holds real buttons (Check now/Regenerate/Reset) that must keep behaving like normal buttons,
+   not also collapse the section on every click. */
+.collapsible-header { cursor: pointer; user-select: none; }
+.collapsible-header .topbar-right { cursor: default; }
+.collapse-arrow {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  transition: transform 0.2s ease;
+}
+.collapsible-header.collapsed .collapse-arrow { transform: rotate(-90deg); }
+.collapse-body {
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
 /* Overview feature cards */
 .feature-cards {
   display: grid;
