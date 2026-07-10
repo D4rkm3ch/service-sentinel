@@ -98,38 +98,38 @@ def test_summarizer_prompt_instructs_combining_multiple_releases_and_taking_the_
 # ---------------------------------------------------------------------------
 
 def test_release_notes_since_is_none_for_a_container_with_no_prior_check():
-    assert persist._release_notes_since(None) is None
+    assert persist._release_notes_since(None, cap_days=None) is None
 
 
 def test_release_notes_since_uses_the_container_states_own_last_checked_time():
-    db.set_release_notes_lookback("since_check")
     state = {"last_checked_at": "2026-01-01T00:00:00+00:00"}
-    since = persist._release_notes_since(state)
+    since = persist._release_notes_since(state, cap_days=None)
     assert since == datetime.fromisoformat("2026-01-01T00:00:00+00:00")
-    db.set_release_notes_lookback("since_check")
 
 
-def test_release_notes_since_is_further_capped_by_the_settings_lookback():
-    db.set_release_notes_lookback("7")
-    try:
-        very_old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
-        since = persist._release_notes_since({"last_checked_at": very_old})
-        # Capped to ~7 days ago, not the actual (400-day-old) last check time.
-        assert since > datetime.now(timezone.utc) - timedelta(days=8)
-    finally:
-        db.set_release_notes_lookback("since_check")
+def test_release_notes_since_is_further_capped_by_the_given_lookback():
+    very_old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+    since = persist._release_notes_since({"last_checked_at": very_old}, cap_days=7)
+    # Capped to ~7 days ago, not the actual (400-day-old) last check time.
+    assert since > datetime.now(timezone.utc) - timedelta(days=8)
 
 
 def test_release_notes_since_cap_never_moves_the_cutoff_earlier_than_the_real_last_check():
     """A recent last check with a generous cap must not get pushed further back than it
     actually was -- max(), not min()."""
-    db.set_release_notes_lookback("365")
-    try:
-        recent = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
-        since = persist._release_notes_since({"last_checked_at": recent})
-        assert since == datetime.fromisoformat(recent)
-    finally:
-        db.set_release_notes_lookback("since_check")
+    recent = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    since = persist._release_notes_since({"last_checked_at": recent}, cap_days=365)
+    assert since == datetime.fromisoformat(recent)
+
+
+def test_cap_days_is_read_once_per_batch_not_per_container():
+    """Regression guard: cap_days must be computed once by the caller (persist_check_outcome)
+    and threaded through, never read from Settings inside _release_notes_since itself -- doing
+    that per fetch group would reintroduce the "one small connection per container" cost the
+    batched read/write split elsewhere in this pipeline exists to avoid."""
+    import inspect
+    params = inspect.signature(persist._release_notes_since).parameters
+    assert "cap_days" in params
 
 
 # ---------------------------------------------------------------------------

@@ -127,9 +127,9 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _get_setting(key: str, default: str) -> str:
-    with get_conn() as conn:
-        cur = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+def _get_setting(key: str, default: str, conn: sqlite3.Connection | None = None) -> str:
+    with get_conn(conn) as c:
+        cur = c.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
         row = cur.fetchone()
         return row["value"] if row is not None else default
 
@@ -384,16 +384,16 @@ RELEASE_NOTES_LOOKBACK_DAYS = {
 }
 
 
-def get_release_notes_lookback() -> str:
-    return _get_setting("release_notes_lookback", "since_check")
+def get_release_notes_lookback(conn: sqlite3.Connection | None = None) -> str:
+    return _get_setting("release_notes_lookback", "since_check", conn=conn)
 
 
 def set_release_notes_lookback(value: str) -> None:
     _set_setting("release_notes_lookback", value)
 
 
-def get_release_notes_lookback_days() -> int | None:
-    return RELEASE_NOTES_LOOKBACK_DAYS.get(get_release_notes_lookback())
+def get_release_notes_lookback_days(conn: sqlite3.Connection | None = None) -> int | None:
+    return RELEASE_NOTES_LOOKBACK_DAYS.get(get_release_notes_lookback(conn=conn))
 
 
 # ---------------------------------------------------------------------------

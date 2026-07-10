@@ -207,6 +207,32 @@ def test_persist_check_outcome_uses_a_fixed_number_of_connections_not_one_per_co
     assert len(db.list_tracked_containers_with_status()) == 20
 
 
+def test_connection_count_stays_fixed_even_when_every_container_has_a_prior_check():
+    """Same guarantee as the test above, but for the realistic repeat-check scenario (every
+    container already has a container_state row from a previous check) rather than 20 brand
+    new ones -- a real-world regression: the multi-release lookback cutoff computation
+    (persist._release_notes_since) originally read its Settings cap via db.get_release_notes_
+    lookback_days() once PER FETCH GROUP instead of once for the whole batch, which the
+    all-new-containers version of this test above couldn't catch (a container's very first
+    check ever short-circuits before ever reading that setting at all -- see _release_notes_
+    since's own docstring)."""
+    containers = tuple(_c(f"d{i}", "update_available", repo=f"owner/repo{i}") for i in range(20))
+    for c in containers:
+        db.upsert_container_state(c["container_name"], c["image_repo"], c["tag"], c["current_digest"])
+
+    original_connect = sqlite3.connect
+    connect_calls = []
+
+    def counting_connect(*args, **kwargs):
+        connect_calls.append(1)
+        return original_connect(*args, **kwargs)
+
+    with patch("app.db.sqlite3.connect", side_effect=counting_connect):
+        persist.persist_check_outcome(_outcome(*containers))
+
+    assert connect_calls == [1, 1, 1, 1, 1], f"expected a fixed connection count for the whole batch, got {len(connect_calls)}"
+
+
 def test_persist_check_outcome_rolls_back_completely_on_failure():
     """New atomicity property from the single-transaction fix: if the batch fails partway
     through, nothing from that check should land -- not a half-applied state that a naive

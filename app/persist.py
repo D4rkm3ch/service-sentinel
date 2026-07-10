@@ -177,11 +177,12 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
             c["container_name"]: db.get_container_state(c["container_name"], conn=read_conn)
             for c in containers
         }
+        lookback_cap_days = db.get_release_notes_lookback_days(conn=read_conn)
     finally:
         read_conn.close()
 
     to_fetch = [c for c in containers if _is_new_or_changed_update(c, existing_by_name[c["container_name"]])]
-    release_notes_by_name = _fetch_release_notes_deduped(to_fetch, on_progress, container_state_by_name)
+    release_notes_by_name = _fetch_release_notes_deduped(to_fetch, on_progress, container_state_by_name, lookback_cap_days)
 
     # Only worth summarizing a container that actually has real notes text to work from --
     # either freshly fetched this round, or (see _needs_summary_retry) already on file from an
@@ -342,28 +343,33 @@ def _release_notes_for_summary(container: dict, release_notes_by_name: dict, exi
     return existing["release_notes_raw"] if existing else None
 
 
-def _release_notes_since(container_state) -> datetime | None:
+def _release_notes_since(container_state, cap_days: int | None) -> datetime | None:
     """How far back to compile missed releases from -- the container's own last-checked time
     (a pre-fetched container_state row, read once for the whole batch before this check's own
     upsert_container_state call overwrites it further down the pipeline in _persist_one -- see
     persist_check_outcome's container_state_by_name -- so this always sees the PREVIOUS check's
-    timestamp, never the one in progress), further capped by the Settings lookback limit
-    (db.get_release_notes_lookback) so a container that's gone unchecked for a very long time
-    doesn't pull an unbounded number of releases into one AI prompt. None (today's single-
-    latest behavior, no compilation) for a container's very first check ever, when there's no
-    prior check to measure a window from."""
+    timestamp, never the one in progress), further capped by the Settings lookback limit so a
+    container that's gone unchecked for a very long time doesn't pull an unbounded number of
+    releases into one AI prompt. None (today's single-latest behavior, no compilation) for a
+    container's very first check ever, when there's no prior check to measure a window from.
+
+    cap_days is passed in (db.get_release_notes_lookback_days(), read once for the whole batch
+    by the caller) rather than read here per container/group -- reading a Settings value is its
+    own SQLite connection, and this is called once per fetch group, so reading it internally
+    here would reintroduce exactly the "many small connections" cost the batched read/write
+    split elsewhere in this pipeline exists to avoid (see test_persist.py's connection-count
+    test)."""
     if container_state is None or not container_state["last_checked_at"]:
         return None
     since = datetime.fromisoformat(container_state["last_checked_at"])
-    cap_days = db.get_release_notes_lookback_days()
     if cap_days is not None:
         since = max(since, datetime.now(timezone.utc) - timedelta(days=cap_days))
     return since
 
 
-def _fetch_release_notes(container: dict, container_state_by_name: dict) -> tuple[str | None, str | None]:
+def _fetch_release_notes(container: dict, container_state_by_name: dict, lookback_cap_days: int | None) -> tuple[str | None, str | None]:
     try:
-        since = _release_notes_since(container_state_by_name.get(container["container_name"]))
+        since = _release_notes_since(container_state_by_name.get(container["container_name"]), lookback_cap_days)
         return release_notes.get_release_notes(
             container["image_repo"], container["tag"],
             source_override=container.get("source_override"),
@@ -383,7 +389,7 @@ def _release_notes_dedup_key(container: dict) -> tuple:
 
 
 def _fetch_release_notes_deduped(to_fetch: list[dict], on_progress: ProgressFunc | None,
-                                  container_state_by_name: dict) -> dict[str, object]:
+                                  container_state_by_name: dict, lookback_cap_days: int | None) -> dict[str, object]:
     """Stage 11: fetches release notes once per unique (image_repo, tag, source_override,
     changelog_url_override) among to_fetch, not once per container -- containers sharing an
     image (a real fleet, not a hypothetical: two instances of the same *arr app, a spare
@@ -422,7 +428,7 @@ def _fetch_release_notes_deduped(to_fetch: list[dict], on_progress: ProgressFunc
     def _fetch_group(key: tuple) -> None:
         nonlocal done_count
         members = groups[key]
-        result = _fetch_release_notes(members[0], container_state_by_name)
+        result = _fetch_release_notes(members[0], container_state_by_name, lookback_cap_days)
         for member in members:
             results[member["container_name"]] = result
 
