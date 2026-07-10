@@ -38,7 +38,7 @@
         {% endif %}
       </td>
       <td class="mono"><span class="truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}">{{ u.image_repo }}:{{ u.tag }}</span></td>
-      <td class="nowrap">{{ u.created_at[:16].replace('T', ' ') if u.created_at else '—' }}</td>
+      <td class="nowrap">{{ u.created_at | local_dt }}</td>
       <td class="importance-cell">
         {% if u.severity %}
         <span class="badge badge-sev-{{ u.severity }}">{{ severity_label('updates', u.severity) }}</span>

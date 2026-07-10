@@ -30,8 +30,8 @@
   <p class="meta">
     {{ finding.title }}
     · {{ finding.category|capitalize }}
-    · seen {{ finding.occurrence_count }}× · first {{ finding.first_seen_at[:16].replace('T', ' ') }}
-    · last {{ finding.last_seen_at[:16].replace('T', ' ') }}
+    · seen {{ finding.occurrence_count }}× · first {{ finding.first_seen_at | local_dt }}
+    · last {{ finding.last_seen_at | local_dt }}
   </p>
 
   <div class="action-row" style="display:flex; align-items:center; gap:10px;">

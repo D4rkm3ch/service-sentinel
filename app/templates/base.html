@@ -28,14 +28,18 @@
     · uptime {{ get_uptime_str() }}
   </footer>
   <script>
-    // Dims every Check now / Reset & re-check button for a feature (class "{feature}-action-btn")
-    // while that feature's check -- a full check, a scheduled firing, or a single scoped
-    // per-item recheck, all claim the same mutex -- is running anywhere, so a double-click (or
-    // a click on a different page/tab than the one that started it, or the schedule firing on
-    // its own) can't race a check that's already in flight. Polls a tiny shared endpoint per
-    // feature rather than hooking into any one page's own status display, since Stack and
-    // Service pages don't render that at all. A no-op (never starts polling) for a feature with
-    // no such buttons on the current page, e.g. Settings.
+    // Dims every Check now / Regenerate / Reset & re-check button sitewide (class
+    // "{feature}-action-btn" for feature in updates/logs/compose) while ANY feature's check --
+    // a full check, a scheduled firing, or a single scoped per-item recheck at any level, all
+    // claim that feature's own mutex -- is running ANYWHERE, not just within the same feature.
+    // Three independent per-feature mutexes exist server-side (so, say, a Logs check and a
+    // Compose check can genuinely run concurrently without blocking each other), but the UI
+    // treats them as one combined lock: kicking off a Logs Reset & re-check must disable the
+    // Updates page's buttons just as much as Logs' own, since running two checks' worth of
+    // background work at once is never something a click should be able to trigger by accident.
+    // Polls three tiny shared endpoints rather than hooking into any one page's own status
+    // display, since Stack/Service/Finding pages don't render that at all. A no-op (never
+    // starts polling) on a page with no such buttons at all, e.g. Settings.
     //
     // Disabling is also triggered instantly on htmx:beforeRequest for any of these buttons,
     // not just left to the once-a-second poll -- the POST that kicks off a scoped/full check
@@ -46,32 +50,34 @@
     // the background work it kicks off). beforeRequest fires only once htmx has actually
     // decided to send the request (i.e. after any hx-confirm dialog was accepted), so a
     // cancelled confirm never disables anything. The poll remains the source of truth for
-    // re-enabling once a check genuinely finishes.
-    ["updates", "logs", "compose"].forEach(function (feature) {
-      var className = feature + "-action-btn";
-      var buttons = document.querySelectorAll("." + className);
-      if (buttons.length === 0) return;
+    // re-enabling once every running check genuinely finishes.
+    (function () {
+      var FEATURES = ["updates", "logs", "compose"];
+      var ALL_SELECTOR = FEATURES.map(function (f) { return "." + f + "-action-btn"; }).join(",");
+      if (!document.querySelector(ALL_SELECTOR)) return;
 
       function applyRunningState(running) {
-        document.querySelectorAll("." + className).forEach(function (el) { el.disabled = running; });
+        document.querySelectorAll(ALL_SELECTOR).forEach(function (el) { el.disabled = running; });
       }
 
       document.body.addEventListener("htmx:beforeRequest", function (evt) {
-        if (evt.target.classList && evt.target.classList.contains(className)) {
+        var cl = evt.target.classList;
+        if (cl && FEATURES.some(function (f) { return cl.contains(f + "-action-btn"); })) {
           applyRunningState(true);
         }
       });
 
       function poll() {
-        fetch("/" + feature + "/running-state")
-          .then(function (r) { return r.json(); })
-          .then(function (data) { applyRunningState(data.running); })
-          .catch(function () {});
+        Promise.all(FEATURES.map(function (feature) {
+          return fetch("/" + feature + "/running-state").then(function (r) { return r.json(); }).catch(function () { return { running: false }; });
+        })).then(function (results) {
+          applyRunningState(results.some(function (r) { return r.running; }));
+        });
       }
 
       poll();
       setInterval(poll, 1000);
-    });
+    })();
   </script>
 </body>
 </html>

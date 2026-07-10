@@ -2,9 +2,10 @@ import hashlib
 import logging
 import re
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlencode
-from zoneinfo import available_timezones
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 import markdown
 from fastapi import FastAPI, Request, HTTPException
@@ -85,6 +86,31 @@ def severity_label(context: str, value: str) -> str:
 
 templates.env.globals["severity_label"] = severity_label
 
+
+def local_dt(iso_utc: str | None) -> str:
+    """Converts a stored UTC ISO timestamp (every timestamp in the database is UTC -- see
+    db.now_iso()) into the configured display TZ (db.get_timezone(), Settings page) as
+    "YYYY-MM-DD HH:MM" -- the one Jinja filter every template with a timestamp column/line must
+    route through, rather than slicing the raw UTC string directly (x[:16].replace('T', ' ')),
+    which is what every such table did before this existed and is exactly why none of them ever
+    reflected the configured TZ -- only check_state.format_summary's own separately-hand-rolled
+    "Last checked: ..." status line did. Same conversion logic as that function's local
+    _local_timestamp helper, just a different display format (this one matches what the tables
+    already looked like before, so this change is a TZ fix, not a format change)."""
+    if not iso_utc:
+        return "—"
+    dt = datetime.fromisoformat(iso_utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    try:
+        local = dt.astimezone(ZoneInfo(db.get_timezone()))
+    except ZoneInfoNotFoundError:
+        local = dt.astimezone(timezone.utc)
+    return local.strftime("%Y-%m-%d %H:%M")
+
+
+templates.env.filters["local_dt"] = local_dt
+
 # Every markdown-rendered block in the app (release notes, AI summaries/overviews, finding
 # descriptions and suggested fixes) can contain links the user didn't put there themselves --
 # a GitHub release body linking to Watchtower, a CHANGELOG.md, an upstream issue. Those should
@@ -137,16 +163,17 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
         count = summary["active"]
         headline = f"{count} active finding{'s' if count != 1 else ''}" if count else "All clean"
         last_at = summary["last_at"]
-    detail = f"Last checked {last_at[:16].replace('T', ' ')}" if last_at else "Never checked"
+    detail = f"Last checked {local_dt(last_at)}" if last_at else "Never checked"
     running = get_state(feature)["running"]
     return {
         "feature": feature, "title": title, "enabled": enabled,
         "headline": headline, "detail": detail, "tab_url": tab_url,
         "running": running,
         # Reuses the exact same live progress text the feature's own status badge shows (e.g.
-        # "Checking for updates (3/59)…" for Updates, a plain "Checking…" for Logs/Compose,
-        # which don't report granular progress) -- the Overview card's indicator is meant to
-        # read identically to the real thing, not a simplified stand-in.
+        # "Checking for updates (3/59)…" for Updates, "Checking container logs (3/59)…" for
+        # Logs, a plain "Checking…" for Compose, which doesn't report granular progress) -- the
+        # Overview card's indicator is meant to read identically to the real thing, not a
+        # simplified stand-in.
         "progress_text": _progress_text(get_progress(feature)) if running else "",
     }
 

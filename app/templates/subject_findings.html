@@ -121,7 +121,7 @@
           {%- if f.status == 'silenced' and active_count %} <span class="badge badge-silenced">Silenced</span>{% endif %}
         </td>
         <td>{{ f.category|capitalize }}</td>
-        <td class="nowrap">{{ f.occurrence_count }}× · last {{ f.last_seen_at[:16].replace('T', ' ') }}</td>
+        <td class="nowrap">{{ f.occurrence_count }}× · last {{ f.last_seen_at | local_dt }}</td>
         <td><span class="badge badge-sev-{{ f.severity }}">{{ severity_label(source, f.severity) }}</span></td>
         <td>
           {% if f.read_status == 'unread' %}
@@ -138,7 +138,7 @@
   {% else %}
   <p class="empty">
     No findings for this one.
-    {%- if source == 'logs' and last_checked_at %} Last checked {{ last_checked_at[:16].replace('T', ' ') }} -- logs were clean, so nothing was sent to the AI for triage.
+    {%- if source == 'logs' and last_checked_at %} Last checked {{ last_checked_at | local_dt }} -- logs were clean, so nothing was sent to the AI for triage.
     {%- elif source == 'logs' %} Not checked yet -- click Check Now above.
     {%- endif %}
   </p>

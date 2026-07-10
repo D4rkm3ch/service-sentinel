@@ -84,3 +84,54 @@ def test_footer_reflects_the_current_timezone_without_restart(client):
     db.set_timezone("Asia/Tokyo")
     resp = client.get("/")
     assert "Asia/Tokyo" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# local_dt -- the Jinja filter every table/timestamp in the app routes through (see main.py).
+# Regression coverage for a real-world report: every table's timestamps (Detected, Last
+# checked, Last seen, Seen, ...) were displaying the raw stored UTC value untouched -- only
+# check_state.format_summary's own separately hand-rolled "Last checked: ..." status line and
+# the schedule actually respected the configured TZ.
+# ---------------------------------------------------------------------------
+
+def test_local_dt_converts_utc_to_a_fixed_offset_zone():
+    from app.main import local_dt
+
+    db.set_timezone("Asia/Tokyo")  # UTC+9, no DST -- deterministic year-round
+    assert local_dt("2026-01-01T12:00:00+00:00") == "2026-01-01 21:00"
+
+
+def test_local_dt_handles_a_missing_value():
+    from app.main import local_dt
+
+    assert local_dt(None) == "—"
+    assert local_dt("") == "—"
+
+
+def test_local_dt_falls_back_to_utc_for_an_unrecognized_zone():
+    from app.main import local_dt
+
+    db.set_timezone("Not/A_Real_Zone")
+    assert local_dt("2026-01-01T12:00:00+00:00") == "2026-01-01 12:00"
+
+
+def test_a_real_table_renders_timestamps_in_the_configured_timezone(client):
+    """Integration-level check (not just the filter in isolation): the Updates 'Tracked
+    containers' table's Last checked column must reflect the conversion, proving local_dt is
+    actually wired into the template, not just defined."""
+    from unittest.mock import patch
+
+    db.set_timezone("Asia/Tokyo")
+    try:
+        with patch("app.db.now_iso", return_value="2026-03-01T03:00:00+00:00"):
+            db.upsert_container_state("tz-table-check", "owner/tz-table-check", "latest", "sha256:old")
+
+        resp = client.get("/updates")
+        section = resp.text[resp.text.index('id="containers-table"'):]
+        row = section[section.index("tz-table-check"):]
+        row = row[:row.index("</tr>")]
+        assert "2026-03-01 12:00" in row  # 03:00 UTC + 9h = 12:00 JST
+        assert "03:00" not in row  # the raw UTC value must not leak through
+    finally:
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM container_state WHERE container_name = 'tz-table-check'")

@@ -33,7 +33,7 @@
         {% endif %}
       </td>
       <td class="mono"><span class="truncate-cell" title="{{ c.image_repo }}:{{ c.tag }}">{{ c.image_repo }}:{{ c.tag }}</span></td>
-      <td class="nowrap">{{ c.last_checked_at[:16].replace('T', ' ') if c.last_checked_at else '—' }}</td>
+      <td class="nowrap">{{ c.last_checked_at | local_dt }}</td>
       <td>{% if c.silenced %}<span class="badge badge-silenced">Silenced</span>{% else %}<span class="meta">—</span>{% endif %}</td>
     </tr>
     {% endfor %}

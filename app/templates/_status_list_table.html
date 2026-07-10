@@ -49,7 +49,7 @@
         {% endif %}
       </td>
       {% endif %}
-      <td class="nowrap">{{ item.last_at[:16].replace('T', ' ') if item.last_at else '—' }}</td>
+      <td class="nowrap">{{ item.last_at | local_dt }}</td>
       <td>
         {% if item.status == 'issue' %}
         <span class="badge badge-sev-warning">issue</span>

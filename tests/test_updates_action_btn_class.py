@@ -25,12 +25,14 @@ def test_global_reset_and_recheck_carries_the_updates_class():
     assert 'class="button-danger updates-action-btn"' in text
 
 
-def test_base_html_polls_running_state_per_feature_and_disables_instantly_on_before_request():
-    """Regression test for the "takes 0.5-1s to dim" report, generalized to all three features:
-    base.html's poller must disable every "{feature}-action-btn" the instant htmx actually
-    sends a request for one of them (htmx:beforeRequest -- fires only after any hx-confirm was
-    accepted), not rely solely on the once-a-second poll to notice, and it must poll each
-    feature's own running-state endpoint rather than just Updates'."""
+def test_base_html_polls_every_features_running_state_and_disables_instantly_on_before_request():
+    """Regression test for the "takes 0.5-1s to dim" report, and for the later "a Logs check
+    doesn't block the Updates page's buttons" report: base.html's poller must disable every
+    "{feature}-action-btn" sitewide -- not just the feature whose check is actually running --
+    the instant htmx actually sends a request for any one of them (htmx:beforeRequest -- fires
+    only after any hx-confirm was accepted), not rely solely on the once-a-second poll to
+    notice, and it must poll every feature's own running-state endpoint and disable everything
+    if ANY of them report running, not just react to Updates' own."""
     text = (TEMPLATES / "base.html").read_text()
     assert "htmx:beforeRequest" in text
     assert "applyRunningState(true)" in text

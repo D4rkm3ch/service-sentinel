@@ -783,3 +783,31 @@ def test_service_page_has_no_back_to_stack_link_for_an_ungrouped_container(clien
     db.upsert_finding("logs", "service-ungrouped-a", "Disk full", "resource", "warning", "desc2")
     resp = client.get("/logs/container/service-ungrouped-a")
     assert "Back to Stack" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Issues table row highlight -- matches the subtle green "row-unread" background the Updates
+# page's pending-update rows already have.
+# ---------------------------------------------------------------------------
+
+def test_issues_table_rows_get_the_same_green_highlight_as_updates_pending_rows(client):
+    db.upsert_finding("logs", "highlight-active-a", "OOM", "crash", "critical", "desc")
+    db.set_log_watch_checkpoint("highlight-active-a")
+
+    resp = client.get("/logs")
+    section = resp.text[resp.text.index('id="logs-issues-table"'):]
+    tr_start = section.rindex("<tr", 0, section.index("highlight-active-a"))
+    tr_row = section[tr_start:section.index("</tr>", tr_start)]
+    assert "row-unread" in tr_row
+
+
+def test_issues_table_silenced_rows_do_not_get_the_green_highlight(client):
+    fid, _ = db.upsert_finding("logs", "highlight-silenced-a", "OOM", "crash", "critical", "desc")
+    db.set_finding_status(fid, "silenced")
+    db.set_log_watch_checkpoint("highlight-silenced-a")
+
+    resp = client.get("/logs?show_silenced=1")
+    section = resp.text[resp.text.index('id="logs-issues-table"'):]
+    tr_start = section.rindex("<tr", 0, section.index("highlight-silenced-a"))
+    tr_row = section[tr_start:section.index("</tr>", tr_start)]
+    assert "row-unread" not in tr_row

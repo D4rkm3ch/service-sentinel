@@ -17,7 +17,7 @@
       <td>{{ f.title }}</td>
       <td>{{ f.category }}</td>
       <td><span class="badge badge-sev-{{ f.severity }}">{{ f.severity }}</span></td>
-      <td>{{ f.occurrence_count }}× · last {{ f.last_seen_at[:16].replace('T', ' ') }}</td>
+      <td>{{ f.occurrence_count }}× · last {{ f.last_seen_at | local_dt }}</td>
       <td><a href="/findings/{{ f.id }}">view →</a></td>
     </tr>
     {% endfor %}

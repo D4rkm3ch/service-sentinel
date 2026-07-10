@@ -104,7 +104,7 @@
           <span class="meta">—</span>
           {% endif %}
         </td>
-        <td class="nowrap">{{ m.last_checked_at[:16].replace('T', ' ') if m.last_checked_at else '—' }}</td>
+        <td class="nowrap">{{ m.last_checked_at | local_dt }}</td>
         <td>
           {% if m.top_severity %}
           <span class="badge badge-sev-{{ m.top_severity }}">{{ severity_label('logs', m.top_severity) }}</span>

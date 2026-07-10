@@ -34,7 +34,7 @@
   </div>
   <p class="meta">
     <span class="mono">{{ update.image_repo }}:{{ update.tag }}</span>
-    · detected {{ update.created_at[:16].replace('T', ' ') }}
+    · detected {{ update.created_at | local_dt }}
     {% if update.source_url %}· <a href="{{ update.source_url }}" target="_blank" rel="noopener">source ↗</a>{% endif %}
   </p>
 
