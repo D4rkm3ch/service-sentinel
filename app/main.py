@@ -623,7 +623,8 @@ def _sort_status_list_rows(rows: list[dict], sort: str, direction: str) -> list[
     if sort == "lastchecked":
         return sorted(rows, key=lambda r: r.get("last_at") or "", reverse=reverse)
     if sort == "status":
-        return sorted(rows, key=lambda r: 0 if r["status"] == "issue" else 1, reverse=reverse)
+        _status_rank = {"error": 0, "issue": 1, "healthy": 2}
+        return sorted(rows, key=lambda r: _status_rank.get(r["status"], 3), reverse=reverse)
     if sort == "stack":
         # Same "ungrouped always sorts last regardless of direction" tie-breaking as Updates'
         # own stack sort (_sort_and_filter_rows) -- rows must already carry stack_name/stack_id
@@ -767,6 +768,7 @@ def _build_notify_context() -> dict:
         "enabled": db.get_notifications_enabled(),
         "apprise_urls": ", ".join(db.get_apprise_urls()),
         "updates_include_errors": db.get_notify_updates_include_errors(),
+        "logs_include_errors": db.get_notify_logs_include_errors(),
         "features": {
             feature: {
                 "enabled": db.get_feature_notify_enabled(feature),
@@ -973,6 +975,13 @@ async def save_notify_severity(feature: str, request: Request):
 async def save_notify_updates_include_errors(request: Request):
     form = await request.form()
     db.set_notify_updates_include_errors(form.get("enabled") == "on")
+    return _saved(request)
+
+
+@app.post("/settings/notify/logs-include-errors")
+async def save_notify_logs_include_errors(request: Request):
+    form = await request.form()
+    db.set_notify_logs_include_errors(form.get("enabled") == "on")
     return _saved(request)
 
 

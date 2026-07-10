@@ -200,6 +200,14 @@ last actual check either way.</p>
     <div>
       {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
     </div>
+    {% elif feature == 'logs' %}
+    <div style="margin-top:8px">
+      {{ ts.toggle_switch('notify_logs_include_errors', notify.logs_include_errors, '/settings/notify/logs-include-errors', "Also notify when a container's logs can't be fetched") }}
+    </div>
+    <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
+    <div>
+      {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
+    </div>
     {% else %}
     <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
     <div>

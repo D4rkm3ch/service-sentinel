@@ -139,6 +139,26 @@ def notify_updates_digest(items: list[dict], errors: list[dict]) -> None:
             _send_severity_group(severity, group)
 
 
+def notify_logs_check_errors(errors: list[dict]) -> None:
+    """Logs' counterpart to notify_updates_digest's error-group half -- a container whose logs
+    couldn't be fetched this check (Docker socket blip, container removed mid-check) doesn't
+    have a severity to threshold against the way a real finding does, so it's opt-in only via
+    the same 'notify on check errors' shape Updates has (db.get_notify_logs_include_errors),
+    independent of Logs' own severity threshold. Called once per check (any scope -- global,
+    stack, or service), same as notify_finding is called once per genuinely new finding, rather
+    than batched into a single end-of-check digest the way Updates' whole check outcome is --
+    Logs never had a digest step to piggyback on in the first place (see log_watcher.py).
+
+    errors: [{"container_name", "error"}, ...]."""
+    if not errors:
+        return
+    if not db.get_notifications_enabled() or not db.get_feature_notify_enabled("logs"):
+        return
+    if not db.get_notify_logs_include_errors():
+        return
+    _send_error_group(errors)
+
+
 def notify_finding(source: str, subject: str, title: str, severity: str, category: str, finding_id: int) -> None:
     """Notifies about a newly created finding, if notifications are on, this feature's
     notifications are on, and the severity meets the effective threshold (master or this

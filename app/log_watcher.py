@@ -6,7 +6,7 @@ from app.check_state import set_finished, set_running
 from app.config import settings
 from app.docker_client import get_container_logs_since, list_running_containers_for_logs
 from app.log_filter import extract_suspicious_excerpt
-from app.notifications import notify_finding
+from app.notifications import notify_finding, notify_logs_check_errors
 from app.summarizer import analyze_logs_batch
 
 logger = logging.getLogger("release_radar.log_watcher")
@@ -74,6 +74,7 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     excerpts_by_container: dict[str, str] = {}
     checkpoints = db.get_log_watch_checkpoints(container_names)
     checked_ok_names: list[str] = []
+    failed: dict[str, str] = {}
     total = len(container_names)
 
     for name in container_names:
@@ -81,8 +82,9 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
         checkpoint = checkpoints.get(name)
         try:
             log_text = get_container_logs_since(name, checkpoint, settings.log_max_lines_per_container)
-        except Exception:
+        except Exception as exc:
             logger.exception("Could not fetch logs for %s", name)
+            failed[name] = str(exc) or exc.__class__.__name__
             if on_progress:
                 on_progress("checking_logs", checked, total)
             continue
@@ -95,9 +97,13 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
             on_progress("checking_logs", checked, total)
 
     db.set_log_watch_checkpoints(checked_ok_names)
+    db.clear_log_check_errors(checked_ok_names)
+    db.record_log_check_errors(failed)
+    if failed:
+        notify_logs_check_errors([{"container_name": name, "error": err} for name, err in failed.items()])
 
     if not excerpts_by_container:
-        return {"checked": checked, "findings_found": 0, "errors": 0}
+        return {"checked": checked, "findings_found": 0, "errors": len(failed)}
 
     if on_progress:
         on_progress("triage_logs", 0, 1)
@@ -106,7 +112,7 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
         findings = analyze_logs_batch(excerpts_by_container, include_fix=include_fix)
     except Exception:
         logger.exception("Log triage AI call failed")
-        return {"checked": checked, "findings_found": 0, "errors": 1}
+        return {"checked": checked, "findings_found": 0, "errors": len(failed) + 1}
     if on_progress:
         on_progress("triage_logs", 1, 1)
 
@@ -129,7 +135,7 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
             notify_finding("logs", container_name, title, finding.get("severity", "warning"),
                             finding.get("category", "error"), finding_id)
 
-    return {"checked": checked, "findings_found": findings_found, "errors": 0}
+    return {"checked": checked, "findings_found": findings_found, "errors": len(failed)}
 
 
 # ---------------------------------------------------------------------------

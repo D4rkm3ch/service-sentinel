@@ -50,8 +50,10 @@
       </td>
       {% endif %}
       <td class="nowrap">{{ item.last_at | local_dt }}</td>
-      <td>
-        {% if item.status == 'issue' %}
+      <td class="cell-centered">
+        {% if item.status == 'error' %}
+        <span class="status-warning-icon" title="{{ item.error }}">⚠</span>
+        {% elif item.status == 'issue' %}
         <span class="badge badge-sev-warning">issue</span>
         {% else %}
         <span class="badge badge-healthy">healthy</span>

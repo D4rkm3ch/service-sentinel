@@ -27,6 +27,7 @@ def clean_db():
         conn.execute("DELETE FROM log_watch_state")
         conn.execute("DELETE FROM findings")
         conn.execute("DELETE FROM subject_summaries")
+        conn.execute("DELETE FROM log_check_errors")
     db.set_cross_service_analysis_enabled("logs", False)
     yield
     with db.get_conn() as conn:
@@ -35,6 +36,7 @@ def clean_db():
         conn.execute("DELETE FROM log_watch_state")
         conn.execute("DELETE FROM findings")
         conn.execute("DELETE FROM subject_summaries")
+        conn.execute("DELETE FROM log_check_errors")
     db.set_cross_service_analysis_enabled("logs", False)
 
 
@@ -143,8 +145,11 @@ def test_set_findings_read_status_for_subject_only_touches_active_findings():
 def test_run_log_check_for_uses_a_fixed_number_of_connections_not_one_per_container():
     """Regression test mirroring test_persist.py's own connection-count guard: checkpoint
     read/write used to be one small sqlite3.connect() per container (get_log_watch_checkpoint /
-    set_log_watch_checkpoint called inside the per-container loop). Batched now -- exactly 2
-    connections (one read, one write) for the whole pass, regardless of container count."""
+    set_log_watch_checkpoint called inside the per-container loop). Batched now -- exactly 3
+    connections (checkpoint read, checkpoint write, clearing any stale check-error rows for the
+    containers that just succeeded) for the whole pass, regardless of container count. No
+    connection for recording NEW errors here since none occur in this all-clean scenario --
+    see the sibling test below for that path."""
     names = [f"conn-count-{i}" for i in range(15)]
     original_connect = sqlite3.connect
     connect_calls = []
@@ -157,7 +162,7 @@ def test_run_log_check_for_uses_a_fixed_number_of_connections_not_one_per_contai
          patch("app.db.sqlite3.connect", side_effect=counting_connect):
         result = log_watcher.run_log_check_for(names)
 
-    assert connect_calls == [1, 1], f"expected a fixed 2-connection batch, got {len(connect_calls)}"
+    assert connect_calls == [1, 1, 1], f"expected a fixed 3-connection batch, got {len(connect_calls)}"
     assert result == {"checked": 15, "findings_found": 0, "errors": 0}
 
 
@@ -811,3 +816,143 @@ def test_issues_table_silenced_rows_do_not_get_the_green_highlight(client):
     tr_start = section.rindex("<tr", 0, section.index("highlight-silenced-a"))
     tr_row = section[tr_start:section.index("</tr>", tr_start)]
     assert "row-unread" not in tr_row
+
+
+# ---------------------------------------------------------------------------
+# Check-failure surfacing -- a real-world report: a container whose logs couldn't be fetched
+# was silently invisible everywhere (no error count, no indicator, no way to notice it had
+# stopped being checked at all), unlike Updates' registry-check failures which get a visible
+# warning icon, a dedicated error status, and an opt-in notification.
+# ---------------------------------------------------------------------------
+
+def test_record_and_clear_log_check_errors_round_trip():
+    db.record_log_check_errors({"err-round-trip-a": "connection refused"})
+    states = {r["name"]: r for r in db.all_log_watch_states_with_status()}
+    assert states["err-round-trip-a"]["status"] == "error"
+    assert states["err-round-trip-a"]["error"] == "connection refused"
+
+    db.clear_log_check_errors(["err-round-trip-a"])
+    states = {r["name"]: r for r in db.all_log_watch_states_with_status()}
+    assert "err-round-trip-a" not in states
+
+
+def test_a_container_that_has_never_once_succeeded_still_shows_up_as_an_error():
+    """The core of the bug: a container with zero log_watch_state rows (never successfully
+    checked) used to be completely invisible, no matter how many times its check failed."""
+    db.record_log_check_errors({"err-never-succeeded": "no such container"})
+    states = {r["name"]: r for r in db.all_log_watch_states_with_status()}
+    assert states["err-never-succeeded"]["status"] == "error"
+    assert states["err-never-succeeded"]["last_at"] is not None  # last_error_at fallback
+
+
+def test_error_status_wins_over_issue_or_healthy_regardless_of_findings():
+    db.upsert_finding("logs", "err-wins-a", "OOM", "crash", "critical", "desc")
+    db.set_log_watch_checkpoint("err-wins-a")
+    db.record_log_check_errors({"err-wins-a": "timeout"})
+
+    states = {r["name"]: r for r in db.all_log_watch_states_with_status()}
+    assert states["err-wins-a"]["status"] == "error"
+
+
+def test_run_log_check_for_persists_an_error_and_counts_it():
+    def _fake_logs(name, since, max_lines):
+        if name == "run-check-fails":
+            raise RuntimeError("boom")
+        return None
+
+    with patch("app.log_watcher.get_container_logs_since", side_effect=_fake_logs):
+        result = log_watcher.run_log_check_for(["run-check-fails", "run-check-ok"])
+
+    assert result["errors"] == 1
+    states = {r["name"]: r for r in db.all_log_watch_states_with_status()}
+    assert states["run-check-fails"]["status"] == "error"
+    assert "boom" in states["run-check-fails"]["error"]
+    assert states["run-check-ok"]["status"] == "healthy"
+
+
+def test_run_log_check_for_clears_a_previously_recorded_error_on_next_success():
+    db.record_log_check_errors({"recovers-a": "old failure"})
+
+    with patch("app.log_watcher.get_container_logs_since", return_value=None):
+        log_watcher.run_log_check_for(["recovers-a"])
+
+    states = {r["name"]: r for r in db.all_log_watch_states_with_status()}
+    assert states["recovers-a"]["status"] == "healthy"
+
+
+def test_run_log_check_for_notifies_on_error_when_the_toggle_is_on():
+    db.set_notifications_enabled(True)
+    db.set_feature_notify_enabled("logs", True)
+    db.set_notify_logs_include_errors(True)
+    try:
+        with patch("app.log_watcher.get_container_logs_since", side_effect=RuntimeError("nope")), \
+             patch("app.log_watcher.notify_logs_check_errors") as mock_notify:
+            log_watcher.run_log_check_for(["notify-err-a"])
+        mock_notify.assert_called_once()
+        args = mock_notify.call_args[0][0]
+        assert args[0]["container_name"] == "notify-err-a"
+    finally:
+        db.set_notifications_enabled(False)
+        db.set_feature_notify_enabled("logs", False)
+        db.set_notify_logs_include_errors(False)
+
+
+def test_notify_logs_check_errors_is_a_noop_when_the_toggle_is_off(client):
+    from app.notifications import notify_logs_check_errors
+    db.set_notify_logs_include_errors(False)
+    with patch("app.notifications._send") as mock_send:
+        notify_logs_check_errors([{"container_name": "x", "error": "y"}])
+    mock_send.assert_not_called()
+
+
+def test_all_containers_table_shows_the_warning_icon_for_an_errored_container(client):
+    db.record_log_check_errors({"table-error-a": "connection refused"})
+
+    resp = client.get("/logs")
+    section = resp.text[resp.text.index('id="logs-containers-table"'):]
+    row = section[section.index("table-error-a"):]
+    row = row[:row.index("</tr>")]
+    assert "status-warning-icon" in row
+    assert "cell-centered" in row
+    assert "connection refused" in row
+
+
+def test_all_containers_table_status_sort_ranks_errors_above_issues_and_healthy(client):
+    db.record_log_check_errors({"sort-err-a": "boom"})
+    db.upsert_finding("logs", "sort-issue-a", "OOM", "crash", "critical", "desc")
+    db.set_log_watch_checkpoint("sort-issue-a")
+    db.set_log_watch_checkpoint("sort-healthy-a")
+
+    resp = client.get("/logs?csort=status&cdir=asc")
+    section = resp.text[resp.text.index('id="logs-containers-table"'):]
+    err_pos = section.index("sort-err-a")
+    issue_pos = section.index("sort-issue-a")
+    healthy_pos = section.index("sort-healthy-a")
+    assert err_pos < issue_pos < healthy_pos
+
+
+def test_reset_and_recheck_clears_log_check_errors():
+    db.record_log_check_errors({"reset-clears-err-a": "boom"})
+    db.reset_logs_data(subjects=["reset-clears-err-a"])
+    states = {r["name"]: r for r in db.all_log_watch_states_with_status()}
+    assert "reset-clears-err-a" not in states
+
+
+def test_settings_notify_logs_include_errors_round_trip():
+    db.set_notify_logs_include_errors(True)
+    assert db.get_notify_logs_include_errors() is True
+    db.set_notify_logs_include_errors(False)
+    assert db.get_notify_logs_include_errors() is False
+
+
+def test_settings_page_has_the_notify_logs_include_errors_toggle(client):
+    resp = client.get("/settings")
+    assert "logs can" in resp.text and "t be fetched" in resp.text  # apostrophe is HTML-escaped
+    assert "/settings/notify/logs-include-errors" in resp.text
+
+
+def test_settings_notify_logs_include_errors_route_saves(client):
+    resp = client.post("/settings/notify/logs-include-errors", data={"enabled": "on"})
+    assert resp.status_code == 200
+    assert db.get_notify_logs_include_errors() is True
+    db.set_notify_logs_include_errors(False)

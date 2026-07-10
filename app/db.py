@@ -66,6 +66,20 @@ CREATE TABLE IF NOT EXISTS log_watch_state (
     last_checked_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS log_check_errors (
+    -- Deliberately a separate table from log_watch_state rather than a nullable column on it:
+    -- log_watch_state.last_checked_at is the checkpoint get_container_logs_since() reads as
+    -- "since" on the next check, and it must never advance on a failed attempt (an errored
+    -- fetch must keep retrying from the same cutoff -- or the full lookback window, for a
+    -- container that's never once succeeded -- not silently narrow to "since the failed
+    -- attempt"). Keeping errors here means a container that has NEVER had a single successful
+    -- check (so has no log_watch_state row at all) still shows up as needing attention, instead
+    -- of being invisible everywhere just because it's never once succeeded.
+    container_name TEXT PRIMARY KEY,
+    error TEXT NOT NULL,
+    last_error_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS compose_file_state (
     file_path TEXT PRIMARY KEY,
     content_hash TEXT NOT NULL,
@@ -518,6 +532,17 @@ def get_notify_updates_include_errors() -> bool:
 
 def set_notify_updates_include_errors(enabled: bool) -> None:
     _set_setting("notify_updates_include_errors", "true" if enabled else "false")
+
+
+def get_notify_logs_include_errors() -> bool:
+    # Same opt-in-only reasoning as get_notify_updates_include_errors -- a container whose logs
+    # couldn't be fetched (Docker socket blip, container removed mid-check) is a noisier,
+    # different kind of event than a real finding, and doesn't have a severity to threshold on.
+    return _get_setting("notify_logs_include_errors", "false") == "true"
+
+
+def set_notify_logs_include_errors(enabled: bool) -> None:
+    _set_setting("notify_logs_include_errors", "true" if enabled else "false")
 
 
 def get_feature_severity(feature: str) -> str:
@@ -1004,30 +1029,68 @@ def _row_silence_state(active: int, total: int) -> str | None:
     return "silenced" if active == 0 else "partially_silenced"
 
 
-def all_log_watch_states_with_status() -> list[dict]:
-    """Every container the log watcher has ever checked, with a healthy/issue status —
-    used for the 'All containers' list at the bottom of the Logs tab. "silence_state" is
-    derived from the findings themselves (see _row_silence_state) rather than an explicit
-    per-container toggle like Updates has -- Logs/Compose silence at the finding, service
-    (subject), or stack level, all ultimately just bulk actions over these same rows."""
+def record_log_check_errors(errors: dict[str, str]) -> None:
+    """errors: {container_name: error_message}. Upserts one row per failed container in a
+    single connection -- this is what makes a persistently-failing container visible at all
+    (the 'All containers' table, the check's own error count, the opt-in notify-on-error
+    toggle) instead of silently vanishing. A container that has never once succeeded never gets
+    a log_watch_state row (see set_log_watch_checkpoints), so without this table it would never
+    appear anywhere at all, no matter how many times its check has failed."""
+    if not errors:
+        return
+    now = now_iso()
     with get_conn() as conn:
-        cur = conn.execute("SELECT container_name, last_checked_at FROM log_watch_state ORDER BY container_name")
-        rows = cur.fetchall()
+        conn.executemany(
+            """
+            INSERT INTO log_check_errors (container_name, error, last_error_at) VALUES (?, ?, ?)
+            ON CONFLICT(container_name) DO UPDATE SET error = excluded.error, last_error_at = excluded.last_error_at
+            """,
+            [(name, error, now) for name, error in errors.items()],
+        )
+
+
+def clear_log_check_errors(container_names: list[str]) -> None:
+    """Clears a previously-recorded check error the moment a container's logs are fetched
+    successfully again -- called for every container that DID succeed this pass, batched."""
+    if not container_names:
+        return
+    with get_conn() as conn:
+        qs = ",".join("?" * len(container_names))
+        conn.execute(f"DELETE FROM log_check_errors WHERE container_name IN ({qs})", container_names)
+
+
+def all_log_watch_states_with_status() -> list[dict]:
+    """Every container the log watcher has ever checked OR ever failed to check, with a
+    healthy/issue/error status — used for the 'All containers' list at the bottom of the Logs
+    tab. "silence_state" is derived from the findings themselves (see _row_silence_state) rather
+    than an explicit per-container toggle like Updates has -- Logs/Compose silence at the
+    finding, service (subject), or stack level, all ultimately just bulk actions over these same
+    rows. "error" wins over "issue"/"healthy" regardless of finding count -- a container whose
+    logs can't even be fetched needs attention just as much as one with active findings, same
+    tiering Updates gives its own check-error rows."""
+    with get_conn() as conn:
+        cur = conn.execute("SELECT container_name, last_checked_at FROM log_watch_state")
+        checked = {r["container_name"]: r["last_checked_at"] for r in cur.fetchall()}
+        cur = conn.execute("SELECT container_name, error, last_error_at FROM log_check_errors")
+        errors = {r["container_name"]: dict(r) for r in cur.fetchall()}
+
         result = []
-        for r in rows:
+        for name in sorted(set(checked) | set(errors)):
             cur2 = conn.execute(
                 "SELECT "
                 "SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active, "
                 "COUNT(*) AS total "
                 "FROM findings WHERE source = 'logs' AND subject = ?",
-                (r["container_name"],),
+                (name,),
             )
             counts = cur2.fetchone()
             active, total = counts["active"] or 0, counts["total"] or 0
+            err = errors.get(name)
             result.append({
-                "name": r["container_name"],
-                "last_at": r["last_checked_at"],
-                "status": "issue" if active else "healthy",
+                "name": name,
+                "last_at": checked.get(name) or (err["last_error_at"] if err else None),
+                "status": "error" if err else ("issue" if active else "healthy"),
+                "error": err["error"] if err else None,
                 "silence_state": _row_silence_state(active, total),
             })
         return result
@@ -1128,11 +1191,13 @@ def reset_logs_data(subjects: list[str] | None = None) -> None:
             conn.execute("DELETE FROM findings WHERE source = 'logs'")
             conn.execute("DELETE FROM log_watch_state")
             conn.execute("DELETE FROM subject_summaries WHERE source = 'logs'")
+            conn.execute("DELETE FROM log_check_errors")
         elif subjects:
             qs = ",".join("?" * len(subjects))
             conn.execute(f"DELETE FROM findings WHERE source = 'logs' AND subject IN ({qs})", subjects)
             conn.execute(f"DELETE FROM log_watch_state WHERE container_name IN ({qs})", subjects)
             conn.execute(f"DELETE FROM subject_summaries WHERE source = 'logs' AND subject IN ({qs})", subjects)
+            conn.execute(f"DELETE FROM log_check_errors WHERE container_name IN ({qs})", subjects)
 
 
 def silence_all_findings_for_subjects(source: str, subjects: list[str]) -> None:

@@ -93,7 +93,7 @@ table {
 .updates-table th, .containers-table th {
   overflow: hidden;
 }
-.importance-cell, .read-cell {
+.importance-cell, .read-cell, .cell-centered {
   text-align: center;
 }
 
