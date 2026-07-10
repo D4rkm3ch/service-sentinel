@@ -674,9 +674,8 @@ def _sort_subject_findings(findings: list[dict], sort: str, direction: str) -> l
     """Sorts subject_findings.html's per-finding table (one subject's own findings, Logs or
     Compose) -- a small, single-subject result set, so plain full-page sort links are enough
     here (see _sort_header.html's macro used without partial_url/target_id), unlike the
-    self-refreshing htmx tables elsewhere. Default ("seen", desc) reproduces
-    list_findings_for_subject's own ORDER BY last_seen_at DESC, so loading the page with no
-    sort params looks identical to before this existed."""
+    self-refreshing htmx tables elsewhere. Default ("severity", asc) matches the Issues table
+    and every other findings table in the app -- most-severe-first, not most-recently-seen."""
     reverse = direction == "desc"
     if sort == "title":
         return sorted(findings, key=lambda f: f["title"].lower(), reverse=reverse)
@@ -1304,7 +1303,7 @@ def logs_page(request: Request, show_silenced: bool = False,
 
 
 @app.get("/logs/container/{container_name}")
-def logs_container_detail(request: Request, container_name: str, sort: str = "seen", dir: str = "desc"):
+def logs_container_detail(request: Request, container_name: str, sort: str = "severity", dir: str = "asc"):
     # Always shows every finding for this container, active and silenced alike -- unlike the
     # Issues table (where hiding silenced rows keeps the list focused on what's actionable),
     # once you've drilled into one specific container there's no reason to hide part of its
@@ -1510,7 +1509,7 @@ def compose_page(request: Request, show_silenced: bool = False,
 
 
 @app.get("/compose/file")
-def compose_file_detail(request: Request, path: str, sort: str = "seen", dir: str = "desc"):
+def compose_file_detail(request: Request, path: str, sort: str = "severity", dir: str = "asc"):
     # See logs_container_detail's comment -- always shows every finding for this file.
     findings = db.list_findings_for_subject("compose", path, include_silenced=True)
 

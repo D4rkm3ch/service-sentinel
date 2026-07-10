@@ -4,7 +4,9 @@
     {%- elif feature == "logs" -%}Log Health
     {%- elif feature == "compose" -%}Compose Health
     {%- endif -%}
-    {%- if updates_count is defined %} <span class="heading-count" id="updates-count-badge">({{ updates_count }})</span>{% endif -%}
+    {%- if feature == "updates" and updates_count is defined %} <span class="heading-count" id="updates-count-badge">({{ updates_count }})</span>
+    {%- elif issues is defined %} <span class="heading-count" id="{{ feature }}-issues-count-badge">({{ issues|length }})</span>
+    {%- endif -%}
     <span class="collapse-arrow" aria-hidden="true">▾</span>
   </h1>
   <div class="topbar-right">

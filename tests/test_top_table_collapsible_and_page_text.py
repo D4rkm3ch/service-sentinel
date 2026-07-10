@@ -4,7 +4,12 @@ with an up/down arrow indicating the toggle. Also a batch of page-text tweaks: d
 redundant "Issues (N)" subheading Logs/Compose had (Updates never had one), rename "Updates (N)"
 to "Updates Found (N)", capitalize "Tracked containers"/"Log health"/"Compose health", rename
 Logs' "All containers" and Compose's "All compose files" to match, and center-align every badge
-column project-wide (importance/read/silenced/severity/status)."""
+column project-wide (importance/read/silenced/severity/status).
+
+Follow-up round: the collapse arrow was too small to notice, Log Health/Compose Health were
+missing the "(N)" issue count Updates has, "All Tracked Compose Files" got shortened to "Tracked
+Compose Files", and the Logs/Compose per-subject findings page (subject_findings.html) defaulted
+to sorting by last-seen instead of severity like every other findings table in the app."""
 
 from app import db
 
@@ -68,7 +73,7 @@ def test_second_table_headings_renamed_and_capitalized(client):
     try:
         assert "Tracked Containers" in client.get("/updates").text
         assert "Tracked Containers" in client.get("/logs").text
-        assert "All Tracked Compose Files" in client.get("/compose").text
+        assert "Tracked Compose Files" in client.get("/compose").text
     finally:
         _cleanup_update(_seed)
 
@@ -104,3 +109,56 @@ def test_logs_stack_detail_severity_and_read_columns_are_centered():
     text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "logs_stack_detail.html").read_text()
     assert '<th class="cell-centered">Severity</th>' in text
     assert '<th class="cell-centered">Read</th>' in text
+
+
+def test_collapse_arrow_is_a_larger_font_size_than_the_original_11px():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parent.parent / "app" / "static" / "style.css").read_text()
+    block = text[text.index(".collapse-arrow {"):text.index(".collapsible-header.collapsed .collapse-arrow")]
+    assert "11px" not in block
+
+
+def test_log_health_and_compose_health_show_an_issue_count_like_updates_does(client):
+    fid, _ = db.upsert_finding("logs", "header-count-test-container", "OOM", "crash", "critical", "desc")
+    db.set_finding_status(fid, "active")
+    fid2, _ = db.upsert_finding("compose", "header-count-test.yml", "Missing restart policy", "reliability", "warning", "desc2")
+    db.set_finding_status(fid2, "active")
+
+    logs_resp = client.get("/logs")
+    header = logs_resp.text[:logs_resp.text.index("</h1>")]
+    assert 'id="logs-issues-count-badge"' in header
+    assert "(0)" not in header  # the container we just seeded must be counted
+
+    compose_resp = client.get("/compose")
+    header = compose_resp.text[:compose_resp.text.index("</h1>")]
+    assert 'id="compose-issues-count-badge"' in header
+    assert "(0)" not in header
+
+    db.set_finding_status(fid, "silenced")
+    db.set_finding_status(fid2, "silenced")
+
+
+def test_subject_findings_page_defaults_to_severity_sort_not_seen(client):
+    fid_warn, _ = db.upsert_finding("logs", "default-sort-subject-test", "slow", "startup", "warning", "d1")
+    fid_crit, _ = db.upsert_finding("logs", "default-sort-subject-test", "crash", "crash", "critical", "d2")
+    db.set_finding_status(fid_warn, "active")
+    db.set_finding_status(fid_crit, "active")
+
+    resp = client.get("/logs/container/default-sort-subject-test")
+    body = resp.text[resp.text.index("<tbody>"):]
+    assert body.index("crash") < body.index("slow")
+
+    db.set_finding_status(fid_warn, "silenced")
+    db.set_finding_status(fid_crit, "silenced")
+
+
+def test_compose_subject_findings_page_defaults_to_severity_sort_not_seen(client):
+    fid_warn, _ = db.upsert_finding("compose", "default-sort-subject-test.yml", "Missing restart policy", "reliability", "warning", "d1")
+    fid_crit, _ = db.upsert_finding("compose", "default-sort-subject-test.yml", "Privileged container", "security", "critical", "d2")
+
+    resp = client.get("/compose/file?path=default-sort-subject-test.yml")
+    body = resp.text[resp.text.index("<tbody>"):]
+    assert body.index("Privileged container") < body.index("Missing restart policy")
+
+    db.set_finding_status(fid_warn, "silenced")
+    db.set_finding_status(fid_crit, "silenced")
