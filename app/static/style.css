@@ -10,6 +10,12 @@
   --error: #d9705e;
   --info: #5b93d9;
   --violet: #9b84d9;
+  /* Tints every native form control (checkboxes, the time picker, select dropdowns, scrollbars)
+     to the app's own dark palette instead of the OS default light/blue chrome -- without this,
+     a raw <input type="checkbox"> renders as a stark white/blue box that clashes hard against
+     the dark theme around it. accent-color themes the checked state to the app's own green. */
+  color-scheme: dark;
+  accent-color: var(--accent);
 }
 
 * { box-sizing: border-box; }
@@ -812,6 +818,17 @@ tr:hover .row-chevron {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+/* Each mode's own "Every ___ hour(s), starting at ___" / "Time ___" / "Day ___" label wraps a
+   text label directly around a form control -- as plain inline content its text baseline drifts
+   above the weekday checkboxes' own (already flex-centered) row, most visibly for the "Time"
+   label sitting beside .schedule-weekday-group. Making the label itself a flex container aligns
+   its text and control on the same line consistently, matching .schedule-weekday-option's own
+   treatment of each day's checkbox + label. */
+.schedule-mode-field label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .schedule-fields select, .schedule-fields input[type="text"], .schedule-fields input[type="time"], .schedule-fields input[type="number"],
 .field-input {
