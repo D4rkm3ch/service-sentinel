@@ -956,3 +956,215 @@ def test_settings_notify_logs_include_errors_route_saves(client):
     assert resp.status_code == 200
     assert db.get_notify_logs_include_errors() is True
     db.set_notify_logs_include_errors(False)
+
+
+# ---------------------------------------------------------------------------
+# Mutex-busy ("a check just started elsewhere") coverage for every scoped Logs action route --
+# only the global bulk-regenerate route had this before.
+# ---------------------------------------------------------------------------
+
+def test_logs_stack_check_now_is_a_noop_when_the_mutex_is_already_held(client):
+    compose_file = _compose_file("busy-stack-checknow.yml", "busy-checknow-a", "busy-checknow-b")
+    try:
+        db.set_log_watch_checkpoint("busy-checknow-a")
+        db.set_log_watch_checkpoint("busy-checknow-b")
+        stack_id = _stack_id_for("busy-checknow-a")
+
+        check_state.set_running("logs")
+        try:
+            with patch("app.log_watcher.run_log_check_for") as mock_check:
+                resp = client.post("/logs/stack/check-now", params={"stack_id": stack_id})
+            mock_check.assert_not_called()
+            assert resp.status_code == 200
+            assert "started elsewhere" in resp.text
+        finally:
+            check_state.release_running("logs")
+    finally:
+        compose_file.unlink()
+
+
+def test_logs_stack_reset_and_recheck_is_a_noop_when_the_mutex_is_already_held(client):
+    compose_file = _compose_file("busy-stack-reset.yml", "busy-reset-a", "busy-reset-b")
+    try:
+        db.set_log_watch_checkpoint("busy-reset-a")
+        db.set_log_watch_checkpoint("busy-reset-b")
+        stack_id = _stack_id_for("busy-reset-a")
+
+        check_state.set_running("logs")
+        try:
+            with patch("app.log_watcher.run_log_check_for") as mock_check:
+                resp = client.post("/logs/stack/reset-and-recheck", params={"stack_id": stack_id})
+            mock_check.assert_not_called()
+            assert resp.status_code == 200
+            assert "started elsewhere" in resp.text
+        finally:
+            check_state.release_running("logs")
+    finally:
+        compose_file.unlink()
+
+
+def test_logs_stack_retry_is_a_noop_when_the_mutex_is_already_held(client):
+    compose_file = _compose_file("busy-stack-retry.yml", "busy-retry-a", "busy-retry-b")
+    try:
+        db.set_log_watch_checkpoint("busy-retry-a")
+        db.set_log_watch_checkpoint("busy-retry-b")
+        stack_id = _stack_id_for("busy-retry-a")
+
+        check_state.set_running("logs")
+        try:
+            with patch("app.stacks.regenerate_log_stack_analysis") as mock_regen:
+                resp = client.post("/logs/stack/retry", params={"stack_id": stack_id})
+            mock_regen.assert_not_called()
+            assert resp.status_code == 200
+            assert "started elsewhere" in resp.text
+        finally:
+            check_state.release_running("logs")
+    finally:
+        compose_file.unlink()
+
+
+def test_service_check_now_is_a_noop_when_the_mutex_is_already_held(client):
+    check_state.set_running("logs")
+    try:
+        with patch("app.log_watcher.run_log_check_for") as mock_check:
+            resp = client.post("/logs/container/busy-service-checknow/check-now")
+        mock_check.assert_not_called()
+        assert resp.status_code == 200
+        assert "started elsewhere" in resp.text
+    finally:
+        check_state.release_running("logs")
+
+
+def test_service_regenerate_is_a_noop_when_the_mutex_is_already_held(client):
+    db.upsert_finding("logs", "busy-service-regen", "OOM", "crash", "critical", "desc1")
+    db.upsert_finding("logs", "busy-service-regen", "Disk full", "resource", "warning", "desc2")
+
+    check_state.set_running("logs")
+    try:
+        with patch("app.main.summarize_findings_overview") as mock_overview:
+            resp = client.post("/logs/container/busy-service-regen/regenerate")
+        mock_overview.assert_not_called()
+        assert resp.status_code == 200
+        assert "started elsewhere" in resp.text
+    finally:
+        check_state.release_running("logs")
+
+
+def test_service_reset_and_recheck_is_a_noop_when_the_mutex_is_already_held(client):
+    check_state.set_running("logs")
+    try:
+        with patch("app.log_watcher.run_log_check_for") as mock_check:
+            resp = client.post("/logs/container/busy-service-reset/reset-and-recheck")
+        mock_check.assert_not_called()
+        assert resp.status_code == 200
+        assert "started elsewhere" in resp.text
+    finally:
+        check_state.release_running("logs")
+
+
+# ---------------------------------------------------------------------------
+# run_log_check() -- the full-check wrapper itself, not just run_log_check_for. Every other
+# connection-count/progress test in this file exercises run_log_check_for directly; this is the
+# function real scheduled/manual full checks actually call.
+# ---------------------------------------------------------------------------
+
+def test_run_log_check_reports_progress_on_the_logs_feature_channel():
+    with patch("app.log_watcher.list_running_containers_for_logs", return_value=[]):
+        result = log_watcher.run_log_check()
+    assert result == {"checked": 0, "findings_found": 0, "errors": 0}
+    assert check_state.get_state("logs")["running"] is False
+
+
+def test_run_log_check_uses_a_fixed_number_of_connections_end_to_end():
+    """Same guarantee as run_log_check_for's own connection-count test, but through the real
+    entry point (run_log_check), which also calls list_running_containers_for_logs (mocked
+    here -- a real Docker call), _run_log_stack_analysis_pass_safely, and set_finished (its own
+    connection to persist last_check_result) -- proving the full path stays cheap, not just the
+    inner helper."""
+    from app.docker_client import TrackedContainer
+
+    containers = [
+        TrackedContainer(name=f"full-check-{i}", image_repo=f"owner/x{i}", tag="latest", current_digest=None, labels={})
+        for i in range(10)
+    ]
+    original_connect = sqlite3.connect
+    connect_calls = []
+
+    def counting_connect(*args, **kwargs):
+        connect_calls.append(1)
+        return original_connect(*args, **kwargs)
+
+    with patch("app.log_watcher.list_running_containers_for_logs", return_value=containers), \
+         patch("app.log_watcher.get_container_logs_since", return_value=None), \
+         patch("app.db.sqlite3.connect", side_effect=counting_connect):
+        result = log_watcher.run_log_check()
+
+    # 3 for run_log_check_for's own batch (checkpoint read/write + error-clear) + 1 for
+    # get_cross_service_analysis_enabled (the stack-analysis-pass gate) + 1 for set_finished's
+    # persisted last_check_result -- a small fixed number regardless of container count, not
+    # one connection per container.
+    assert len(connect_calls) <= 6, f"expected a small fixed connection count, got {len(connect_calls)}"
+    assert result["checked"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Silenced -> Partially Silenced demotion when a new finding appears -- the core invariant the
+# whole cascading-silence design depends on, self-tested live via a dev server earlier; this
+# locks it in as a real regression test.
+# ---------------------------------------------------------------------------
+
+def test_service_badge_demotes_from_silenced_to_partially_silenced_when_a_new_finding_appears(client):
+    fid1, _ = db.upsert_finding("logs", "demote-service-a", "OOM", "crash", "critical", "desc")
+    db.set_finding_status(fid1, "silenced")
+    fid2, _ = db.upsert_finding("logs", "demote-service-a", "Disk full", "resource", "warning", "desc2")
+    db.set_finding_status(fid2, "silenced")
+
+    resp = client.get("/logs/container/demote-service-a")
+    assert "badge-lg badge-silenced\">Silenced</span>" in resp.text
+
+    db.upsert_finding("logs", "demote-service-a", "New issue", "reliability", "warning", "desc3")
+
+    resp = client.get("/logs/container/demote-service-a")
+    assert "badge-lg badge-partially-silenced\">Partially Silenced</span>" in resp.text
+
+
+def test_stack_badge_demotes_from_silenced_to_partially_silenced_when_a_new_finding_appears(client):
+    compose_file = _compose_file("demote-stack.yml", "demote-stack-svc-a", "demote-stack-svc-b")
+    try:
+        fid1, _ = db.upsert_finding("logs", "demote-stack-svc-a", "OOM", "crash", "critical", "desc")
+        db.set_finding_status(fid1, "silenced")
+        db.set_log_watch_checkpoint("demote-stack-svc-a")
+        db.set_log_watch_checkpoint("demote-stack-svc-b")
+        stack_id = _stack_id_for("demote-stack-svc-a")
+
+        resp = client.get(f"/logs/stack?id={stack_id}")
+        assert "badge-lg badge-silenced\">Silenced</span>" in resp.text
+
+        db.upsert_finding("logs", "demote-stack-svc-a", "New issue", "reliability", "warning", "desc2")
+
+        resp = client.get(f"/logs/stack?id={stack_id}")
+        assert "badge-lg badge-partially-silenced\">Partially Silenced</span>" in resp.text
+    finally:
+        compose_file.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Compose's bottom "All files" table also got the 3-state silence badge (all_compose_file_
+# states_with_status), tested for Logs' equivalent table but never for Compose's own.
+# ---------------------------------------------------------------------------
+
+def test_compose_all_files_table_shows_partially_silenced_badge(client):
+    fid1, _ = db.upsert_finding("compose", "compose-partial-table.yml", "Missing restart policy", "reliability", "critical", "d1")
+    db.upsert_finding("compose", "compose-partial-table.yml", "No healthcheck", "reliability", "warning", "d2")
+    db.set_finding_status(fid1, "silenced")
+    db.set_compose_file_hash("compose-partial-table.yml", "hash1")
+
+    try:
+        resp = client.get("/compose")
+        section = resp.text[resp.text.index('id="compose-files-table"'):]
+        row = section[section.index("compose-partial-table.yml"):]
+        row = row[:row.index("</tr>")]
+        assert "badge-partially-silenced\">Partially Silenced</span>" in row
+    finally:
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM compose_file_state WHERE file_path = 'compose-partial-table.yml'")
