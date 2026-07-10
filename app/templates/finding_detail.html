@@ -81,7 +81,7 @@
             hx-post="{{ base_url }}/reset-and-recheck{{ qs }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
             hx-confirm="This wipes this {{ noun }}'s finding history (including this finding) and re-checks it fresh. Continue?">
-      Reset &amp; re-check
+      Reset &amp; Re-Check
     </button>
     <span id="item-recheck-status"></span>
   </div>
@@ -94,7 +94,7 @@
 
     {% if suggested_fix_html %}
     <div class="summary suggested-fix">
-      <h3>Suggested fix</h3>
+      <h3>Suggested Fix</h3>
       {{ suggested_fix_html | safe }}
     </div>
     {% endif %}

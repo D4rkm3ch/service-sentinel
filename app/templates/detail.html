@@ -15,7 +15,7 @@
     {% if update.severity %}
     <span class="badge badge-lg badge-sev-{{ update.severity }}">{{ severity_label('updates', update.severity) }}</span>
     {% elif not update.error and not update.release_notes_raw %}
-    <span class="badge badge-lg badge-sev-bugfix">Notes not found</span>
+    <span class="badge badge-lg badge-sev-bugfix">Notes Not Found</span>
     {% else %}
     <span class="badge badge-lg">—</span>
     {% endif %}
@@ -102,7 +102,7 @@
 
     {% if upgrade_guidance_html %}
     <div class="summary suggested-fix">
-      <h3>Upgrade guidance</h3>
+      <h3>Upgrade Guidance</h3>
       {{ upgrade_guidance_html | safe }}
     </div>
     {% endif %}

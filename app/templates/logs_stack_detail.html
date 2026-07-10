@@ -27,7 +27,7 @@
     <input type="hidden" name="stack_id" value="{{ stack_id }}">
     <input type="hidden" name="return_to" value="/logs/stack?id={{ stack_id|urlencode }}">
     <input type="text" name="name" value="{{ display_name }}" class="mono" placeholder="Stack name">
-    <button type="submit">Save name</button>
+    <button type="submit">Save Name</button>
   </form>
 
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
@@ -65,7 +65,7 @@
             hx-post="/logs/stack/reset-and-recheck?stack_id={{ stack_id|urlencode }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
             hx-confirm="This wipes every service in this stack's finding history and re-checks them fresh. Continue?">
-      Reset &amp; re-check
+      Reset &amp; Re-Check
     </button>
     <span id="item-recheck-status"></span>
   </div>

@@ -208,14 +208,9 @@ def test_subject_findings_page_seen_column_renamed_to_detected_and_drops_occurre
     db.set_finding_status(fid2, "silenced")
 
 
-def test_collapse_state_persists_via_localstorage_across_page_loads():
-    """The collapsed/expanded state of the top table must survive navigating away and back
-    (or reloading), not just last for the current page view."""
+def test_collapse_state_does_not_persist_across_page_loads():
+    """The collapsed/expanded state of the top table must NOT survive navigating away and back
+    or reloading -- every fresh page load should show the table expanded."""
     from pathlib import Path
     text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "base.html").read_text()
-    assert "localStorage.getItem" in text
-    assert "localStorage.setItem" in text
-    # Restoring on load must apply the collapsed state immediately (no transition), and must be
-    # keyed by the specific table (body.id), not a single sitewide flag -- collapsing Logs'
-    # table shouldn't also collapse Updates' or Compose's.
-    assert 'body.id' in text
+    assert "localStorage" not in text

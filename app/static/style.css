@@ -819,16 +819,22 @@ tr:hover .row-chevron {
   align-items: center;
   gap: 8px;
 }
-/* Each mode's own "Every ___ hour(s), starting at ___" / "Time ___" / "Day ___" label wraps a
+/* Each mode's own "Every ___ hour(s), starting at ___" / "at ___" / "Day ___" label wraps a
    text label directly around a form control -- as plain inline content its text baseline drifts
-   above the weekday checkboxes' own (already flex-centered) row, most visibly for the "Time"
+   above the weekday checkboxes' own (already flex-centered) row, most visibly for the "at"
    label sitting beside .schedule-weekday-group. Making the label itself a flex container aligns
    its text and control on the same line consistently, matching .schedule-weekday-option's own
-   treatment of each day's checkbox + label. */
+   treatment of each day's checkbox + label. Font size also matches .schedule-weekday-option's
+   13px so the two labels read at the same size instead of inheriting the larger body default. */
 .schedule-mode-field label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  font-size: 13px;
+}
+.schedule-field-separator {
+  color: var(--text-dim);
+  font-size: 13px;
 }
 .schedule-fields select, .schedule-fields input[type="text"], .schedule-fields input[type="time"], .schedule-fields input[type="number"],
 .field-input {

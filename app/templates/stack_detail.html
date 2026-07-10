@@ -17,7 +17,7 @@
   <form id="stack-rename-form" method="post" action="/updates/stack/rename" class="hidden stack-rename-form">
     <input type="hidden" name="stack_id" value="{{ stack_id }}">
     <input type="text" name="name" value="{{ display_name }}" class="mono" placeholder="Stack name">
-    <button type="submit">Save name</button>
+    <button type="submit">Save Name</button>
   </form>
 
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
@@ -44,7 +44,7 @@
             hx-post="/updates/stack/reset-and-recheck?stack_id={{ stack_id|urlencode }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
             hx-confirm="This wipes update history for every service in this stack and re-checks them all fresh. Continue?">
-      Reset &amp; re-check
+      Reset &amp; Re-Check
     </button>
     <span id="item-recheck-status"></span>
   </div>
@@ -84,7 +84,7 @@
           {% if m.latest_update.severity %}
           <span class="badge badge-sev-{{ m.latest_update.severity }}">{{ severity_label('updates', m.latest_update.severity) }}</span>
           {% elif not m.latest_update.error and not m.latest_update.release_notes_raw %}
-          <span class="badge badge-sev-bugfix">Notes not found</span>
+          <span class="badge badge-sev-bugfix">Notes Not Found</span>
           {% else %}
           <span class="meta">—</span>
           {% endif %}
@@ -105,7 +105,7 @@
         <td class="mono"><span class="truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</span></td>
         <td class="mono"><span class="truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</span></td>
         <td class="nowrap">—</td>
-        <td class="importance-cell"><span class="badge badge-healthy">Up to date</span></td>
+        <td class="importance-cell"><span class="badge badge-healthy">Up To Date</span></td>
         <td class="read-cell"><span class="meta">—</span></td>
         <td></td>
       </tr>

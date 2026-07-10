@@ -74,7 +74,7 @@ def test_upgrade_guidance_is_persisted_and_rendered_on_the_detail_page(client):
         assert update["upgrade_guidance"] == "- Set the new FOO env var first."
 
         resp = client.get(f"/updates/{update['id']}")
-        assert "Upgrade guidance" in resp.text
+        assert "Upgrade Guidance" in resp.text
         assert "Set the new FOO env var first" in resp.text
     finally:
         db.set_deep_analysis_enabled("updates", False)
@@ -95,7 +95,7 @@ def test_detail_page_shows_no_upgrade_guidance_section_when_toggle_is_off():
     from app.main import app
     from fastapi.testclient import TestClient
     resp = TestClient(app).get(f"/updates/{update['id']}")
-    assert "Upgrade guidance" not in resp.text
+    assert "Upgrade Guidance" not in resp.text
 
     _cleanup("guidance-off-e2e")
 

@@ -185,11 +185,11 @@ def test_notes_not_found_gets_its_own_dull_badge_not_a_blank_dash(client):
     _seed("errored-app", error="registry unreachable", release_notes_raw=None)
 
     page = client.get("/updates")
-    assert "Notes not found" in page.text
+    assert "Notes Not Found" in page.text
     # An error row must never be relabeled as "notes not found" -- it's a real error, pinned top.
     error_row_start = page.text.rindex("<tr", 0, page.text.index("errored-app"))
     error_row_end = page.text.index("</tr>", error_row_start)
-    assert "Notes not found" not in page.text[error_row_start:error_row_end]
+    assert "Notes Not Found" not in page.text[error_row_start:error_row_end]
 
 
 def test_lastchecked_sort_works_for_the_full_containers_table(client):

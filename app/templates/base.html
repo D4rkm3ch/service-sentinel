@@ -88,21 +88,7 @@
     // once fully open (rather than leaving it pinned at the measured px value) means a later
     // poll-driven content change while expanded doesn't get clipped or need a re-measure.
     //
-    // Collapsed state is remembered per table (localStorage, keyed by the collapse-target id) so
-    // it survives navigating away and back or reloading the page -- restored below with no
-    // animation (this script runs before the page has painted) so it doesn't visibly flash open
-    // then snap shut.
     (function () {
-      var STORAGE_PREFIX = "collapse:";
-
-      document.querySelectorAll(".collapsible-header[data-collapse-target]").forEach(function (header) {
-        var body = document.getElementById(header.getAttribute("data-collapse-target"));
-        if (body && localStorage.getItem(STORAGE_PREFIX + body.id) === "1") {
-          header.classList.add("collapsed");
-          body.style.maxHeight = "0px";
-        }
-      });
-
       document.body.addEventListener("click", function (evt) {
         var header = evt.target.closest(".collapsible-header");
         if (!header || evt.target.closest(".topbar-right")) return;
@@ -118,13 +104,11 @@
             body.style.maxHeight = "none";
             body.removeEventListener("transitionend", onEnd);
           });
-          localStorage.setItem(STORAGE_PREFIX + body.id, "0");
         } else {
           body.style.maxHeight = body.scrollHeight + "px";
           body.offsetHeight; // force reflow so the next line animates from this height, not 0
           header.classList.add("collapsed");
           body.style.maxHeight = "0px";
-          localStorage.setItem(STORAGE_PREFIX + body.id, "1");
         }
       });
     })();

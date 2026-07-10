@@ -24,7 +24,7 @@
     <div class="api-key-row">
       <input type="password" id="anthropic_api_key_field" class="mono field-input" autocomplete="off"
              placeholder="{{ 'Leave blank to keep the current key' if anthropic_key_configured else 'sk-ant-...' }}">
-      <button type="button" onclick="saveApiKey('anthropic')">Save key</button>
+      <button type="button" onclick="saveApiKey('anthropic')">Save Key</button>
       <span class="saved-indicator-slot" id="saved-anthropic_api_key"></span>
     </div>
     <div style="margin-top:10px">
@@ -44,7 +44,7 @@
     <div class="api-key-row">
       <input type="password" id="gemini_api_key_field" class="mono field-input" autocomplete="off"
              placeholder="{{ 'Leave blank to keep the current key' if gemini_key_configured else 'AIza...' }}">
-      <button type="button" onclick="saveApiKey('gemini')">Save key</button>
+      <button type="button" onclick="saveApiKey('gemini')">Save Key</button>
       <span class="saved-indicator-slot" id="saved-gemini_api_key"></span>
     </div>
     <div style="margin-top:10px">
@@ -116,7 +116,7 @@ feature.</p>
 one combined summary instead of just the latest.</p>
 
   <div class="settings-subsection settings-subsection-first">
-    <h4>Lookback window</h4>
+    <h4>Lookback Window</h4>
     <p class="meta">How far back to look for missed releases, at most — still bounded by your
 last actual check either way.</p>
     <select name="release_notes_lookback" class="mono field-input" hx-post="/settings/release-notes-lookback"
