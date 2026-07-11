@@ -2,55 +2,10 @@ import json
 import logging
 import re
 
-from app import ai_provider, db
+from app import ai_provider
 from app.ai_json import extract_json
 
 logger = logging.getLogger("service_sentinel.summarizer")
-
-SIMULATED_TITLE = "\U0001f9ea Simulated AI Call"
-
-
-def _indent_as_code_block(text: str) -> str:
-    """The app's markdown.markdown() call has no extensions enabled (see main.py's
-    render_markdown()), so fenced ``` blocks render as plain text -- a 4-space indent is real
-    CommonMark/core-markdown code block syntax, so it renders as <pre><code> without needing one."""
-    return "\n".join("    " + line for line in text.splitlines())
-
-
-def _simulated_response_text(toggles: str, system: str | None, user_message: str) -> str:
-    """Settings > Simulate AI Calls (temporary testing aid, off by default): builds a
-    markdown-formatted stand-in for a real AI response, describing the real prompt that would
-    have been sent instead of actually sending it. Returned by every real call site below in
-    place of the real ai_provider.complete_text()/web_search() call, so it flows through the
-    exact same parsing/persistence path a real response would -- it shows up as a real finding,
-    update summary, or stack blurb in its normal place, just with this content instead."""
-    return f"""**{SIMULATED_TITLE}** -- Simulate AI Calls is on in Settings; no real API call was made.
-
-**{toggles}**
-
-**Prompt that would have been sent:**
-
-*System:*
-
-{_indent_as_code_block(system or "(none)")}
-
-*User message (the real data that would have been sent):*
-
-{_indent_as_code_block(user_message)}"""
-
-
-def _simulated_fix_text(toggles: str, fix_instruction: str) -> str:
-    """Suggested Fix's simulated stand-in (Logs/Compose, Deep Analysis on). A real "fix" comes
-    from the exact same call as the finding's own description above -- one JSON response with
-    both fields, not two separate API calls -- so there's no second prompt to preview here.
-    Repeating the whole prompt dump a second time added nothing (the fix instruction is already
-    embedded in that same System prompt); this just names what the model was asked for."""
-    return f"""**{SIMULATED_TITLE}** -- Simulate AI Calls is on in Settings; no real API call was made.
-
-**{toggles}**
-
-A real "fix" comes from the exact same call as the Issue above, not a separate one -- see the \
-"fix" instruction already included in that System prompt. The model is asked for {fix_instruction}."""
 
 SYSTEM_PROMPT = """You write short, practical release-note summaries for a homelab operator \
 deciding whether to update a self-hosted Docker container.
@@ -142,13 +97,6 @@ Operator's compose configuration for this service:
 {compose_block}
 ---"""
 
-    if db.get_simulate_ai_calls_enabled():
-        text = _simulated_response_text(
-            "This call always runs when a new version is detected (not gated by a toggle).",
-            SYSTEM_PROMPT, user_message,
-        )
-        return text, "bugfix"
-
     if not ai_provider.is_configured():
         raise RuntimeError("No AI provider is configured (see Settings)")
 
@@ -224,12 +172,6 @@ Operator's compose configuration for this service:
 {compose_block}
 ---"""
 
-    if db.get_simulate_ai_calls_enabled():
-        return _simulated_response_text(
-            "Deep Analysis (Updates) is enabled -- this call only happens when that toggle is on.",
-            UPGRADE_GUIDANCE_SYSTEM_PROMPT, user_message,
-        )
-
     if not ai_provider.is_configured():
         return ""
 
@@ -282,20 +224,6 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
 
     system_prompt = LOG_TRIAGE_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_LOG if include_fix else "")
 
-    if db.get_simulate_ai_calls_enabled():
-        toggles = f"Deep Analysis (Logs) is {'enabled' if include_fix else 'disabled'}."
-        results = []
-        for container_name, excerpt in excerpts_by_container.items():
-            results.append({
-                "container": container_name,
-                "title": SIMULATED_TITLE,
-                "category": "optimization",
-                "severity": "suggestion",
-                "description": _simulated_response_text(toggles, system_prompt, excerpt),
-                **({"fix": _simulated_fix_text(toggles, FIX_INSTRUCTION_LOG)} if include_fix else {}),
-            })
-        return results
-
     if not ai_provider.is_configured():
         return []
 
@@ -344,16 +272,6 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
     user_message = f"File: {file_path}\n\n{redacted_yaml}"
     system_prompt = COMPOSE_REVIEW_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_COMPOSE if include_fix else "")
 
-    if db.get_simulate_ai_calls_enabled():
-        toggles = f"Deep Analysis (Compose) is {'enabled' if include_fix else 'disabled'}."
-        return [{
-            "title": SIMULATED_TITLE,
-            "category": "optimization",
-            "severity": "suggestion",
-            "description": _simulated_response_text(toggles, system_prompt, user_message),
-            **({"fix": _simulated_fix_text(toggles, FIX_INSTRUCTION_COMPOSE)} if include_fix else {}),
-        }]
-
     if not ai_provider.is_configured():
         return []
 
@@ -386,12 +304,6 @@ def summarize_findings_overview(subject_display: str, findings: list[dict]) -> s
         for f in findings
     )
     user_message = f"Subject: {subject_display}\n\nFindings:\n{listing}"
-
-    if db.get_simulate_ai_calls_enabled():
-        return _simulated_response_text(
-            "This overview always runs when a subject has 2+ findings (not gated by a toggle).",
-            FINDINGS_OVERVIEW_SYSTEM_PROMPT, user_message,
-        )
 
     if not ai_provider.is_configured():
         return ""
@@ -463,12 +375,6 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
         f"Recent update activity in this stack:\n{changed_summary_text}"
     )
 
-    if db.get_simulate_ai_calls_enabled():
-        return _simulated_response_text(
-            "Cross-Service Analysis (Updates) is enabled -- this call only happens when that toggle is on.",
-            STACK_ANALYSIS_SYSTEM_PROMPT, user_message,
-        )
-
     if not ai_provider.is_configured():
         return ""
 
@@ -511,12 +417,6 @@ def analyze_log_stack_impact(stack_display_name: str, all_service_names: list[st
         f"All services in this stack: {', '.join(all_service_names)}\n\n"
         f"Current log findings in this stack:\n{findings_summary_text}"
     )
-
-    if db.get_simulate_ai_calls_enabled():
-        return _simulated_response_text(
-            "Cross-Service Analysis (Logs) is enabled -- this call only happens when that toggle is on.",
-            LOG_STACK_ANALYSIS_SYSTEM_PROMPT, user_message,
-        )
 
     if not ai_provider.is_configured():
         return ""

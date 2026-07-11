@@ -1485,16 +1485,6 @@ def set_github_token(token: str) -> None:
     _set_setting("github_token", token)
 
 
-def get_simulate_ai_calls_enabled() -> bool:
-    """Temporary testing toggle (see app/ai_simulation.py) -- off by default. When on, every AI
-    call site logs the real prompt it would have sent instead of actually sending it."""
-    return _get_setting("simulate_ai_calls_enabled", "false") == "true"
-
-
-def set_simulate_ai_calls_enabled(enabled: bool) -> None:
-    _set_setting("simulate_ai_calls_enabled", "true" if enabled else "false")
-
-
 # ---------------------------------------------------------------------------
 # Stacks — grouping containers that share a compose file. Names are AI-generated
 # by default but can be manually overridden; a manual name never gets auto-regenerated.
