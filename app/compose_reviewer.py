@@ -5,7 +5,7 @@ from typing import Callable, Optional
 
 from app import check_state, db
 from app.check_state import set_finished, set_running
-from app.compose_lookup import list_compose_files, redact_compose_file_text
+from app.compose_lookup import list_compose_files, redact_compose_file_text, subject_display_name
 from app.notifications import notify_compose_check_errors, notify_findings_digest
 from app.summarizer import review_compose_file
 
@@ -122,7 +122,9 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
             )
             findings_found += 1
             if is_new:
-                new_findings.append({"subject": path_str, "severity": severity})
+                # Discord shows the service name(s) defined in the file, not the raw path --
+                # e.g. "tautulli", not "/compose/tautulli/compose.yaml".
+                new_findings.append({"subject": subject_display_name("compose", path_str), "severity": severity})
 
         db.set_compose_file_hash(path_str, content_hash)
         if on_progress:

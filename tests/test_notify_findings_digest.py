@@ -60,18 +60,20 @@ def test_a_single_qualifying_item_sends_one_call():
             notifications.notify_findings_digest("logs", [_item(subject="plex", severity="critical")])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
-    assert title == "Logs: Critical (1)"
+    assert title == "Logs"
+    assert body.startswith("**Critical (1)**")
     assert "plex" in body
     assert notify_type == NotifyType.FAILURE
 
 
-def test_compose_title_has_its_own_source_prefix():
+def test_compose_title_is_its_own_feature_name():
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2]:
             notifications.notify_findings_digest("compose", [_item(subject="stack.yml", severity="warning")])
     title, body, _ = mock_send.call_args[0]
-    assert title == "Compose: Warnings (1)"
+    assert title == "Compose"
+    assert body.startswith("**Warnings (1)**")
     assert "stack.yml" in body
 
 
@@ -96,11 +98,12 @@ def test_mixed_severities_send_one_call_each_lowest_severity_first():
 
     assert mock_send.call_count == 3
     calls = mock_send.call_args_list
-    assert "Suggestions" in calls[0][0][0]
+    assert calls[0][0][0] == "Logs" and calls[1][0][0] == "Logs" and calls[2][0][0] == "Logs"
+    assert "Suggestions" in calls[0][0][1]
     assert "sonarr" in calls[0][0][1]
-    assert "Warnings" in calls[1][0][0]
+    assert "Warnings" in calls[1][0][1]
     assert "plex" in calls[1][0][1]
-    assert "Critical" in calls[2][0][0]
+    assert "Critical" in calls[2][0][1]
     assert "radarr" in calls[2][0][1]
 
 
@@ -112,17 +115,18 @@ def test_multiple_items_of_the_same_severity_share_one_call():
             notifications.notify_findings_digest("logs", items)
     mock_send.assert_called_once()
     title, body, _ = mock_send.call_args[0]
-    assert title == "Logs: Warnings (2)"
+    assert title == "Logs"
+    assert body.startswith("**Warnings (2)**")
     assert body.index("apple") < body.index("zebra")  # alphabetical within the group
 
 
-def test_body_is_just_the_name_no_link_no_category():
+def test_body_is_the_severity_line_then_just_names_no_link_no_category():
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2]:
-            notifications.notify_findings_digest("logs", [_item(subject="plex")])
+            notifications.notify_findings_digest("logs", [_item(subject="plex", severity="warning")])
     _, body, _ = mock_send.call_args[0]
-    assert body.strip() == "**plex**"
+    assert body.strip() == "**Warnings (1)**\n\n**plex**"
 
 
 def test_no_emoji_anywhere():

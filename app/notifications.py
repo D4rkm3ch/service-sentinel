@@ -43,7 +43,21 @@ logger = logging.getLogger("service_sentinel.notifications")
 # check never has anything to set avatar_url to -- the payload simply omits it, and Discord
 # falls back to the webhook's own configured avatar instead of Apprise's branded icon. No
 # webhook URL change needed for any of this (no `?avatar=no` required) -- it's all asset-level.
-_ASSET = apprise.AppriseAsset(app_id="", image_url_mask="", image_url_logo="")
+#
+# html_notify_map overrides Apprise's own default embed colors (a generic blue/green/yellow/red)
+# with this app's own severity colors, so a Discord message's accent bar matches the same
+# severity's badge color on the dashboard instead of looking unrelated -- see style.css's
+# --text-dim/--accent/--warn/--error and the .badge-sev-*/.severity-btn-* rules built on them.
+# Keep these hex values in sync with style.css's :root if that palette ever changes.
+_ASSET = apprise.AppriseAsset(
+    app_id="", image_url_mask="", image_url_logo="",
+    html_notify_map={
+        NotifyType.INFO: "#868c98",     # --text-dim (bugfix, suggestion)
+        NotifyType.SUCCESS: "#5ec9a6",  # --accent (feature)
+        NotifyType.WARNING: "#d9a441",  # --warn (action_needed, warning)
+        NotifyType.FAILURE: "#d9705e",  # --error (breaking, critical)
+    },
+)
 
 FINDING_SEVERITY_ORDER = {"suggestion": 0, "warning": 1, "critical": 2}
 UPDATE_SEVERITY_ORDER = {"bugfix": 0, "feature": 1, "action_needed": 2, "breaking": 3}
@@ -74,15 +88,18 @@ def _send(title: str, body: str, notify_type: str = NotifyType.INFO) -> None:
 
 
 def _send_severity_group(severity: str, group: list[dict]) -> None:
+    """Title is just the feature name ("Updates") -- the severity + count moves into the body's
+    first line instead, since Discord renders an embed title larger/bolder than its body, giving
+    the same "big line, smaller line under it" reading the severity used to get from being the
+    title on its own, without needing two separate Apprise calls."""
     label = UPDATE_SEVERITY_LABELS.get(severity, severity.capitalize())
     count = len(group)
-    title = f"{label} ({count})"
     sections = [
         f"**{item['container_name']}**"
         for item in sorted(group, key=lambda i: i["container_name"].lower())
     ]
-    body = "\n\n".join(sections)
-    _send(title, body, _UPDATE_NOTIFY_TYPE.get(severity, NotifyType.INFO))
+    body = f"**{label} ({count})**\n\n" + "\n\n".join(sections)
+    _send("Updates", body, _UPDATE_NOTIFY_TYPE.get(severity, NotifyType.INFO))
 
 
 def _send_error_group(group: list[dict]) -> None:
@@ -180,14 +197,16 @@ _FINDING_SOURCE_LABELS = {"logs": "Logs", "compose": "Compose"}
 
 
 def _send_finding_severity_group(source: str, severity: str, group: list[dict]) -> None:
+    """Title is just the feature name ("Logs"/"Compose") -- same title/body split as Updates'
+    _send_severity_group above, for the same reason (see its docstring)."""
     label = FINDING_SEVERITY_LABELS.get(severity, severity.capitalize())
     count = len(group)
-    title = f"{_FINDING_SOURCE_LABELS.get(source, source.capitalize())}: {label} ({count})"
+    title = _FINDING_SOURCE_LABELS.get(source, source.capitalize())
     sections = [
         f"**{item['subject']}**"
         for item in sorted(group, key=lambda i: i["subject"].lower())
     ]
-    body = "\n\n".join(sections)
+    body = f"**{label} ({count})**\n\n" + "\n\n".join(sections)
     _send(title, body, _FINDING_NOTIFY_TYPE.get(severity, NotifyType.INFO))
 
 
@@ -200,14 +219,16 @@ def notify_findings_digest(source: str, items: list[dict]) -> None:
     whole check run/scope and call this once at the end, the same way persist.py collects a
     whole check's worth of updates before calling notify_updates_digest once.
 
-    items: [{"subject", "severity"}, ...] -- subject is the container name (Logs) or compose
-    file path (Compose). Recurrences of an already-known finding must never be included --
-    callers only pass genuinely new findings.
+    items: [{"subject", "severity"}, ...] -- subject is the container name (Logs) or a display
+    name for the compose file (Compose -- see compose_lookup.subject_display_name, callers
+    resolve this before it ever reaches here so the message shows a real service name instead of
+    a raw file path). Recurrences of an already-known finding must never be included -- callers
+    only pass genuinely new findings.
 
-    The source prefix in the title ("Logs: Warnings (3)" vs "Compose: Warnings (3)") is needed
-    because Logs and Compose share the same severity label set (unlike Updates' distinct
-    bugfix/feature/action_needed/breaking labels), so without it two features' messages in the
-    same channel would be indistinguishable."""
+    The title itself ("Logs" vs "Compose") is what tells two features' messages apart in the
+    same channel -- Logs and Compose share the same severity label set (unlike Updates' distinct
+    bugfix/feature/action_needed/breaking labels), so without a distinct title their messages
+    would otherwise be indistinguishable."""
     if not items:
         return
     if not db.get_notifications_enabled() or not db.get_feature_notify_enabled(source):

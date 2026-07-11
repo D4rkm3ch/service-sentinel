@@ -67,7 +67,8 @@ def test_a_single_qualifying_item_sends_one_call():
             notifications.notify_updates_digest([_item(severity="breaking")], [])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
-    assert title == "Breaking Change (1)"
+    assert title == "Updates"
+    assert "Breaking Change (1)" in body
     assert "sonarr" in body
     assert "owner/repo" not in body and "latest" not in body  # just the name, no trailing image:tag
     assert notify_type == NotifyType.FAILURE
@@ -94,11 +95,14 @@ def test_mixed_severities_send_one_call_each_lowest_severity_first():
 
     assert mock_send.call_count == 2  # one for feature, one for breaking -- bugfix excluded
     calls = mock_send.call_args_list
+    # Every call's title is just the feature name -- severity + count live in the body instead.
+    assert calls[0][0][0] == "Updates"
+    assert calls[1][0][0] == "Updates"
     # feature (lowest of the two qualifying severities) sent first, breaking last/most recent.
-    assert "New Features" in calls[0][0][0]
+    assert "New Features" in calls[0][0][1]
     assert "bambuddy" in calls[0][0][1]
     assert calls[0][0][2] == NotifyType.SUCCESS
-    assert "Breaking Change" in calls[1][0][0]
+    assert "Breaking Change" in calls[1][0][1]
     assert "sonarr" in calls[1][0][1]
     assert calls[1][0][2] == NotifyType.FAILURE
     # Neither message mixes the other severity's container in.
@@ -118,7 +122,8 @@ def test_multiple_items_of_the_same_severity_share_one_call():
             notifications.notify_updates_digest(items, [])
     mock_send.assert_called_once()
     title, body, _ = mock_send.call_args[0]
-    assert title == "Breaking Change (2)"
+    assert title == "Updates"
+    assert "Breaking Change (2)" in body
     assert body.index("apple") < body.index("zebra")  # alphabetical within the group
     assert "---" not in body  # a blank line separates items, not a horizontal rule
 
@@ -153,7 +158,8 @@ def test_errors_and_a_severity_group_are_two_separate_calls_errors_first():
     assert mock_send.call_count == 2
     calls = mock_send.call_args_list
     assert "Check errors" in calls[0][0][0]
-    assert "New Features" in calls[1][0][0]
+    assert calls[1][0][0] == "Updates"
+    assert "New Features" in calls[1][0][1]
     assert "sonarr" not in calls[0][0][1]
     assert "qbittorrent" not in calls[1][0][1]
 
@@ -181,15 +187,19 @@ def test_body_has_no_links_at_all():
     assert "[View" not in body
 
 
-def test_title_is_just_the_severity_and_count_no_branding_prefix():
+def test_title_is_just_the_feature_name_no_app_branding_prefix():
     """The webhook's own name (set directly in Discord, e.g. "Spidey Bot") already identifies
-    the source -- repeating "release-radar" inside every message would just be noise."""
+    the source -- repeating "release-radar" inside every message would just be noise. Severity
+    and count live in the body's first line instead (Discord renders a title larger/bolder than
+    the body, so "Updates" as the title / "Breaking Change (1)" as the first body line reads as
+    a big line + a smaller line under it, without a second Apprise call)."""
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest([_item(severity="breaking")], [])
-    title, _, _ = mock_send.call_args[0]
-    assert title == "Breaking Change (1)"
+    title, body, _ = mock_send.call_args[0]
+    assert title == "Updates"
+    assert body.startswith("**Breaking Change (1)**")
 
 
 def test_send_uses_an_asset_that_strips_apprises_own_branding():
@@ -227,6 +237,37 @@ def test_asset_suppresses_apprises_branded_avatar_from_the_real_payload():
     payload = json.loads(captured[0])
     assert "avatar_url" not in payload
     assert payload["embeds"][0]["author"]["name"] == ""
+
+
+def test_embed_colors_match_the_dashboards_own_severity_colors():
+    """Discord's embed accent bar must match the same severity's badge color on the dashboard
+    (style.css's --text-dim/--accent/--warn/--error), not Apprise's generic blue/green/yellow/red
+    defaults -- see _ASSET's html_notify_map override."""
+    import json
+    from unittest.mock import MagicMock
+
+    expected = {
+        NotifyType.INFO: 0x868C98,     # --text-dim
+        NotifyType.SUCCESS: 0x5EC9A6,  # --accent
+        NotifyType.WARNING: 0xD9A441,  # --warn
+        NotifyType.FAILURE: 0xD9705E,  # --error
+    }
+    for notify_type, expected_color in expected.items():
+        captured = []
+
+        def fake_post(url, **kwargs):
+            captured.append(kwargs.get("data"))
+            resp = MagicMock()
+            resp.status_code = 204
+            resp.content = b""
+            return resp
+
+        with patch("requests.post", side_effect=fake_post), \
+             patch("app.notifications.db.get_apprise_urls", return_value=["discord://123/abc/?format=markdown"]):
+            notifications._send("Updates", "**Some Severity (1)**", notify_type)
+
+        payload = json.loads(captured[0])
+        assert payload["embeds"][0]["color"] == expected_color, f"{notify_type} should render as {expected_color:#x}"
 
 
 def test_send_is_called_with_markdown_body_format_and_notify_type():

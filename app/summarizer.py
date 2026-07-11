@@ -38,6 +38,20 @@ def _simulated_response_text(toggles: str, system: str | None, user_message: str
 
 {_indent_as_code_block(user_message)}"""
 
+
+def _simulated_fix_text(toggles: str, fix_instruction: str) -> str:
+    """Suggested Fix's simulated stand-in (Logs/Compose, Deep Analysis on). A real "fix" comes
+    from the exact same call as the finding's own description above -- one JSON response with
+    both fields, not two separate API calls -- so there's no second prompt to preview here.
+    Repeating the whole prompt dump a second time added nothing (the fix instruction is already
+    embedded in that same System prompt); this just names what the model was asked for."""
+    return f"""**{SIMULATED_TITLE}** -- Simulate AI Calls is on in Settings; no real API call was made.
+
+**{toggles}**
+
+A real "fix" comes from the exact same call as the Issue above, not a separate one -- see the \
+"fix" instruction already included in that System prompt. The model is asked for {fix_instruction}."""
+
 SYSTEM_PROMPT = """You write short, practical release-note summaries for a homelab operator \
 deciding whether to update a self-hosted Docker container.
 
@@ -244,8 +258,9 @@ one of "error", "reliability", "optimization", "severity": one of "critical", "w
 
 If nothing in the provided excerpts represents a real issue, respond with an empty JSON array: []"""
 
-FIX_FIELD_LOG = ', "fix": "a concrete, specific suggestion for how to resolve this — commands, ' \
-    'config changes, or what to check, not generic advice"'
+FIX_INSTRUCTION_LOG = "a concrete, specific suggestion for how to resolve this — commands, " \
+    "config changes, or what to check, not generic advice"
+FIX_FIELD_LOG = f', "fix": "{FIX_INSTRUCTION_LOG}"'
 
 
 def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool = False) -> list[dict]:
@@ -271,16 +286,13 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
         toggles = f"Deep Analysis (Logs) is {'enabled' if include_fix else 'disabled'}."
         results = []
         for container_name, excerpt in excerpts_by_container.items():
-            simulated_text = _simulated_response_text(toggles, system_prompt, excerpt)
             results.append({
                 "container": container_name,
                 "title": SIMULATED_TITLE,
                 "category": "optimization",
                 "severity": "suggestion",
-                "description": simulated_text,
-                # Same content as "description" -- in real operation "fix" comes from this exact
-                # same call/prompt, not a separate one, so there's no second prompt to simulate.
-                **({"fix": simulated_text} if include_fix else {}),
+                "description": _simulated_response_text(toggles, system_prompt, excerpt),
+                **({"fix": _simulated_fix_text(toggles, FIX_INSTRUCTION_LOG)} if include_fix else {}),
             })
         return results
 
@@ -317,8 +329,9 @@ Respond with ONLY a JSON array and nothing else — no markdown fences, no pream
 "reliability", "optimization", "severity": one of "critical", "warning", "suggestion", \
 "description": "1-3 sentences explaining the issue"{fix_field}}}"""
 
-FIX_FIELD_COMPOSE = ', "fix": "a concrete suggested compose file change — the specific key(s) ' \
-    'to add or edit, not generic advice"'
+FIX_INSTRUCTION_COMPOSE = "a concrete suggested compose file change — the specific key(s) to " \
+    "add or edit, not generic advice"
+FIX_FIELD_COMPOSE = f', "fix": "{FIX_INSTRUCTION_COMPOSE}"'
 
 
 def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = False) -> list[dict]:
@@ -333,15 +346,12 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
 
     if db.get_simulate_ai_calls_enabled():
         toggles = f"Deep Analysis (Compose) is {'enabled' if include_fix else 'disabled'}."
-        simulated_text = _simulated_response_text(toggles, system_prompt, user_message)
         return [{
             "title": SIMULATED_TITLE,
             "category": "optimization",
             "severity": "suggestion",
-            "description": simulated_text,
-            # Same content as "description" -- in real operation "fix" comes from this exact
-            # same call/prompt, not a separate one, so there's no second prompt to simulate.
-            **({"fix": simulated_text} if include_fix else {}),
+            "description": _simulated_response_text(toggles, system_prompt, user_message),
+            **({"fix": _simulated_fix_text(toggles, FIX_INSTRUCTION_COMPOSE)} if include_fix else {}),
         }]
 
     if not ai_provider.is_configured():

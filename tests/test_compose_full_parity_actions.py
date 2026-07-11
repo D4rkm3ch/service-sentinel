@@ -86,6 +86,23 @@ def test_compose_file_check_now_route_works():
             conn.execute("DELETE FROM compose_file_state WHERE file_path = ?", (str(compose_file),))
 
 
+def test_run_compose_check_for_notifies_with_the_service_name_not_the_raw_path():
+    """Discord should show a recognizable service name (e.g. "notify-svc"), not a raw file path
+    like "/compose/notify-name-check.yml" -- see compose_lookup.subject_display_name."""
+    compose_file = _compose_file("notify-name-check.yml", "notify-svc")
+    try:
+        with patch("app.compose_reviewer.review_compose_file", return_value=[
+            {"title": "Issue", "category": "reliability", "severity": "warning", "description": "d"},
+        ]), patch("app.compose_reviewer.notify_findings_digest") as mock_notify:
+            compose_reviewer.run_compose_check_for([compose_file])
+        mock_notify.assert_called_once_with("compose", [{"subject": "notify-svc", "severity": "warning"}])
+    finally:
+        compose_file.unlink()
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM compose_file_state WHERE file_path = ?", (str(compose_file),))
+            conn.execute("DELETE FROM findings WHERE subject = ?", (str(compose_file),))
+
+
 def test_compose_file_check_now_http_route_works(client):
     compose_file = _compose_file("checknow-http.yml", "checknow-http-svc")
     path = str(compose_file)
