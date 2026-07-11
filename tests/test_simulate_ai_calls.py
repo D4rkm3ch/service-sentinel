@@ -15,9 +15,15 @@ from app import ai_provider, db, summarizer
 
 @pytest.fixture(autouse=True)
 def clean_simulate_setting():
+    """Also resets the Anthropic/Gemini keys this file sets -- left dirty, "sk-test" persists in
+    the on-disk test DB (see conftest.py) past this file's own tests and makes any later test
+    that doesn't mock ai_provider itself think a real key is configured, sending a real (and
+    doomed to 401) API call instead of the empty/no-op result it expects."""
     db.set_simulate_ai_calls_enabled(False)
     yield
     db.set_simulate_ai_calls_enabled(False)
+    db.set_anthropic_api_key("")
+    db.set_gemini_api_key("")
 
 
 def test_simulate_mode_is_off_by_default():

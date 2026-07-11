@@ -49,10 +49,10 @@
   </div>
 
   <div class="settings-subsection">
-    <h4>GitHub</h4>
-    <p class="meta">Optional -- raises the GitHub API rate limit used for fetching release notes
-from 60/hr (unauthenticated) to 5000/hr. A fine-grained token with no permissions (public read
-only) is enough. Get one from <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.</p>
+    <h4>GitHub <span class="badge badge-lg badge-sev-suggestion">Optional</span></h4>
+    <p class="meta">Get a key (a fine-grained token with no permissions — public read only) from
+<a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.
+This raises the rate limit used for fetching release notes from 60/hr (unauthenticated) to 5,000/hr.</p>
     {{ akf.api_key_field('github', github_token_configured, 'ghp_...', '/settings/ai/github-token') }}
   </div>
 </section>

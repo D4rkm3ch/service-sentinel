@@ -88,10 +88,10 @@ def _send(title: str, body: str, notify_type: str = NotifyType.INFO) -> None:
 
 
 def _send_severity_group(severity: str, group: list[dict]) -> None:
-    """Title is just the feature name ("Updates") -- the severity + count moves into the body's
-    first line instead, since Discord renders an embed title larger/bolder than its body, giving
-    the same "big line, smaller line under it" reading the severity used to get from being the
-    title on its own, without needing two separate Apprise calls."""
+    """Title is just the feature name ("Update Issues") -- the severity + count moves into the
+    body's first line instead, since Discord renders an embed title larger/bolder than its body,
+    giving the same "big line, smaller line under it" reading the severity used to get from
+    being the title on its own, without needing two separate Apprise calls."""
     label = UPDATE_SEVERITY_LABELS.get(severity, severity.capitalize())
     count = len(group)
     sections = [
@@ -99,7 +99,7 @@ def _send_severity_group(severity: str, group: list[dict]) -> None:
         for item in sorted(group, key=lambda i: i["container_name"].lower())
     ]
     body = f"**{label} ({count})**\n\n" + "\n\n".join(sections)
-    _send("Updates", body, _UPDATE_NOTIFY_TYPE.get(severity, NotifyType.INFO))
+    _send("Update Issues", body, _UPDATE_NOTIFY_TYPE.get(severity, NotifyType.INFO))
 
 
 def _send_error_group(group: list[dict]) -> None:
@@ -193,12 +193,12 @@ _FINDING_NOTIFY_TYPE = {
 }
 # Sent lowest-severity-first, same reasoning as _SEVERITY_SEND_ORDER above.
 _FINDING_SEVERITY_SEND_ORDER = ("suggestion", "warning", "critical")
-_FINDING_SOURCE_LABELS = {"logs": "Logs", "compose": "Compose"}
+_FINDING_SOURCE_LABELS = {"logs": "Log Issues", "compose": "Compose Issues"}
 
 
 def _send_finding_severity_group(source: str, severity: str, group: list[dict]) -> None:
-    """Title is just the feature name ("Logs"/"Compose") -- same title/body split as Updates'
-    _send_severity_group above, for the same reason (see its docstring)."""
+    """Title is just the feature name ("Log Issues"/"Compose Issues") -- same title/body split
+    as Updates' _send_severity_group above, for the same reason (see its docstring)."""
     label = FINDING_SEVERITY_LABELS.get(severity, severity.capitalize())
     count = len(group)
     title = _FINDING_SOURCE_LABELS.get(source, source.capitalize())
@@ -225,10 +225,10 @@ def notify_findings_digest(source: str, items: list[dict]) -> None:
     a raw file path). Recurrences of an already-known finding must never be included -- callers
     only pass genuinely new findings.
 
-    The title itself ("Logs" vs "Compose") is what tells two features' messages apart in the
-    same channel -- Logs and Compose share the same severity label set (unlike Updates' distinct
-    bugfix/feature/action_needed/breaking labels), so without a distinct title their messages
-    would otherwise be indistinguishable."""
+    The title itself ("Log Issues" vs "Compose Issues") is what tells two features' messages
+    apart in the same channel -- Logs and Compose share the same severity label set (unlike
+    Updates' distinct bugfix/feature/action_needed/breaking labels), so without a distinct title
+    their messages would otherwise be indistinguishable."""
     if not items:
         return
     if not db.get_notifications_enabled() or not db.get_feature_notify_enabled(source):

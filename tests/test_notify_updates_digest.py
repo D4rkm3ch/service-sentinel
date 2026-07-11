@@ -67,7 +67,7 @@ def test_a_single_qualifying_item_sends_one_call():
             notifications.notify_updates_digest([_item(severity="breaking")], [])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
-    assert title == "Updates"
+    assert title == "Update Issues"
     assert "Breaking Change (1)" in body
     assert "sonarr" in body
     assert "owner/repo" not in body and "latest" not in body  # just the name, no trailing image:tag
@@ -96,8 +96,8 @@ def test_mixed_severities_send_one_call_each_lowest_severity_first():
     assert mock_send.call_count == 2  # one for feature, one for breaking -- bugfix excluded
     calls = mock_send.call_args_list
     # Every call's title is just the feature name -- severity + count live in the body instead.
-    assert calls[0][0][0] == "Updates"
-    assert calls[1][0][0] == "Updates"
+    assert calls[0][0][0] == "Update Issues"
+    assert calls[1][0][0] == "Update Issues"
     # feature (lowest of the two qualifying severities) sent first, breaking last/most recent.
     assert "New Features" in calls[0][0][1]
     assert "bambuddy" in calls[0][0][1]
@@ -122,7 +122,7 @@ def test_multiple_items_of_the_same_severity_share_one_call():
             notifications.notify_updates_digest(items, [])
     mock_send.assert_called_once()
     title, body, _ = mock_send.call_args[0]
-    assert title == "Updates"
+    assert title == "Update Issues"
     assert "Breaking Change (2)" in body
     assert body.index("apple") < body.index("zebra")  # alphabetical within the group
     assert "---" not in body  # a blank line separates items, not a horizontal rule
@@ -158,7 +158,7 @@ def test_errors_and_a_severity_group_are_two_separate_calls_errors_first():
     assert mock_send.call_count == 2
     calls = mock_send.call_args_list
     assert "Check errors" in calls[0][0][0]
-    assert calls[1][0][0] == "Updates"
+    assert calls[1][0][0] == "Update Issues"
     assert "New Features" in calls[1][0][1]
     assert "sonarr" not in calls[0][0][1]
     assert "qbittorrent" not in calls[1][0][1]
@@ -191,14 +191,14 @@ def test_title_is_just_the_feature_name_no_app_branding_prefix():
     """The webhook's own name (set directly in Discord, e.g. "Spidey Bot") already identifies
     the source -- repeating "release-radar" inside every message would just be noise. Severity
     and count live in the body's first line instead (Discord renders a title larger/bolder than
-    the body, so "Updates" as the title / "Breaking Change (1)" as the first body line reads as
-    a big line + a smaller line under it, without a second Apprise call)."""
+    the body, so "Update Issues" as the title / "Breaking Change (1)" as the first body line
+    reads as a big line + a smaller line under it, without a second Apprise call)."""
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2], patches[3]:
             notifications.notify_updates_digest([_item(severity="breaking")], [])
     title, body, _ = mock_send.call_args[0]
-    assert title == "Updates"
+    assert title == "Update Issues"
     assert body.startswith("**Breaking Change (1)**")
 
 
