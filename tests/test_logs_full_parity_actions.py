@@ -194,14 +194,14 @@ def test_run_log_check_for_creates_findings_from_a_suspicious_excerpt():
              {"container": "triage-a", "title": "Disk full", "category": "resource",
               "severity": "critical", "description": "desc"},
          ]), \
-         patch("app.log_watcher.notify_finding") as mock_notify:
+         patch("app.log_watcher.notify_findings_digest") as mock_notify:
         result = log_watcher.run_log_check_for(["triage-a"])
 
     assert result["findings_found"] == 1
     findings = db.list_findings_for_subject("logs", "triage-a", include_silenced=True)
     assert len(findings) == 1
     assert findings[0]["title"] == "Disk full"
-    mock_notify.assert_called_once()
+    mock_notify.assert_called_once_with("logs", [{"subject": "triage-a", "severity": "critical"}])
 
 
 def test_run_claimed_log_item_check_now_releases_the_mutex_on_completion():

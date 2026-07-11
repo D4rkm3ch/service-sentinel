@@ -6,7 +6,7 @@ from app.check_state import set_finished, set_running
 from app.config import settings
 from app.docker_client import get_container_logs_since, list_running_containers_for_logs
 from app.log_filter import extract_suspicious_excerpt
-from app.notifications import notify_finding, notify_logs_check_errors
+from app.notifications import notify_findings_digest, notify_logs_check_errors
 from app.summarizer import analyze_logs_batch
 
 logger = logging.getLogger("service_sentinel.log_watcher")
@@ -116,24 +116,27 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     if on_progress:
         on_progress("triage_logs", 1, 1)
 
+    new_findings = []
     for finding in findings:
         container_name = finding.get("container")
         title = finding.get("title")
         if not container_name or not title:
             continue
-        finding_id, is_new = db.upsert_finding(
+        severity = finding.get("severity", "warning")
+        _finding_id, is_new = db.upsert_finding(
             source="logs",
             subject=container_name,
             title=title,
             category=finding.get("category", "error"),
-            severity=finding.get("severity", "warning"),
+            severity=severity,
             description_markdown=finding.get("description", ""),
             suggested_fix=finding.get("fix"),
         )
         findings_found += 1
         if is_new:
-            notify_finding("logs", container_name, title, finding.get("severity", "warning"),
-                            finding.get("category", "error"), finding_id)
+            new_findings.append({"subject": container_name, "severity": severity})
+
+    notify_findings_digest("logs", new_findings)
 
     return {"checked": checked, "findings_found": findings_found, "errors": len(failed)}
 

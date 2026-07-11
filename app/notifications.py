@@ -34,7 +34,6 @@ import apprise
 from apprise import NotifyFormat, NotifyType
 
 from app import db
-from app.config import settings
 
 logger = logging.getLogger("service_sentinel.notifications")
 
@@ -61,10 +60,6 @@ _UPDATE_NOTIFY_TYPE = {
 _SEVERITY_SEND_ORDER = ("bugfix", "feature", "action_needed", "breaking")
 
 
-def _dashboard_url(path: str) -> str:
-    return f"{settings.public_url}{path}" if settings.public_url else path
-
-
 def _send(title: str, body: str, notify_type: str = NotifyType.INFO) -> None:
     urls = db.get_apprise_urls()
     if not urls:
@@ -83,7 +78,7 @@ def _send_severity_group(severity: str, group: list[dict]) -> None:
     count = len(group)
     title = f"{label} ({count})"
     sections = [
-        f"**{item['container_name']}** — `{item['image_repo']}:{item['tag']}`"
+        f"**{item['container_name']}**"
         for item in sorted(group, key=lambda i: i["container_name"].lower())
     ]
     body = "\n\n".join(sections)
@@ -144,10 +139,8 @@ def notify_logs_check_errors(errors: list[dict]) -> None:
     couldn't be fetched this check (Docker socket blip, container removed mid-check) doesn't
     have a severity to threshold against the way a real finding does, so it's opt-in only via
     the same 'notify on check errors' shape Updates has (db.get_notify_logs_include_errors),
-    independent of Logs' own severity threshold. Called once per check (any scope -- global,
-    stack, or service), same as notify_finding is called once per genuinely new finding, rather
-    than batched into a single end-of-check digest the way Updates' whole check outcome is --
-    Logs never had a digest step to piggyback on in the first place (see log_watcher.py).
+    independent of Logs' own severity threshold, and kept as its own call rather than folded
+    into notify_findings_digest below (see log_watcher.py, which calls both once per check).
 
     errors: [{"container_name", "error"}, ...]."""
     if not errors:
@@ -177,23 +170,64 @@ def notify_compose_check_errors(errors: list[dict]) -> None:
     _send_error_group(errors)
 
 
-def notify_finding(source: str, subject: str, title: str, severity: str, category: str, finding_id: int) -> None:
-    """Notifies about a newly created finding, if notifications are on, this feature's
-    notifications are on, and the severity meets the effective threshold (master or this
-    feature's own override). Recurrences of an already-known finding never reach this —
-    callers only call it for genuinely new findings."""
+FINDING_SEVERITY_LABELS = {"suggestion": "Suggestions", "warning": "Warnings", "critical": "Critical"}
+_FINDING_NOTIFY_TYPE = {
+    "suggestion": NotifyType.INFO, "warning": NotifyType.WARNING, "critical": NotifyType.FAILURE,
+}
+# Sent lowest-severity-first, same reasoning as _SEVERITY_SEND_ORDER above.
+_FINDING_SEVERITY_SEND_ORDER = ("suggestion", "warning", "critical")
+_FINDING_SOURCE_LABELS = {"logs": "Logs", "compose": "Compose"}
+
+
+def _send_finding_severity_group(source: str, severity: str, group: list[dict]) -> None:
+    label = FINDING_SEVERITY_LABELS.get(severity, severity.capitalize())
+    count = len(group)
+    title = f"{_FINDING_SOURCE_LABELS.get(source, source.capitalize())}: {label} ({count})"
+    sections = [
+        f"**{item['subject']}**"
+        for item in sorted(group, key=lambda i: i["subject"].lower())
+    ]
+    body = "\n\n".join(sections)
+    _send(title, body, _FINDING_NOTIFY_TYPE.get(severity, NotifyType.INFO))
+
+
+def notify_findings_digest(source: str, items: list[dict]) -> None:
+    """Logs/Compose's counterpart to notify_updates_digest -- one Apprise call per severity
+    level present among a check run's genuinely new findings, matching Updates' shape exactly
+    (see notify_updates_digest's docstring for why: one message per severity keeps the accent
+    color trustworthy, one batched call per check keeps a busy run from flooding the channel).
+    Callers (log_watcher.py, compose_reviewer.py) collect every genuinely new finding across one
+    whole check run/scope and call this once at the end, the same way persist.py collects a
+    whole check's worth of updates before calling notify_updates_digest once.
+
+    items: [{"subject", "severity"}, ...] -- subject is the container name (Logs) or compose
+    file path (Compose). Recurrences of an already-known finding must never be included --
+    callers only pass genuinely new findings.
+
+    The source prefix in the title ("Logs: Warnings (3)" vs "Compose: Warnings (3)") is needed
+    because Logs and Compose share the same severity label set (unlike Updates' distinct
+    bugfix/feature/action_needed/breaking labels), so without it two features' messages in the
+    same channel would be indistinguishable."""
+    if not items:
+        return
     if not db.get_notifications_enabled() or not db.get_feature_notify_enabled(source):
         return
 
     threshold = db.get_effective_severity(source)
-    if FINDING_SEVERITY_ORDER.get(severity, 0) < FINDING_SEVERITY_ORDER.get(threshold, 0):
+    qualifying = [
+        i for i in items
+        if FINDING_SEVERITY_ORDER.get(i["severity"], 0) >= FINDING_SEVERITY_ORDER.get(threshold, 0)
+    ]
+    if not qualifying:
         return
 
-    url = _dashboard_url(f"/findings/{finding_id}")
-    label = "Log issue" if source == "logs" else "Compose issue"
-    full_title = f"{label} ({severity}): {subject}"
-    body = f"{title}\n\nCategory: {category}\n{url}"
-    _send(full_title, body)
+    by_severity: dict[str, list[dict]] = {}
+    for item in qualifying:
+        by_severity.setdefault(item["severity"], []).append(item)
+    for severity in _FINDING_SEVERITY_SEND_ORDER:
+        group = by_severity.get(severity)
+        if group:
+            _send_finding_severity_group(source, severity, group)
 
 
 def send_test_notification(urls: list[str] | None = None) -> tuple[bool, str]:

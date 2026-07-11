@@ -62,8 +62,8 @@ qualifies, write "None found."
 This is the most important section. Cross-reference the features and breaking changes above \
 against the operator's actual compose configuration (provided below). Call out specifically \
 which env vars, volumes, ports, or labels they have set are affected, and how. If nothing in \
-the release touches their actual configuration, say so plainly and keep this section short — \
-don't pad it.
+the release touches their actual configuration, write exactly: "Nothing in this release affects \
+your configuration."
 
 For all three sections: use a bullet list only when there are two or more distinct points to \
 make. If there's exactly one point, or none, write a plain sentence instead — a bullet list \
@@ -173,9 +173,9 @@ upgrading" unless the release notes specifically call out something that makes t
 important this time.
 
 If there's genuinely nothing the operator needs to do beyond a normal update (pull the new \
-image, restart), say so in one plain sentence instead of padding out a checklist.
+image, restart), write exactly: "No action needed beyond a normal update."
 
-Format as a short markdown bullet list, or one plain sentence if there's nothing to do. No \
+Format as a short markdown bullet list, or exactly that sentence if there's nothing to do. No \
 headers, no preamble, no restating the summary you were given."""
 
 
@@ -269,17 +269,20 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
 
     if db.get_simulate_ai_calls_enabled():
         toggles = f"Deep Analysis (Logs) is {'enabled' if include_fix else 'disabled'}."
-        return [
-            {
+        results = []
+        for container_name, excerpt in excerpts_by_container.items():
+            simulated_text = _simulated_response_text(toggles, system_prompt, excerpt)
+            results.append({
                 "container": container_name,
                 "title": SIMULATED_TITLE,
                 "category": "optimization",
                 "severity": "suggestion",
-                "description": _simulated_response_text(toggles, system_prompt, excerpt),
-                **({"fix": "(simulated -- no real fix was generated)"} if include_fix else {}),
-            }
-            for container_name, excerpt in excerpts_by_container.items()
-        ]
+                "description": simulated_text,
+                # Same content as "description" -- in real operation "fix" comes from this exact
+                # same call/prompt, not a separate one, so there's no second prompt to simulate.
+                **({"fix": simulated_text} if include_fix else {}),
+            })
+        return results
 
     if not ai_provider.is_configured():
         return []
@@ -300,8 +303,8 @@ Look for:
 to, overly permissive volume mounts (e.g. mounting the whole filesystem or the Docker socket \
 read-write when read-only would do), missing resource limits that could let one container take \
 down the host.
-- Reliability issues: missing restart policy, missing healthchecks where they'd matter, service \
-dependencies that aren't declared via depends_on.
+- Reliability issues: missing restart policy, service dependencies that aren't declared via \
+depends_on.
 - Optimization opportunities: redundant or unused environment variables, obviously outdated \
 image-pinning practice (e.g. floating :latest on a service where that's risky), network \
 misconfiguration.
@@ -330,12 +333,15 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
 
     if db.get_simulate_ai_calls_enabled():
         toggles = f"Deep Analysis (Compose) is {'enabled' if include_fix else 'disabled'}."
+        simulated_text = _simulated_response_text(toggles, system_prompt, user_message)
         return [{
             "title": SIMULATED_TITLE,
             "category": "optimization",
             "severity": "suggestion",
-            "description": _simulated_response_text(toggles, system_prompt, user_message),
-            **({"fix": "(simulated -- no real fix was generated)"} if include_fix else {}),
+            "description": simulated_text,
+            # Same content as "description" -- in real operation "fix" comes from this exact
+            # same call/prompt, not a separate one, so there's no second prompt to simulate.
+            **({"fix": simulated_text} if include_fix else {}),
         }]
 
     if not ai_provider.is_configured():

@@ -6,7 +6,7 @@ from typing import Callable, Optional
 from app import check_state, db
 from app.check_state import set_finished, set_running
 from app.compose_lookup import list_compose_files, redact_compose_file_text
-from app.notifications import notify_compose_check_errors, notify_finding
+from app.notifications import notify_compose_check_errors, notify_findings_digest
 from app.summarizer import review_compose_file
 
 logger = logging.getLogger("service_sentinel.compose_reviewer")
@@ -66,6 +66,7 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     findings_found = 0
     failed: dict[str, str] = {}
     checked_ok_paths: list[str] = []
+    new_findings = []
     total = len(paths)
 
     for i, path in enumerate(paths, 1):
@@ -109,19 +110,19 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
             title = finding.get("title")
             if not title:
                 continue
-            finding_id, is_new = db.upsert_finding(
+            severity = finding.get("severity", "warning")
+            _finding_id, is_new = db.upsert_finding(
                 source="compose",
                 subject=path_str,
                 title=title,
                 category=finding.get("category", "reliability"),
-                severity=finding.get("severity", "warning"),
+                severity=severity,
                 description_markdown=finding.get("description", ""),
                 suggested_fix=finding.get("fix"),
             )
             findings_found += 1
             if is_new:
-                notify_finding("compose", path_str, title, finding.get("severity", "warning"),
-                                finding.get("category", "reliability"), finding_id)
+                new_findings.append({"subject": path_str, "severity": severity})
 
         db.set_compose_file_hash(path_str, content_hash)
         if on_progress:
@@ -131,6 +132,8 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     db.record_compose_check_errors(failed)
     if failed:
         notify_compose_check_errors([{"container_name": path, "error": err} for path, err in failed.items()])
+
+    notify_findings_digest("compose", new_findings)
 
     return {"checked": checked, "reviewed": reviewed, "findings_found": findings_found, "errors": len(failed)}
 

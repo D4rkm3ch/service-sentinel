@@ -69,7 +69,7 @@ def test_a_single_qualifying_item_sends_one_call():
     title, body, notify_type = mock_send.call_args[0]
     assert title == "Breaking Change (1)"
     assert "sonarr" in body
-    assert "owner/repo:latest" in body
+    assert "owner/repo" not in body and "latest" not in body  # just the name, no trailing image:tag
     assert notify_type == NotifyType.FAILURE
 
 
