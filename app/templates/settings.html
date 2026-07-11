@@ -58,6 +58,21 @@ only) is enough. Get one from <a href="https://github.com/settings/tokens" targe
 </section>
 
 <section class="panel">
+  <h2 class="settings-heading-lg">Simulate AI Calls <span class="badge badge-lg badge-sev-suggestion">Temporary</span></h2>
+  <div class="notice notice-warn">
+    Testing aid, not a real feature -- it'll be removed once AI prompt wiring is verified. While
+    on, every real AI call (Updates, Logs, Compose, at any scope) is replaced with a description
+    of the real prompt that would have been sent -- including the actual toggle state and
+    gathered data -- instead of making a real API call. It shows up exactly where a real result
+    normally would (the same finding, update summary, or stack blurb), so use Reset &amp;
+    Re-Check to clear it out once you're done testing.
+  </div>
+  <div class="settings-subsection settings-subsection-first">
+    {{ ts.toggle_switch('simulate_ai_calls_enabled', simulate_ai_calls_enabled, '/settings/ai/simulate-toggle', 'Simulate AI Calls') }}
+  </div>
+</section>
+
+<section class="panel">
   <h2 class="settings-heading-lg">Deep Analysis</h2>
   <p class="meta">Adds an AI-suggested fix (or, for Updates, upgrade guidance) alongside each
 result, not just the problem report. This costs noticeably more tokens, so it's opt-in per
@@ -243,17 +258,6 @@ function unlockApiKey(provider) {
   field.focus();
   document.getElementById(provider + '_key_action_btn').textContent = 'Test & Save';
   document.getElementById(provider + '_api_key_test_result').innerHTML = '';
-  document.getElementById(provider + '_key_cancel_btn').style.display = '';
-}
-
-function cancelApiKeyEdit(provider) {
-  const field = document.getElementById(provider + '_api_key_field');
-  field.disabled = true;
-  field.value = '';
-  field.placeholder = '•••••••• (configured)';
-  document.getElementById(provider + '_key_action_btn').textContent = 'Change';
-  document.getElementById(provider + '_api_key_test_result').innerHTML = '<span class="key-configured-badge">✓ Configured</span>';
-  document.getElementById(provider + '_key_cancel_btn').style.display = 'none';
 }
 
 function testAndSaveApiKey(provider) {
@@ -272,7 +276,6 @@ function testAndSaveApiKey(provider) {
       field.disabled = true;
       field.placeholder = '•••••••• (configured)';
       document.getElementById(provider + '_key_action_btn').textContent = 'Change';
-      document.getElementById(provider + '_key_cancel_btn').style.display = 'none';
       resultSlot.innerHTML = '<span class="key-configured-badge">✓ Configured</span>';
     } else {
       resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';

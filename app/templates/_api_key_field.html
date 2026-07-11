@@ -7,9 +7,6 @@
   <button type="button" id="{{ provider }}_key_action_btn" onclick="handleApiKeyButtonClick('{{ provider }}')">
     {{ 'Change' if key_configured else 'Test & Save' }}
   </button>
-  <button type="button" id="{{ provider }}_key_cancel_btn" class="button-danger" onclick="cancelApiKeyEdit('{{ provider }}')" style="display:none">
-    Cancel
-  </button>
   <span id="{{ provider }}_api_key_test_result">{% if key_configured %}<span class="key-configured-badge">✓ Configured</span>{% endif %}</span>
 </div>
 {% endmacro %}

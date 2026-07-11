@@ -2,10 +2,41 @@ import json
 import logging
 import re
 
-from app import ai_provider
+from app import ai_provider, db
 from app.ai_json import extract_json
 
 logger = logging.getLogger("service_sentinel.summarizer")
+
+SIMULATED_TITLE = "\U0001f9ea Simulated AI Call"
+
+
+def _indent_as_code_block(text: str) -> str:
+    """The app's markdown.markdown() call has no extensions enabled (see main.py's
+    render_markdown()), so fenced ``` blocks render as plain text -- a 4-space indent is real
+    CommonMark/core-markdown code block syntax, so it renders as <pre><code> without needing one."""
+    return "\n".join("    " + line for line in text.splitlines())
+
+
+def _simulated_response_text(toggles: str, system: str | None, user_message: str) -> str:
+    """Settings > Simulate AI Calls (temporary testing aid, off by default): builds a
+    markdown-formatted stand-in for a real AI response, describing the real prompt that would
+    have been sent instead of actually sending it. Returned by every real call site below in
+    place of the real ai_provider.complete_text()/web_search() call, so it flows through the
+    exact same parsing/persistence path a real response would -- it shows up as a real finding,
+    update summary, or stack blurb in its normal place, just with this content instead."""
+    return f"""**{SIMULATED_TITLE}** -- Simulate AI Calls is on in Settings; no real API call was made.
+
+**{toggles}**
+
+**Prompt that would have been sent:**
+
+*System:*
+
+{_indent_as_code_block(system or "(none)")}
+
+*User message (the real data that would have been sent):*
+
+{_indent_as_code_block(user_message)}"""
 
 SYSTEM_PROMPT = """You write short, practical release-note summaries for a homelab operator \
 deciding whether to update a self-hosted Docker container.
@@ -75,9 +106,6 @@ def summarize_update(
     """Returns (summary_markdown, severity). Severity is parsed out of the model's response
     and stripped from the markdown before it's returned, since it's for our own use (dashboard
     badge, notification threshold), not something that reads naturally inline in the note."""
-    if not ai_provider.is_configured():
-        raise RuntimeError("No AI provider is configured (see Settings)")
-
     compose_block = (
         json.dumps(compose_config, indent=2, default=str)
         if compose_config
@@ -99,6 +127,16 @@ Operator's compose configuration for this service:
 ---
 {compose_block}
 ---"""
+
+    if db.get_simulate_ai_calls_enabled():
+        text = _simulated_response_text(
+            "This call always runs when a new version is detected (not gated by a toggle).",
+            SYSTEM_PROMPT, user_message,
+        )
+        return text, "bugfix"
+
+    if not ai_provider.is_configured():
+        raise RuntimeError("No AI provider is configured (see Settings)")
 
     for attempt in range(2):
         text = ai_provider.complete_text(system=SYSTEM_PROMPT, user_message=user_message, max_tokens=1000)
@@ -149,9 +187,6 @@ def generate_upgrade_guidance(container_name: str, image_repo: str, release_note
     uses) rather than a third field bolted onto that response -- summarize_update's severity-
     line-stripping contract is already relied on by several callers/tests, and this is only
     ever wanted for the subset of updates where the toggle is on."""
-    if not ai_provider.is_configured():
-        return ""
-
     compose_block = (
         json.dumps(compose_config, indent=2, default=str)
         if compose_config
@@ -174,6 +209,15 @@ Operator's compose configuration for this service:
 ---
 {compose_block}
 ---"""
+
+    if db.get_simulate_ai_calls_enabled():
+        return _simulated_response_text(
+            "Deep Analysis (Updates) is enabled -- this call only happens when that toggle is on.",
+            UPGRADE_GUIDANCE_SYSTEM_PROMPT, user_message,
+        )
+
+    if not ai_provider.is_configured():
+        return ""
 
     return ai_provider.complete_text(
         system=UPGRADE_GUIDANCE_SYSTEM_PROMPT, user_message=user_message, max_tokens=500,
@@ -213,7 +257,7 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
     asking the model to actually work out a remediation costs meaningfully more output tokens
     than just naming the problem.
     """
-    if not ai_provider.is_configured() or not excerpts_by_container:
+    if not excerpts_by_container:
         return []
 
     sections = []
@@ -222,6 +266,23 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
     user_message = "\n\n".join(sections)
 
     system_prompt = LOG_TRIAGE_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_LOG if include_fix else "")
+
+    if db.get_simulate_ai_calls_enabled():
+        toggles = f"Deep Analysis (Logs) is {'enabled' if include_fix else 'disabled'}."
+        return [
+            {
+                "container": container_name,
+                "title": SIMULATED_TITLE,
+                "category": "optimization",
+                "severity": "suggestion",
+                "description": _simulated_response_text(toggles, system_prompt, excerpt),
+                **({"fix": "(simulated -- no real fix was generated)"} if include_fix else {}),
+            }
+            for container_name, excerpt in excerpts_by_container.items()
+        ]
+
+    if not ai_provider.is_configured():
+        return []
 
     text = ai_provider.complete_text(
         system=system_prompt, user_message=user_message, max_tokens=2500 if include_fix else 2000,
@@ -264,11 +325,21 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
     include_fix requests an additional "fix" field (Deep Analysis) — off by default for the
     same token-cost reason as the log triage function.
     """
-    if not ai_provider.is_configured():
-        return []
-
     user_message = f"File: {file_path}\n\n{redacted_yaml}"
     system_prompt = COMPOSE_REVIEW_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_COMPOSE if include_fix else "")
+
+    if db.get_simulate_ai_calls_enabled():
+        toggles = f"Deep Analysis (Compose) is {'enabled' if include_fix else 'disabled'}."
+        return [{
+            "title": SIMULATED_TITLE,
+            "category": "optimization",
+            "severity": "suggestion",
+            "description": _simulated_response_text(toggles, system_prompt, user_message),
+            **({"fix": "(simulated -- no real fix was generated)"} if include_fix else {}),
+        }]
+
+    if not ai_provider.is_configured():
+        return []
 
     text = ai_provider.complete_text(
         system=system_prompt, user_message=user_message, max_tokens=2000 if include_fix else 1500,
@@ -290,7 +361,7 @@ the current state is. No markdown headers, no bullet list, no restating every ti
 def summarize_findings_overview(subject_display: str, findings: list[dict]) -> str:
     """Short combined AI overview shown above a subject's findings list. Only meaningful for
     2+ findings — callers should skip calling this for 0 or 1."""
-    if not ai_provider.is_configured() or not findings:
+    if not findings:
         return ""
 
     listing = "\n".join(
@@ -299,6 +370,15 @@ def summarize_findings_overview(subject_display: str, findings: list[dict]) -> s
         for f in findings
     )
     user_message = f"Subject: {subject_display}\n\nFindings:\n{listing}"
+
+    if db.get_simulate_ai_calls_enabled():
+        return _simulated_response_text(
+            "This overview always runs when a subject has 2+ findings (not gated by a toggle).",
+            FINDINGS_OVERVIEW_SYSTEM_PROMPT, user_message,
+        )
+
+    if not ai_provider.is_configured():
+        return ""
 
     return ai_provider.complete_text(
         system=FINDINGS_OVERVIEW_SYSTEM_PROMPT, user_message=user_message, max_tokens=400,
@@ -358,7 +438,7 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
     member with a pending update (see stacks._build_changed_summary) -- without real notes text
     to read, the model has nothing to reason about beyond service names and reliably falls back
     to generic, useless observations like "they share a network"."""
-    if not ai_provider.is_configured() or len(all_service_names) < 2:
+    if len(all_service_names) < 2:
         return ""
 
     user_message = (
@@ -366,6 +446,15 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
         f"All services in this stack: {', '.join(all_service_names)}\n\n"
         f"Recent update activity in this stack:\n{changed_summary_text}"
     )
+
+    if db.get_simulate_ai_calls_enabled():
+        return _simulated_response_text(
+            "Cross-Service Analysis (Updates) is enabled -- this call only happens when that toggle is on.",
+            STACK_ANALYSIS_SYSTEM_PROMPT, user_message,
+        )
+
+    if not ai_provider.is_configured():
+        return ""
 
     return ai_provider.complete_text(
         system=STACK_ANALYSIS_SYSTEM_PROMPT, user_message=user_message, max_tokens=150,
@@ -398,7 +487,7 @@ def analyze_log_stack_impact(stack_display_name: str, all_service_names: list[st
     stack's active log findings instead of Updates' release notes. Same "only meaningful for
     2+ services, needs real findings text to reason about" shape; see stacks.
     _build_log_findings_summary for what findings_summary_text actually contains."""
-    if not ai_provider.is_configured() or len(all_service_names) < 2:
+    if len(all_service_names) < 2:
         return ""
 
     user_message = (
@@ -406,6 +495,15 @@ def analyze_log_stack_impact(stack_display_name: str, all_service_names: list[st
         f"All services in this stack: {', '.join(all_service_names)}\n\n"
         f"Current log findings in this stack:\n{findings_summary_text}"
     )
+
+    if db.get_simulate_ai_calls_enabled():
+        return _simulated_response_text(
+            "Cross-Service Analysis (Logs) is enabled -- this call only happens when that toggle is on.",
+            LOG_STACK_ANALYSIS_SYSTEM_PROMPT, user_message,
+        )
+
+    if not ai_provider.is_configured():
+        return ""
 
     return ai_provider.complete_text(
         system=LOG_STACK_ANALYSIS_SYSTEM_PROMPT, user_message=user_message, max_tokens=150,

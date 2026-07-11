@@ -851,6 +851,7 @@ def settings_page(request: Request):
             "gemini_model": db.get_gemini_model(),
             "gemini_models": GEMINI_MODELS,
             "github_token_configured": bool(db.get_github_token()),
+            "simulate_ai_calls_enabled": db.get_simulate_ai_calls_enabled(),
             "active_tab": "settings",
         },
     )
@@ -955,6 +956,13 @@ async def save_github_token(request: Request):
     if ok:
         db.set_github_token(token)
     return {"ok": ok, "message": message}
+
+
+@app.post("/settings/ai/simulate-toggle")
+async def save_simulate_ai_calls(request: Request):
+    form = await request.form()
+    db.set_simulate_ai_calls_enabled(form.get("enabled") == "on")
+    return _saved(request)
 
 
 @app.post("/settings/ai/gemini-model")
