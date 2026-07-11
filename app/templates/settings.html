@@ -243,6 +243,17 @@ function unlockApiKey(provider) {
   field.focus();
   document.getElementById(provider + '_key_action_btn').textContent = 'Test & Save';
   document.getElementById(provider + '_api_key_test_result').innerHTML = '';
+  document.getElementById(provider + '_key_cancel_btn').style.display = '';
+}
+
+function cancelApiKeyEdit(provider) {
+  const field = document.getElementById(provider + '_api_key_field');
+  field.disabled = true;
+  field.value = '';
+  field.placeholder = '•••••••• (configured)';
+  document.getElementById(provider + '_key_action_btn').textContent = 'Change';
+  document.getElementById(provider + '_api_key_test_result').innerHTML = '<span class="key-configured-badge">✓ Configured</span>';
+  document.getElementById(provider + '_key_cancel_btn').style.display = 'none';
 }
 
 function testAndSaveApiKey(provider) {
@@ -261,6 +272,7 @@ function testAndSaveApiKey(provider) {
       field.disabled = true;
       field.placeholder = '•••••••• (configured)';
       document.getElementById(provider + '_key_action_btn').textContent = 'Change';
+      document.getElementById(provider + '_key_cancel_btn').style.display = 'none';
       resultSlot.innerHTML = '<span class="key-configured-badge">✓ Configured</span>';
     } else {
       resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
