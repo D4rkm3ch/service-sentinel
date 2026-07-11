@@ -51,7 +51,7 @@
   <div class="settings-subsection">
     <h4>GitHub <span class="badge badge-lg badge-sev-suggestion">Optional</span></h4>
     <p class="meta">Get a key (a fine-grained token with no permissions — public read only) from
-<a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.
+<a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.<br>
 This raises the rate limit used for fetching release notes from 60/hr (unauthenticated) to 5,000/hr.</p>
     {{ akf.api_key_field('github', github_token_configured, 'ghp_...', '/settings/ai/github-token') }}
   </div>
@@ -257,7 +257,26 @@ function unlockApiKey(provider) {
   field.value = '';
   field.focus();
   document.getElementById(provider + '_key_action_btn').textContent = 'Test & Save';
+  document.getElementById(provider + '_key_cancel_btn').style.display = '';
   document.getElementById(provider + '_api_key_test_result').innerHTML = '';
+}
+
+function cancelApiKeyEdit(provider) {
+  const field = document.getElementById(provider + '_api_key_field');
+  const resultSlot = document.getElementById(provider + '_api_key_test_result');
+  field.value = '';
+  if (field.dataset.wasConfigured === 'true') {
+    // Abort the edit -- back to the locked "already configured" state, not a blank slate.
+    field.disabled = true;
+    field.placeholder = '•••••••• (configured)';
+    document.getElementById(provider + '_key_action_btn').textContent = 'Change';
+    document.getElementById(provider + '_key_cancel_btn').style.display = 'none';
+    resultSlot.innerHTML = '<span class="key-configured-badge">✓ Configured</span>';
+  } else {
+    // Never configured -- nothing to revert to, just clear what was typed.
+    field.placeholder = field.dataset.placeholderNew;
+    resultSlot.innerHTML = '';
+  }
 }
 
 function testAndSaveApiKey(provider) {
@@ -275,7 +294,9 @@ function testAndSaveApiKey(provider) {
       field.value = '';
       field.disabled = true;
       field.placeholder = '•••••••• (configured)';
+      field.dataset.wasConfigured = 'true';
       document.getElementById(provider + '_key_action_btn').textContent = 'Change';
+      document.getElementById(provider + '_key_cancel_btn').style.display = 'none';
       resultSlot.innerHTML = '<span class="key-configured-badge">✓ Configured</span>';
     } else {
       resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';

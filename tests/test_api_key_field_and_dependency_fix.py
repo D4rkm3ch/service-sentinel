@@ -46,6 +46,30 @@ def test_unconfigured_key_field_renders_enabled_with_a_test_and_save_button(clie
     assert "Test &amp; Save" in btn_html or "Test & Save" in btn_html
 
 
+def test_configured_key_field_renders_a_hidden_cancel_button(client):
+    """Cancel only makes sense while actively editing (after clicking Change) -- starts hidden
+    when a key is already configured, shown by unlockApiKey() once Change is clicked."""
+    db.set_anthropic_api_key("sk-ant-existing")
+    try:
+        page = client.get("/settings")
+        btn_start = page.text.index('id="anthropic_key_cancel_btn"')
+        btn_tag = page.text[btn_start:page.text.index(">", btn_start)]
+        assert "display:none" in btn_tag
+    finally:
+        db.set_anthropic_api_key("")
+
+
+def test_unconfigured_key_field_renders_a_visible_cancel_button(client):
+    """No key configured means the field starts in the same editable state Change would put it
+    in, so Cancel (to clear what's been typed) is visible from the start too."""
+    db.set_anthropic_api_key("")
+    page = client.get("/settings")
+    btn_start = page.text.index('id="anthropic_key_cancel_btn"')
+    btn_tag = page.text[btn_start:page.text.index(">", btn_start)]
+    assert "display:none" not in btn_tag
+    assert "button-danger" in btn_tag
+
+
 def test_github_token_field_present_and_reflects_configured_state(client):
     db.set_github_token("ghp_existing")
     try:
