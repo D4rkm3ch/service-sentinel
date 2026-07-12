@@ -13,6 +13,44 @@ logger = logging.getLogger("service_sentinel.log_watcher")
 
 ProgressFunc = Optional[Callable[[str, int, int], None]]
 
+# A real-world report: a homelab with enough chatty containers (24 out of 59 matching a
+# suspicious keyword in one check) sent one unbounded combined excerpt set to the AI in a
+# single triage call -- ~150K characters of excerpts, needing a response covering ~20 real
+# findings at once. That response needed several truncation-retry rounds (see ai_provider.py's
+# _with_truncation_retry) just to squeak through, and on a run where the model's response
+# happened to be a little more verbose, it silently hit the retry ceiling and came back
+# unparseable -- losing every finding for every container in the whole check, not just
+# whichever container pushed it over the edge. Chunking bounds each individual AI call's input
+# (and therefore its expected output) well under where that ceiling becomes a real risk, and
+# isolates failures to just the chunk that failed -- same "many independent calls, not one
+# giant fragile one" principle persist.py's Updates pipeline already uses via
+# _run_concurrent_phase, just batched a few containers at a time here instead of going fully
+# per-container, to keep the token-cost savings of batching for the common (few matches) case.
+_MAX_BATCH_EXCERPT_CHARS = 24000
+_MAX_BATCH_CONTAINERS = 8
+
+
+def _chunk_excerpts(excerpts_by_container: dict[str, str]) -> list[dict[str, str]]:
+    """Splits a (possibly large) set of per-container excerpts into chunks bounded by both
+    total characters and container count, whichever limit is hit first -- see this module's
+    own _MAX_BATCH_EXCERPT_CHARS/_MAX_BATCH_CONTAINERS comment for why. A single container
+    with an excerpt over the character limit still gets its own chunk (never dropped) rather
+    than being split further -- MAX_EXCERPT_CHARS in log_filter.py already caps any one
+    container's excerpt well under what a single triage call can handle alone."""
+    chunks: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    current_chars = 0
+    for name, excerpt in excerpts_by_container.items():
+        if current and (current_chars + len(excerpt) > _MAX_BATCH_EXCERPT_CHARS or len(current) >= _MAX_BATCH_CONTAINERS):
+            chunks.append(current)
+            current = {}
+            current_chars = 0
+        current[name] = excerpt
+        current_chars += len(excerpt)
+    if current:
+        chunks.append(current)
+    return chunks
+
 
 def run_log_check() -> dict:
     """Runs one full log-health pass over every non-ignored running container -- see
@@ -50,15 +88,15 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     pull logs since each one's last checkpoint (or the configured lookback window, for a
     container with none), keep only lines that matched a suspicious keyword locally, and —
     only for containers that actually had something worth showing — send those excerpts to
-    Claude for triage in one batched call. Containers with clean logs never reach the API at
-    all. Shared by the full check (run_log_check, every currently running container) and every
-    scoped Check now / Reset & re-check action (stack- and service-level), which call this
-    directly with just their own subset.
+    Claude for triage in bounded-size chunks (see _chunk_excerpts). Containers with clean logs
+    never reach the API at all. Shared by the full check (run_log_check, every currently
+    running container) and every scoped Check now / Reset & re-check action (stack- and
+    service-level), which call this directly with just their own subset.
 
     on_progress (stage, done, total), when given, is called once upfront with (0, total) before
     each phase starts and once per completion after -- both stage="checking_logs" (per
-    container) and stage="triage_logs" (once before/after the batched AI call, if one happens)
-    -- same shape as persist.py's Updates pipeline (_run_concurrent_phase), so the status
+    container) and stage="triage_logs" (once per chunk, if any triage calls happen) -- same
+    shape as persist.py's Updates pipeline (_run_concurrent_phase), so the status
     badge's live "Checking container logs (N/M)…" text works the same way at every scope (main
     page, stack, and service) instead of Logs' checks all silently sitting at a bare, totalless
     "Checking…" for their entire duration.
@@ -113,16 +151,20 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     if not excerpts_by_container:
         return {"checked": checked, "findings_found": 0, "errors": len(failed)}
 
+    chunks = _chunk_excerpts(excerpts_by_container)
+    include_fix = db.get_deep_analysis_enabled("logs")
+    findings: list[dict] = []
+    triage_errors = 0
     if on_progress:
-        on_progress("triage_logs", 0, 1)
-    try:
-        include_fix = db.get_deep_analysis_enabled("logs")
-        findings = analyze_logs_batch(excerpts_by_container, include_fix=include_fix)
-    except Exception:
-        logger.exception("Log triage AI call failed")
-        return {"checked": checked, "findings_found": 0, "errors": len(failed) + 1}
-    if on_progress:
-        on_progress("triage_logs", 1, 1)
+        on_progress("triage_logs", 0, len(chunks))
+    for i, chunk in enumerate(chunks, 1):
+        try:
+            findings.extend(analyze_logs_batch(chunk, include_fix=include_fix))
+        except Exception:
+            logger.exception("Log triage AI call failed for a chunk of %d container(s)", len(chunk))
+            triage_errors += 1
+        if on_progress:
+            on_progress("triage_logs", i, len(chunks))
 
     new_findings = []
     for finding in findings:
@@ -146,7 +188,7 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
 
     notify_findings_digest("logs", new_findings)
 
-    return {"checked": checked, "findings_found": findings_found, "errors": len(failed)}
+    return {"checked": checked, "findings_found": findings_found, "errors": len(failed) + triage_errors}
 
 
 # ---------------------------------------------------------------------------
