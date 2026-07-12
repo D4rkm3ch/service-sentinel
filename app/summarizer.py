@@ -20,11 +20,23 @@ Structure your response in markdown with exactly these sections:
 
 ## New Features
 Plain language, most significant first. Skip internal refactors or anything with no \
-user-facing effect. If nothing qualifies, write "Nothing notable."
+user-facing effect. This is also where a removed/deprecated/changed thing belongs as a plain \
+factual line (e.g. "The Podnapisi subtitle provider has been removed") whenever you can't \
+confirm from the compose configuration below that it actually applies to this operator's setup \
+-- an app-level setting, a chosen integration, or which of several optional providers they've \
+picked inside the application's own UI/database isn't something the compose file can confirm, \
+so it's just changelog information here, not a warning. If nothing qualifies, write "Nothing \
+notable."
 
 ## Breaking Changes
-Only include things that could actually break on update: removed env vars, changed default \
-ports, config file format changes, deprecated volumes, required migration steps. If nothing \
+Only include something here if BOTH are true: (1) the operator's actual compose configuration \
+(provided below) confirms it applies to them -- a specific env var, volume, port, or label they \
+have set is the one being removed, changed, or made incompatible, not a guess -- and (2) if \
+they don't act, their setup will actually stop working or become inaccessible, not just "a \
+specific detail behaves slightly differently" or "something new is now available." If you can't \
+confirm it applies from the compose config, or acting on it is recommended rather than required \
+to keep working, it doesn't belong here -- mention it under New Features instead (see above), \
+or under Relevant to your Setup if it's a real but non-breaking config-specific note. If nothing \
 qualifies, write "None found."
 
 ## Relevant to your Setup
@@ -63,11 +75,15 @@ If multiple releases are covered, this reflects the HIGHEST severity found acros
 individually, not just the most recent one — a breaking change three releases back still makes \
 the whole batch "breaking." Determine X using this exact order — stop at the first line that \
 applies, don't judge it separately from what you already wrote above:
-1. breaking — the Breaking Changes section above says anything other than "None found."
-2. action_needed — the Relevant to your Setup section above concludes the operator must \
-actually change something in their own configuration (an env var, a volume, a port, a label) \
-for this update to work correctly, or to keep working the same way. This is not for optional \
-new configuration they could choose to use — only for something they must do.
+1. breaking — the Breaking Changes section above says anything other than "None found" -- since \
+that section is itself now restricted to confirmed-applicable, setup-actually-stops-working \
+items (see its own instructions above), anything listed there earns this automatically.
+2. action_needed — nothing rose to Breaking Changes above (their setup keeps running), but the \
+Relevant to your Setup section above concludes the operator must still actually change \
+something in their own configuration (an env var, a volume, a port, a label) for this update to \
+work correctly, or to keep working the same way. This is not for optional new configuration \
+they could choose to use, or for anything you couldn't confirm applies to their actual setup — \
+only for something confirmed and required.
 3. feature — New Features above has real content (not "Nothing notable"), and neither of the \
 above applies.
 4. bugfix — everything else: routine fixes, internal-only changes, dependency bumps with no \

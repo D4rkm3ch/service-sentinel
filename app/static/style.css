@@ -290,6 +290,11 @@ a {
   border: 1px solid rgba(217, 112, 94, 0.3);
   color: var(--error);
 }
+.notice-info {
+  background: rgba(134, 140, 152, 0.08);
+  border: 1px solid rgba(134, 140, 152, 0.3);
+  color: var(--text-dim);
+}
 .summary {
   background: var(--bg-panel);
   border: 1px solid var(--border);

@@ -20,6 +20,9 @@
     </nav>
   </header>
   <main>
+    <div id="check-running-notice" class="notice notice-info" style="display:none">
+      A check is currently in progress — action buttons are temporarily disabled until it finishes.
+    </div>
     {% block content %}{% endblock %}
   </main>
   <footer class="app-footer">
@@ -42,6 +45,11 @@
     // display, since Stack/Service/Finding pages don't render that at all. A no-op (never
     // starts polling) on a page with no such buttons at all, e.g. Settings.
     //
+    // Also shows #check-running-notice (a plain hidden <div> in <main>, see above) whenever
+    // disabling -- a dimmed button with no explanation looks broken; this tells the operator
+    // it's temporary and why, using the exact same running signal as the disabling itself so
+    // the two can never fall out of sync with each other.
+    //
     // Disabling is also triggered instantly on htmx:beforeRequest for any of these buttons,
     // not just left to the once-a-second poll -- the POST that kicks off a scoped/full check
     // returns almost immediately (the actual work runs in a background thread), so waiting for
@@ -57,8 +65,11 @@
       var ALL_SELECTOR = FEATURES.map(function (f) { return "." + f + "-action-btn"; }).join(",");
       if (!document.querySelector(ALL_SELECTOR)) return;
 
+      var runningNotice = document.getElementById("check-running-notice");
+
       function applyRunningState(running) {
         document.querySelectorAll(ALL_SELECTOR).forEach(function (el) { el.disabled = running; });
+        if (runningNotice) runningNotice.style.display = running ? "" : "none";
       }
 
       document.body.addEventListener("htmx:beforeRequest", function (evt) {
