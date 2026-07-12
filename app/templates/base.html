@@ -72,7 +72,7 @@
       // just a permanently-present, normally-empty <span id="item-recheck-status"> right after
       // their action buttons, which htmx only ever fills in with THIS item's own scoped check
       // (a busy_message, or a running spinner + progress text, or empty again once idle -- see
-      // _item_status.html and its four scope-specific siblings). Reusing that exact spot for a
+      // the shared _item_status.html). Reusing that exact spot for a
       // "some other check is running elsewhere" blurb -- same running signal already polled
       // above, same visual (spinner + short text) the main pages use -- means every page with
       // check buttons gets the explanation, not just the three main ones. Marked with a data

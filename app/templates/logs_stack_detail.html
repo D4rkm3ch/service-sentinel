@@ -3,7 +3,9 @@
 {% block title %}{{ display_name }} — Service Sentinel{% endblock %}
 {% block content %}
 
-<a href="/logs" class="back-link">← Back to Logs</a>
+<div class="back-link-row">
+  <a href="/logs" class="back-link">← Back to Logs</a>
+</div>
 
 <section class="panel">
   <div class="subject-title-row">
@@ -14,13 +16,7 @@
       <input type="hidden" name="return_to" value="/logs/stack?id={{ stack_id|urlencode }}">
       <button type="submit" class="icon-button" title="Reset to the AI-generated name">⟲</button>
     </form>
-    <span id="stack-silence-status-badge">
-      {% if silence_state == 'silenced' %}
-      <span class="badge badge-lg badge-silenced">Silenced</span>
-      {% elif silence_state == 'partially_silenced' %}
-      <span class="badge badge-lg badge-partially-silenced">Partially Silenced</span>
-      {% endif %}
-    </span>
+    {% include "_silence_badge.html" %}
   </div>
 
   <form id="stack-rename-form" method="post" action="/updates/stack/rename" class="hidden stack-rename-form">
@@ -32,18 +28,9 @@
 
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
 
-  <div class="action-row" style="display:flex; align-items:center; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
-    <span id="stack-silence-toggle-btn">
-      {% if silence_state == 'silenced' %}
-      <button type="button" class="button-silence" hx-post="/logs/stack/unsilence?stack_id={{ stack_id|urlencode }}" hx-target="#stack-silence-toggle-btn" hx-swap="outerHTML">
-        Unsilence
-      </button>
-      {% else %}
-      <button type="button" class="button-silence" hx-post="/logs/stack/silence?stack_id={{ stack_id|urlencode }}" hx-target="#stack-silence-toggle-btn" hx-swap="outerHTML">
-        Silence
-      </button>
-      {% endif %}
-    </span>
+  <div class="action-row action-row-spaced">
+    {% with silence_url = '/logs/stack/silence?stack_id=' ~ (stack_id|urlencode),
+            unsilence_url = '/logs/stack/unsilence?stack_id=' ~ (stack_id|urlencode) %}{% include "_silence_toggle.html" %}{% endwith %}
     <button type="button" class="logs-action-btn"
             hx-post="/logs/stack/check-now?stack_id={{ stack_id|urlencode }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">

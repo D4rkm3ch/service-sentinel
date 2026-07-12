@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS findings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_findings_source ON findings(source);
+-- The subject pages, stack-page member loops, and bulk read/silence toggles all filter by
+-- (source, subject); the source-only index above leaves those scanning every row of that
+-- source. UNIQUE(source, fingerprint) already covers the upsert path's lookup.
+CREATE INDEX IF NOT EXISTS idx_findings_source_subject ON findings(source, subject);
 
 CREATE TABLE IF NOT EXISTS log_watch_state (
     container_name TEXT PRIMARY KEY,

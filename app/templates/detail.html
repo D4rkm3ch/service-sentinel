@@ -19,18 +19,8 @@
     {% else %}
     <span class="badge badge-lg">—</span>
     {% endif %}
-    <span id="read-status-badge">
-      {% if not update.error %}
-        {% if update.status == 'unread' %}
-        <span class="badge badge-lg badge-unread">Unread</span>
-        {% else %}
-        <span class="badge badge-lg badge-read">Read</span>
-        {% endif %}
-      {% endif %}
-    </span>
-    <span id="container-silence-status-badge">
-      {% if container_silenced %}<span class="badge badge-lg badge-silenced">Silenced</span>{% endif %}
-    </span>
+    {% with is_unread = update.status == 'unread', show_badge = not update.error %}{% include "_read_badge.html" %}{% endwith %}
+    {% with silence_state = 'silenced' if container_silenced else none %}{% include "_silence_badge.html" %}{% endwith %}
   </div>
   <p class="meta">
     <span class="mono">{{ update.image_repo }}:{{ update.tag }}</span>
@@ -38,29 +28,12 @@
     {% if update.source_url %}· <a href="{{ update.source_url }}" target="_blank" rel="noopener">source ↗</a>{% endif %}
   </p>
 
-  <div class="action-row" style="display:flex; align-items:center; gap:10px;">
-    <span id="read-toggle-btn">
-      {% if update.status == 'unread' %}
-      <button type="button" class="button-info" hx-post="/updates/{{ update.id }}/read" hx-target="#read-toggle-btn" hx-swap="outerHTML">
-        Mark as Read
-      </button>
-      {% elif update.status == 'read' %}
-      <button type="button" class="button-info" hx-post="/updates/{{ update.id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML">
-        Mark as Unread
-      </button>
-      {% endif %}
-    </span>
-    <span id="container-silence-toggle-btn">
-      {% if container_silenced %}
-      <button type="button" class="button-silence" hx-post="/updates/container/{{ update.container_name }}/unsilence" hx-target="#container-silence-toggle-btn" hx-swap="outerHTML">
-        Unsilence
-      </button>
-      {% else %}
-      <button type="button" class="button-silence" hx-post="/updates/container/{{ update.container_name }}/silence" hx-target="#container-silence-toggle-btn" hx-swap="outerHTML">
-        Silence
-      </button>
-      {% endif %}
-    </span>
+  <div class="action-row">
+    {% with read_url = '/updates/' ~ update.id ~ '/read', unread_url = '/updates/' ~ update.id ~ '/unread',
+            is_unread = update.status == 'unread' %}{% include "_read_toggle.html" %}{% endwith %}
+    {% with silence_url = '/updates/container/' ~ update.container_name ~ '/silence',
+            unsilence_url = '/updates/container/' ~ update.container_name ~ '/unsilence',
+            silence_state = 'silenced' if container_silenced else none %}{% include "_silence_toggle.html" %}{% endwith %}
     <button type="button" class="updates-action-btn"
             hx-post="/updates/{{ update.id }}/check-now"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
@@ -82,7 +55,7 @@
             hx-post="/updates/{{ update.id }}/reset-and-recheck"
             hx-target="#item-recheck-status" hx-swap="outerHTML"
             hx-confirm="This wipes this update's history and re-checks it fresh. Continue?">
-      Reset &amp; Re-check
+      Reset &amp; Re-Check
     </button>
     <span id="item-recheck-status"></span>
   </div>

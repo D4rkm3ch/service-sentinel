@@ -1,0 +1,4 @@
+{# htmx response for every silence/unsilence toggle POST: the button swaps in place, the badge
+   follows out-of-band. Same context as _silence_toggle.html/_silence_badge.html. #}
+{% include "_silence_toggle.html" %}
+{% with oob = true %}{% include "_silence_badge.html" %}{% endwith %}

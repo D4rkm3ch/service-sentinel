@@ -1,0 +1,4 @@
+{# htmx response for every read/unread toggle POST: the button swaps in place, the badge
+   follows out-of-band. Same context as _read_toggle.html/_read_badge.html. #}
+{% include "_read_toggle.html" %}
+{% with oob = true %}{% include "_read_badge.html" %}{% endwith %}

@@ -8,6 +8,7 @@ never the actual values.
 """
 
 import re
+import threading
 
 import yaml
 
@@ -15,6 +16,17 @@ from app import db
 from app.config import settings
 
 SECRET_KEY_PATTERN = re.compile(r"(PASSWORD|SECRET|TOKEN|KEY|PASS\b|APIKEY|CREDENTIAL)", re.IGNORECASE)
+
+# build_stack_index() used to re-walk COMPOSE_ROOT and re-parse every compose file on every
+# call -- and it's called on every Updates/Logs page render AND their 20-second self-refreshing
+# table partials, so an idle open tab was re-parsing the entire compose tree three times a
+# minute forever. Cached against a snapshot of every file's (path, mtime): the directory walk
+# still happens per call (cheap, and it's what detects adds/removes), but YAML parsing only
+# re-runs when a file actually changed. The cached index is shared -- callers treat it as
+# read-only (match_container_to_stack and friends only ever iterate it).
+_index_lock = threading.Lock()
+_index_snapshot: tuple | None = None
+_index_cache: list[dict] = []
 
 
 def _redact_env(env) -> dict:
@@ -55,58 +67,59 @@ def find_service_config(container_name: str) -> dict | None:
     """Searches COMPOSE_ROOT for a service matching container_name. Returns a redacted,
     trimmed dict of just the fields relevant to a release-note relevance check, or None
     if no match was found (the container may not be Dockge-managed, or the compose file
-    lives somewhere this tool can't see)."""
-    if not settings.compose_root.exists():
-        return None
-
-    for path in settings.compose_root.rglob("*.yml"):
-        _match = _search_file(path, container_name)
-        if _match:
-            return _match
-    for path in settings.compose_root.rglob("*.yaml"):
-        _match = _search_file(path, container_name)
-        if _match:
-            return _match
+    lives somewhere this tool can't see). Matches against the cached stack index, so a
+    check summarizing N containers no longer re-walks and re-parses the whole compose tree
+    N times over."""
+    for entry in build_stack_index():
+        for service_name, service_def in entry["services"].items():
+            if _service_matches_container(service_name, service_def, container_name):
+                return {
+                    "service_name": service_name,
+                    "image": service_def.get("image"),
+                    "environment": _redact_env(service_def.get("environment", {})),
+                    "volumes": service_def.get("volumes", []),
+                    "ports": service_def.get("ports", []),
+                    "labels": service_def.get("labels", []),
+                    "depends_on": service_def.get("depends_on", []),
+                    "compose_file": entry["stack_id"],
+                }
     return None
 
 
-def _search_file(path, container_name: str) -> dict | None:
-    try:
-        data = yaml.safe_load(path.read_text())
-    except (yaml.YAMLError, OSError):
-        return None
-
-    if not isinstance(data, dict) or "services" not in data:
-        return None
-
-    for service_name, service_def in (data.get("services") or {}).items():
-        if not isinstance(service_def, dict):
+def _compose_paths_snapshot() -> tuple[list, tuple]:
+    """Every compose file under COMPOSE_ROOT plus a change-detection fingerprint of their
+    (path, mtime, size) triples. A file deleted mid-walk is simply skipped -- it'll be picked
+    up (as a removal) on the next call."""
+    paths = list(settings.compose_root.rglob("*.yml")) + list(settings.compose_root.rglob("*.yaml"))
+    snapshot = []
+    live_paths = []
+    for path in paths:
+        try:
+            stat = path.stat()
+        except OSError:
             continue
-        if _service_matches_container(service_name, service_def, container_name):
-            return {
-                "service_name": service_name,
-                "image": service_def.get("image"),
-                "environment": _redact_env(service_def.get("environment", {})),
-                "volumes": service_def.get("volumes", []),
-                "ports": service_def.get("ports", []),
-                "labels": service_def.get("labels", []),
-                "depends_on": service_def.get("depends_on", []),
-                "compose_file": str(path),
-            }
-    return None
+        live_paths.append(path)
+        snapshot.append((str(path), stat.st_mtime_ns, stat.st_size))
+    return live_paths, tuple(snapshot)
 
 
 def build_stack_index() -> list[dict]:
-    """Walks COMPOSE_ROOT and parses every compose file exactly once, returning a list of
-    {"stack_id", "service_names", "services"} per file. Callers should build this ONCE per
-    page load and reuse it for every row via match_container_to_stack — calling
-    find_service_config per-row instead re-walks and re-parses the entire compose tree once
-    per row, which is what made pages with many tracked containers slow to load."""
+    """Parses every compose file under COMPOSE_ROOT into a list of {"stack_id",
+    "service_names", "services"} per file. Callers treat the result as read-only and, within
+    one page render, should build it ONCE and reuse it for every row via
+    match_container_to_stack. Across calls it's cached against the files' mtimes (see the
+    module-level comment), so only an actual compose-file change costs a re-parse."""
+    global _index_snapshot, _index_cache
+
     if not settings.compose_root.exists():
         return []
 
+    paths, snapshot = _compose_paths_snapshot()
+    with _index_lock:
+        if snapshot == _index_snapshot:
+            return _index_cache
+
     index = []
-    paths = list(settings.compose_root.rglob("*.yml")) + list(settings.compose_root.rglob("*.yaml"))
     for path in paths:
         try:
             data = yaml.safe_load(path.read_text())
@@ -123,6 +136,10 @@ def build_stack_index() -> list[dict]:
                 "service_names": list(services.keys()),
                 "services": services,
             })
+
+    with _index_lock:
+        _index_snapshot = snapshot
+        _index_cache = index
     return index
 
 
@@ -155,18 +172,38 @@ def get_stack_info(container_name: str) -> dict | None:
     }
 
 
+# Same caching story as the stack index above: subject_display_name() below is called once
+# per row when rendering the Compose page's tables (and their 20-second self-refresh
+# partials), and each call was re-reading and re-parsing that row's YAML from scratch.
+_names_lock = threading.Lock()
+_names_cache: dict[str, tuple[tuple, list[str]]] = {}
+
+
 def get_service_names_for_file(file_path: str) -> list[str]:
     """Returns the service names defined in a compose file, for display purposes — a raw
-    absolute path isn't as meaningful to read as 'sonarr' or 'sonarr, sonarr-config'."""
+    absolute path isn't as meaningful to read as 'sonarr' or 'sonarr, sonarr-config'.
+    Cached per file against its (mtime, size), so repeated calls (one per table row per
+    render) only cost a stat until the file actually changes."""
     from pathlib import Path
     path = Path(file_path)
+    try:
+        stat = path.stat()
+    except OSError:
+        return []
+    fingerprint = (stat.st_mtime_ns, stat.st_size)
+    with _names_lock:
+        cached = _names_cache.get(file_path)
+        if cached and cached[0] == fingerprint:
+            return cached[1]
+
     try:
         data = yaml.safe_load(path.read_text())
     except (yaml.YAMLError, OSError):
         return []
-    if not isinstance(data, dict) or "services" not in data:
-        return []
-    return list((data.get("services") or {}).keys())
+    names = list((data.get("services") or {}).keys()) if isinstance(data, dict) and "services" in data else []
+    with _names_lock:
+        _names_cache[file_path] = (fingerprint, names)
+    return names
 
 
 def subject_display_name(source: str, subject: str) -> str:

@@ -1,20 +1,18 @@
+{# The one Mark as Read/Unread button used by every page that has one -- Updates detail,
+   finding detail, Logs/Compose subject pages. Pages include this where the button sits and
+   _read_badge.html where the badge sits (title row); the post-toggle htmx response is
+   _read_toggle_response.html, which re-renders both. Params: read_url, unread_url, is_unread,
+   mark_all (bulk pages say "Mark all as Read"). Previously each scope had its own copy of
+   this markup in its page template AND a matching response partial -- four drift-prone
+   near-copies per toggle where one parameterized one does. #}
 <span id="read-toggle-btn">
-{% if update.status == 'unread' %}
-<button type="button" class="button-info" hx-post="/updates/{{ update.id }}/read" hx-target="#read-toggle-btn" hx-swap="outerHTML">
-  Mark as Read
+{% if is_unread %}
+<button type="button" class="button-info" hx-post="{{ read_url }}" hx-target="#read-toggle-btn" hx-swap="outerHTML">
+  Mark {{ 'all ' if mark_all }}as Read
 </button>
-{% elif update.status == 'read' %}
-<button type="button" class="button-info" hx-post="/updates/{{ update.id }}/unread" hx-target="#read-toggle-btn" hx-swap="outerHTML">
-  Mark as Unread
+{% else %}
+<button type="button" class="button-info" hx-post="{{ unread_url }}" hx-target="#read-toggle-btn" hx-swap="outerHTML">
+  Mark {{ 'all ' if mark_all }}as Unread
 </button>
-{% endif %}
-</span>
-<span id="read-status-badge" hx-swap-oob="true">
-{% if not update.error %}
-  {% if update.status == 'unread' %}
-  <span class="badge badge-lg badge-unread">Unread</span>
-  {% else %}
-  <span class="badge badge-lg badge-read">Read</span>
-  {% endif %}
 {% endif %}
 </span>

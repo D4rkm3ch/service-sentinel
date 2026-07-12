@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import ai_provider, check_state, compose_lookup, compose_reviewer, db, log_watcher, persist, release_notes, stacks
-from app.check_state import format_summary, get_progress, get_state, set_running
+from app.check_state import format_summary, get_progress, get_state, is_running, set_running
 from app.config import settings
 from app.notifications import send_test_notification
 from app.summarizer import summarize_findings_overview
@@ -168,7 +168,7 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
         headline = f"{count} active finding{'s' if count != 1 else ''}" if count else "All clean"
         last_at = summary["last_at"]
     detail = f"Last checked {local_dt(last_at)}" if last_at else "Never checked"
-    running = get_state(feature)["running"]
+    running = is_running(feature)
     return {
         "feature": feature, "title": title, "enabled": enabled,
         "headline": headline, "detail": detail, "tab_url": tab_url,
@@ -217,7 +217,7 @@ def feature_card_status(request: Request, feature: str, prev_running: bool = Fal
     that was running when the page loaded finishes."""
     if feature not in _CARD_TITLES:
         raise HTTPException(status_code=404)
-    running = get_state(feature)["running"]
+    running = is_running(feature)
     progress_text = _progress_text(get_progress(feature)) if running else ""
     card = _build_card(feature, _CARD_TITLES[feature], _CARD_TAB_URLS[feature]) if prev_running and not running else None
     return templates.TemplateResponse(
@@ -280,7 +280,7 @@ def _status_context(request: Request, feature: str) -> dict:
     # this page's own running badge, so it belongs in the same spot as that badge, not a second
     # place to look. Own-feature running always takes priority if both are somehow true at once.
     other_running_feature = next(
-        (f for f in check_state.FEATURES if f != feature and get_state(f)["running"]), None,
+        (f for f in check_state.FEATURES if f != feature and is_running(f)), None,
     )
     poll_delay_ms = 500 if feature in _FAST_POLL_FEATURES else 2000
     return {
@@ -353,20 +353,20 @@ def updates_running_state():
     flight. Deliberately its own minimal endpoint rather than reusing status-poll's full HTML
     fragment: this needs to be pollable from pages that don't render the status badge at all
     (Stack, Service), and every caller only ever needs the one boolean."""
-    return {"running": get_state("updates")["running"]}
+    return {"running": is_running("updates")}
 
 
 @app.get("/logs/running-state")
 def logs_running_state():
     """Logs' equivalent of /updates/running-state -- see that route's docstring. Backs the
     Logs page's Check now button, which now dims the same way Updates' does (base.html)."""
-    return {"running": get_state("logs")["running"]}
+    return {"running": is_running("logs")}
 
 
 @app.get("/compose/running-state")
 def compose_running_state():
     """Compose's equivalent of /updates/running-state -- see that route's docstring."""
-    return {"running": get_state("compose")["running"]}
+    return {"running": is_running("compose")}
 
 
 @app.get("/updates/partial")
@@ -733,6 +733,49 @@ def _sort_stack_members(members: list[dict], sort: str, direction: str) -> list[
         return sorted(members, key=lambda m: _ISSUE_SEVERITY_RANK.get(m.get("top_severity"), 99), reverse=reverse)
     if sort == "read":
         return sorted(members, key=lambda m: m.get("unread_count") or 0, reverse=reverse)
+    return sorted(members, key=lambda m: m["container_name"].lower(), reverse=reverse)
+
+
+def _sort_updates_stack_members(members: list[dict], sort: str, direction: str) -> list[dict]:
+    """Updates' counterpart to _sort_stack_members above, for stack_detail.html's members
+    table -- previously the one findings-style table in the app with no sortable headers at
+    all (its Logs twin already had them). Importance keeps the main Updates table's tiering
+    (see _sort_and_filter_rows): unclassified rows pinned to the very top regardless of
+    direction, notes-not-found below even bugfix, and up-to-date members (no pending update at
+    all) last -- nothing to rank there."""
+    reverse = direction == "desc"
+
+    def upd(m: dict) -> dict:
+        return m.get("latest_update") or {}
+
+    if sort == "image":
+        return sorted(members, key=lambda m: f"{m['image_repo']}:{m['tag']}".lower(), reverse=reverse)
+    if sort == "detected":
+        return sorted(members, key=lambda m: upd(m).get("created_at") or "", reverse=reverse)
+    if sort == "importance":
+        def is_ranked(m: dict) -> bool:
+            u = upd(m)
+            return u.get("severity") in _IMPORTANCE_RANK or (not u.get("error") and not u.get("release_notes_raw"))
+
+        pending = [m for m in members if upd(m)]
+        up_to_date = sorted((m for m in members if not upd(m)), key=lambda m: m["container_name"].lower())
+        unclassified = sorted((m for m in pending if not is_ranked(m)), key=lambda m: m["container_name"].lower())
+        ranked = sorted((m for m in pending if is_ranked(m)),
+                        key=lambda m: _IMPORTANCE_RANK.get(upd(m).get("severity"), _NOTES_NOT_FOUND_RANK),
+                        reverse=reverse)
+        return unclassified + ranked + up_to_date
+    if sort == "read":
+        # Needs-manual-check (error) above Unread above Read, up-to-date members last -- same
+        # tiering the main Updates table's Status column uses.
+        def read_rank(m: dict) -> int:
+            u = upd(m)
+            if not u:
+                return 3
+            if u.get("error"):
+                return 0
+            return 1 if u.get("status") == "unread" else 2
+        ordered = sorted(members, key=lambda m: m["container_name"].lower())
+        return sorted(ordered, key=read_rank, reverse=reverse)
     return sorted(members, key=lambda m: m["container_name"].lower(), reverse=reverse)
 
 
@@ -1233,7 +1276,7 @@ def _emphasize_stack_mentions(text: str, service_names: list[str]) -> str:
 
 
 @app.get("/updates/stack")
-def stack_detail(request: Request, id: str):
+def stack_detail(request: Request, id: str, sort: str = "importance", dir: str = "asc"):
     stack_row = db.get_stack(id)
     member_names = stacks.stack_member_names(id)
     display_name = stack_row["display_name"] if stack_row else (member_names[0] if member_names else "Unknown stack")
@@ -1263,8 +1306,11 @@ def stack_detail(request: Request, id: str):
         "stack_detail.html",
         {
             "request": request, "stack_id": id, "display_name": display_name,
-            "members": members, "deep_analysis_enabled": deep_analysis_enabled,
+            "members": _sort_updates_stack_members(members, sort, dir),
+            "deep_analysis_enabled": deep_analysis_enabled,
             "analysis_html": analysis_html, "active_tab": "updates",
+            "sort": sort, "dir": dir,
+            "sort_base_url": "/updates/stack", "sort_extra_qs": "&id=" + quote(id),
         },
     )
 
@@ -1377,25 +1423,12 @@ def reset_and_recheck_stack_route(request: Request, stack_id: str = ""):
 @app.get("/updates/stack/status-poll")
 def stack_status_poll(request: Request, stack_id: str):
     """Polling counterpart to update_recheck_status_poll below, for a stack-scoped action --
-    same "still running -> re-arm the poller, finished -> redirect" shape, just always
-    redirecting back to this same stack (a stack's own URL never moves the way a per-update
-    action's id can)."""
-    item_key = _stack_item_key(stack_id)
-    item = check_state.get_item_state(item_key)
-
-    if item is not None and item["running"]:
-        return templates.TemplateResponse(
-            "_stack_item_status_poll.html",
-            {"request": request, "stack_id": stack_id, "item": item, "progress_text": _progress_text(item)},
-        )
-
-    check_state.clear_item(item_key)
-    resp = templates.TemplateResponse(
-        "_stack_item_status_poll.html",
-        {"request": request, "stack_id": stack_id, "item": None, "progress_text": ""},
+    always redirects back to this same stack once finished (a stack's own URL never moves the
+    way a per-update action's id can)."""
+    return _item_status_poll_response(
+        request, _stack_item_key(stack_id), _stack_poll_url(stack_id),
+        f"/updates/stack?id={quote(stack_id)}",
     )
-    resp.headers["HX-Redirect"] = f"/updates/stack?id={quote(stack_id)}"
-    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -1571,6 +1604,33 @@ def _silence_state(active_count: int, silenced_count: int) -> str | None:
     return "silenced" if active_count == 0 else "partially_silenced"
 
 
+def _render_read_toggle(request: Request, *, read_url: str, unread_url: str, is_unread: bool,
+                         mark_all: bool = False, show_badge: bool = True):
+    """Renders the shared post-toggle response (_read_toggle_response.html) for every Mark as
+    Read/Unread button in the app -- Updates detail, finding detail, Logs/Compose subject
+    pages. The scopes only differ in their POST endpoints and how their read state and badge
+    visibility are derived, so those arrive as plain parameters."""
+    return templates.TemplateResponse(
+        "_read_toggle_response.html",
+        {
+            "request": request, "read_url": read_url, "unread_url": unread_url,
+            "is_unread": is_unread, "mark_all": mark_all, "show_badge": show_badge,
+        },
+    )
+
+
+def _render_silence_toggle(request: Request, *, silence_url: str, unsilence_url: str, silence_state):
+    """Silence-side counterpart to _render_read_toggle -- silence_state is 'silenced',
+    'partially_silenced', or anything falsy for a fully active scope."""
+    return templates.TemplateResponse(
+        "_silence_toggle_response.html",
+        {
+            "request": request, "silence_url": silence_url, "unsilence_url": unsilence_url,
+            "silence_state": silence_state,
+        },
+    )
+
+
 def _stack_silence_toggle_response(request: Request, stack_id: str):
     member_names = stacks.stack_member_names_for_logs(stack_id)
     active_total = 0
@@ -1579,9 +1639,11 @@ def _stack_silence_toggle_response(request: Request, stack_id: str):
         summary = _findings_summary(db.list_findings_for_subject("logs", name, include_silenced=True))
         active_total += summary["active_count"]
         silenced_total += summary["silenced_count"]
-    return templates.TemplateResponse(
-        "_stack_silence_toggle.html",
-        {"request": request, "stack_id": stack_id, "silence_state": _silence_state(active_total, silenced_total)},
+    return _render_silence_toggle(
+        request,
+        silence_url=f"/logs/stack/silence?stack_id={quote(stack_id)}",
+        unsilence_url=f"/logs/stack/unsilence?stack_id={quote(stack_id)}",
+        silence_state=_silence_state(active_total, silenced_total),
     )
 
 
@@ -1604,24 +1666,11 @@ def unsilence_log_stack_route(request: Request, stack_id: str = ""):
 @app.get("/logs/stack/status-poll")
 def log_stack_status_poll(request: Request, stack_id: str):
     """Polling counterpart to stack_status_poll (Updates' version) below, for a Logs-scoped
-    stack action -- same "still running -> re-arm the poller, finished -> redirect back to this
-    stack" shape."""
-    item_key = _log_stack_item_key(stack_id)
-    item = check_state.get_item_state(item_key)
-
-    if item is not None and item["running"]:
-        return templates.TemplateResponse(
-            "_log_stack_item_status_poll.html",
-            {"request": request, "stack_id": stack_id, "item": item, "progress_text": _progress_text(item)},
-        )
-
-    check_state.clear_item(item_key)
-    resp = templates.TemplateResponse(
-        "_log_stack_item_status_poll.html",
-        {"request": request, "stack_id": stack_id, "item": None, "progress_text": ""},
+    stack action -- redirects back to this same stack once finished."""
+    return _item_status_poll_response(
+        request, _log_stack_item_key(stack_id), _log_stack_poll_url(stack_id),
+        f"/logs/stack?id={quote(stack_id)}",
     )
-    resp.headers["HX-Redirect"] = f"/logs/stack?id={quote(stack_id)}"
-    return resp
 
 
 @app.get("/compose")
@@ -1734,7 +1783,11 @@ def _read_toggle_response(request: Request, update_id: int):
     update = db.get_update(update_id)
     if update is None:
         raise HTTPException(status_code=404, detail="Update not found")
-    return templates.TemplateResponse("_read_toggle.html", {"request": request, "update": update})
+    return _render_read_toggle(
+        request,
+        read_url=f"/updates/{update_id}/read", unread_url=f"/updates/{update_id}/unread",
+        is_unread=update["status"] == "unread", show_badge=not update["error"],
+    )
 
 
 def _container_silence_toggle_response(request: Request, container_name: str):
@@ -1746,9 +1799,11 @@ def _container_silence_toggle_response(request: Request, container_name: str):
     container_row = db.get_container_state(container_name)
     if container_row is None:
         raise HTTPException(status_code=404, detail="Container not found")
-    return templates.TemplateResponse(
-        "_container_silence_toggle.html",
-        {"request": request, "container_name": container_name, "silenced": bool(container_row["silenced"])},
+    return _render_silence_toggle(
+        request,
+        silence_url=f"/updates/container/{container_name}/silence",
+        unsilence_url=f"/updates/container/{container_name}/unsilence",
+        silence_state="silenced" if container_row["silenced"] else None,
     )
 
 
@@ -1788,138 +1843,136 @@ def _item_key(update_id: int) -> str:
     return f"update:{update_id}"
 
 
-def _render_item_status(request: Request, update_id: int, item_key: str, busy_message: str | None = None):
+def _render_item_status(request: Request, item_key: str, poll_url: str, busy_message: str | None = None):
+    """Renders the shared per-item status fragment (_item_status.html) for any scoped action
+    -- Updates item/stack, Logs container/stack, Compose file. The scopes only ever differed
+    in which status-poll endpoint keeps the fragment alive, hence the poll_url parameter."""
     item = check_state.get_item_state(item_key)
     return templates.TemplateResponse(
         "_item_status.html",
         {
-            "request": request, "update_id": update_id, "item": item,
+            "request": request, "poll_url": poll_url, "item": item,
             "progress_text": _progress_text(item) if item else "",
             "busy_message": busy_message,
         },
     )
 
 
-def _launch_scoped_check(request: Request, update_id: int, target) -> object:
-    """Shared by the per-item Check now and Reset & re-check routes below — identical claim/
-    launch/render shape, differing only in which persist.py function actually does the work
-    (non-destructive vs delete-the-row-first) once the background thread starts.
+def _launch_scoped_item_check(request: Request, item_key: str, label: str, poll_url: str,
+                               claim, target) -> object:
+    """Shared claim/launch/render shape behind every scoped Check now / Reset & re-check /
+    Regenerate button in the app. claim is the feature's own mutex acquire (Updates' vs Logs'
+    vs Compose's channel -- a scoped action must not block on, or be blocked by, an unrelated
+    feature's check); target is the actual work, called with item_key on a background thread.
 
-    try_start_updates_check() failing here (the busy_message branch) should be rare in
-    practice: every button that can reach either route is disabled client-side the moment
-    /updates/running-state reports a check in flight (see base.html), so this is just a
-    defensive fallback for the brief window before that poll catches up."""
+    claim() failing (the busy_message branch) should be rare in practice: every button that
+    can reach a launching route is disabled client-side the moment any /running-state poll
+    reports a check in flight (see base.html), so this is just a defensive fallback for the
+    brief window before that poll catches up."""
+    if not claim():
+        return _render_item_status(
+            request, item_key, poll_url,
+            busy_message="A check just started elsewhere — try again shortly.",
+        )
+
+    check_state.start_item(item_key, label)
+    threading.Thread(target=target, args=(item_key,), daemon=True).start()
+    return _render_item_status(request, item_key, poll_url)
+
+
+def _item_status_poll_response(request: Request, item_key: str, poll_url: str, redirect_url):
+    """Shared polling counterpart to _launch_scoped_item_check: still running -> re-arm the
+    poller, finished -> clear the item and HX-Redirect. redirect_url may be a string or a
+    callable(item), resolved while the finished item's state is still readable -- Updates'
+    per-item poll needs the container name it was tracking to figure out where that
+    container's row landed (superseded/resolved/unchanged) before the state is cleared."""
+    item = check_state.get_item_state(item_key)
+    if item is not None and item["running"]:
+        return templates.TemplateResponse(
+            "_item_status_poll.html",
+            {"request": request, "poll_url": poll_url, "item": item, "progress_text": _progress_text(item)},
+        )
+
+    target_url = redirect_url(item) if callable(redirect_url) else redirect_url
+    check_state.clear_item(item_key)
+    resp = templates.TemplateResponse(
+        "_item_status_poll.html",
+        {"request": request, "poll_url": poll_url, "item": None, "progress_text": ""},
+    )
+    resp.headers["HX-Redirect"] = target_url
+    return resp
+
+
+def _launch_scoped_check(request: Request, update_id: int, target) -> object:
+    """Per-update scoped action launcher, shared by Check now / Reset & re-check / Regenerate
+    below -- they differ only in which persist.py function actually does the work
+    (non-destructive vs delete-the-row-first vs re-summarize-in-place) once the background
+    thread starts."""
     update = db.get_update(update_id)
     if update is None:
         raise HTTPException(status_code=404, detail="Update not found")
 
-    item_key = _item_key(update_id)
-    if not persist.try_start_updates_check():
-        return _render_item_status(
-            request, update_id, item_key,
-            busy_message="A check just started elsewhere — try again shortly.",
-        )
-
-    check_state.start_item(item_key, update["container_name"])
-    threading.Thread(target=target, args=(item_key, update["container_name"]), daemon=True).start()
-    return _render_item_status(request, update_id, item_key)
+    return _launch_scoped_item_check(
+        request, _item_key(update_id), update["container_name"],
+        f"/updates/{update_id}/recheck-status-poll",
+        persist.try_start_updates_check,
+        lambda item_key: target(item_key, update["container_name"]),
+    )
 
 
 def _stack_item_key(stack_id: str) -> str:
     return f"stack:{stack_id}"
 
 
-def _render_stack_item_status(request: Request, stack_id: str, item_key: str, busy_message: str | None = None):
-    item = check_state.get_item_state(item_key)
-    return templates.TemplateResponse(
-        "_stack_item_status.html",
-        {
-            "request": request, "stack_id": stack_id, "item": item,
-            "progress_text": _progress_text(item) if item else "",
-            "busy_message": busy_message,
-        },
-    )
+def _stack_poll_url(stack_id: str) -> str:
+    return f"/updates/stack/status-poll?stack_id={quote(stack_id)}"
 
 
 def _launch_scoped_stack_check(request: Request, stack_id: str, target) -> object:
-    """Stack-level counterpart to _launch_scoped_check above — identical claim/launch/render
-    shape, keyed by stack_id rather than an update id since a stack action's own URL never
-    changes underneath it the way a per-update action's id can (a digest transition can get
-    superseded mid-recheck; a stack's compose file path can't)."""
-    item_key = _stack_item_key(stack_id)
-    if not persist.try_start_updates_check():
-        return _render_stack_item_status(
-            request, stack_id, item_key,
-            busy_message="A check just started elsewhere — try again shortly.",
-        )
-
-    check_state.start_item(item_key, stack_id)
-    threading.Thread(target=target, args=(item_key,), daemon=True).start()
-    return _render_stack_item_status(request, stack_id, item_key)
+    """Stack-level counterpart to _launch_scoped_check above — keyed by stack_id rather than
+    an update id since a stack action's own URL never changes underneath it the way a
+    per-update action's id can (a digest transition can get superseded mid-recheck; a stack's
+    compose file path can't)."""
+    return _launch_scoped_item_check(
+        request, _stack_item_key(stack_id), stack_id, _stack_poll_url(stack_id),
+        persist.try_start_updates_check, target,
+    )
 
 
 def _log_stack_item_key(stack_id: str) -> str:
     return f"logstack:{stack_id}"
 
 
-def _render_log_stack_item_status(request: Request, stack_id: str, item_key: str, busy_message: str | None = None):
-    item = check_state.get_item_state(item_key)
-    return templates.TemplateResponse(
-        "_log_stack_item_status.html",
-        {
-            "request": request, "stack_id": stack_id, "item": item,
-            "progress_text": _progress_text(item) if item else "",
-            "busy_message": busy_message,
-        },
-    )
+def _log_stack_poll_url(stack_id: str) -> str:
+    return f"/logs/stack/status-poll?stack_id={quote(stack_id)}"
 
 
 def _launch_scoped_log_stack_check(request: Request, stack_id: str, target) -> object:
     """Logs' counterpart to _launch_scoped_stack_check above -- claims the Logs mutex (check_
     state's "logs" channel), not Updates', since this is a Logs-scoped action and must not
     block on (or be blocked by) an unrelated Updates check."""
-    item_key = _log_stack_item_key(stack_id)
-    if not check_state.try_start("logs"):
-        return _render_log_stack_item_status(
-            request, stack_id, item_key,
-            busy_message="A check just started elsewhere — try again shortly.",
-        )
-
-    check_state.start_item(item_key, stack_id)
-    threading.Thread(target=target, args=(item_key,), daemon=True).start()
-    return _render_log_stack_item_status(request, stack_id, item_key)
+    return _launch_scoped_item_check(
+        request, _log_stack_item_key(stack_id), stack_id, _log_stack_poll_url(stack_id),
+        lambda: check_state.try_start("logs"), target,
+    )
 
 
 def _log_item_key(container_name: str) -> str:
     return f"logitem:{container_name}"
 
 
-def _render_log_item_status(request: Request, container_name: str, item_key: str, busy_message: str | None = None):
-    item = check_state.get_item_state(item_key)
-    return templates.TemplateResponse(
-        "_log_item_status.html",
-        {
-            "request": request, "container_name": container_name, "item": item,
-            "progress_text": _progress_text(item) if item else "",
-            "busy_message": busy_message,
-        },
-    )
+def _log_item_poll_url(container_name: str) -> str:
+    return f"/logs/container/{container_name}/status-poll"
 
 
 def _launch_scoped_log_item_check(request: Request, container_name: str, target) -> object:
     """Service-scoped counterpart to _launch_scoped_log_stack_check above -- a container's own
     identity never changes underneath a running action (unlike an Updates row's id), so this
     always lands back on the exact same /logs/container/{container_name} page it started from."""
-    item_key = _log_item_key(container_name)
-    if not check_state.try_start("logs"):
-        return _render_log_item_status(
-            request, container_name, item_key,
-            busy_message="A check just started elsewhere — try again shortly.",
-        )
-
-    check_state.start_item(item_key, container_name)
-    threading.Thread(target=target, args=(item_key,), daemon=True).start()
-    return _render_log_item_status(request, container_name, item_key)
+    return _launch_scoped_item_check(
+        request, _log_item_key(container_name), container_name, _log_item_poll_url(container_name),
+        lambda: check_state.try_start("logs"), target,
+    )
 
 
 def _run_claimed_log_item_regenerate(item_key: str, container_name: str) -> None:
@@ -1966,28 +2019,28 @@ def regenerate_log_item_route(request: Request, container_name: str):
 
 @app.get("/logs/container/{container_name}/status-poll")
 def log_item_status_poll(request: Request, container_name: str):
-    item_key = _log_item_key(container_name)
-    item = check_state.get_item_state(item_key)
-
-    if item is not None and item["running"]:
-        return templates.TemplateResponse(
-            "_log_item_status_poll.html",
-            {"request": request, "container_name": container_name, "item": item, "progress_text": _progress_text(item)},
-        )
-
-    check_state.clear_item(item_key)
-    resp = templates.TemplateResponse(
-        "_log_item_status_poll.html",
-        {"request": request, "container_name": container_name, "item": None, "progress_text": ""},
+    return _item_status_poll_response(
+        request, _log_item_key(container_name), _log_item_poll_url(container_name),
+        f"/logs/container/{container_name}",
     )
-    resp.headers["HX-Redirect"] = f"/logs/container/{container_name}"
-    return resp
+
+
+def _subject_action_url(source: str, subject: str, action: str) -> str:
+    """POST endpoint for a bulk subject action -- Logs subjects are container names in the URL
+    path, Compose subjects are file paths in a query string (they can contain slashes)."""
+    if source == "logs":
+        return f"/logs/container/{subject}/{action}"
+    return f"/compose/file/{action}?path={quote(subject)}"
 
 
 def _subject_read_toggle_response(request: Request, source: str, subject: str):
     summary = _findings_summary(db.list_findings_for_subject(source, subject, include_silenced=True))
-    return templates.TemplateResponse(
-        "_subject_read_toggle.html", {"request": request, "source": source, "subject": subject, **summary},
+    return _render_read_toggle(
+        request,
+        read_url=_subject_action_url(source, subject, "read"),
+        unread_url=_subject_action_url(source, subject, "unread"),
+        is_unread=summary["unread_count"] > 0, mark_all=True,
+        show_badge=summary["active_count"] > 0,
     )
 
 
@@ -2005,12 +2058,11 @@ def mark_log_subject_unread(request: Request, container_name: str):
 
 def _subject_silence_toggle_response(request: Request, source: str, subject: str):
     summary = _findings_summary(db.list_findings_for_subject(source, subject, include_silenced=True))
-    return templates.TemplateResponse(
-        "_subject_silence_toggle.html",
-        {
-            "request": request, "source": source, "subject": subject,
-            "silence_state": _silence_state(summary["active_count"], summary["silenced_count"]),
-        },
+    return _render_silence_toggle(
+        request,
+        silence_url=_subject_action_url(source, subject, "silence"),
+        unsilence_url=_subject_action_url(source, subject, "unsilence"),
+        silence_state=_silence_state(summary["active_count"], summary["silenced_count"]),
     )
 
 
@@ -2038,32 +2090,18 @@ def _compose_item_key(path: str) -> str:
     return f"composeitem:{path}"
 
 
-def _render_compose_item_status(request: Request, path: str, item_key: str, busy_message: str | None = None):
-    item = check_state.get_item_state(item_key)
-    return templates.TemplateResponse(
-        "_compose_item_status.html",
-        {
-            "request": request, "path": path, "item": item,
-            "progress_text": _progress_text(item) if item else "",
-            "busy_message": busy_message,
-        },
-    )
+def _compose_item_poll_url(path: str) -> str:
+    return f"/compose/file/status-poll?path={quote(path)}"
 
 
 def _launch_scoped_compose_item_check(request: Request, path: str, target) -> object:
     """Service-scoped counterpart to _launch_scoped_log_item_check -- a compose file's own path
     never changes underneath a running action, so this always lands back on the exact same
     /compose/file?path=... page it started from."""
-    item_key = _compose_item_key(path)
-    if not check_state.try_start("compose"):
-        return _render_compose_item_status(
-            request, path, item_key,
-            busy_message="A check just started elsewhere — try again shortly.",
-        )
-
-    check_state.start_item(item_key, path)
-    threading.Thread(target=target, args=(item_key,), daemon=True).start()
-    return _render_compose_item_status(request, path, item_key)
+    return _launch_scoped_item_check(
+        request, _compose_item_key(path), path, _compose_item_poll_url(path),
+        lambda: check_state.try_start("compose"), target,
+    )
 
 
 def _run_claimed_compose_item_regenerate(item_key: str, path: str) -> None:
@@ -2111,22 +2149,10 @@ def regenerate_compose_item_route(request: Request, path: str):
 
 @app.get("/compose/file/status-poll")
 def compose_item_status_poll(request: Request, path: str):
-    item_key = _compose_item_key(path)
-    item = check_state.get_item_state(item_key)
-
-    if item is not None and item["running"]:
-        return templates.TemplateResponse(
-            "_compose_item_status_poll.html",
-            {"request": request, "path": path, "item": item, "progress_text": _progress_text(item)},
-        )
-
-    check_state.clear_item(item_key)
-    resp = templates.TemplateResponse(
-        "_compose_item_status_poll.html",
-        {"request": request, "path": path, "item": None, "progress_text": ""},
+    return _item_status_poll_response(
+        request, _compose_item_key(path), _compose_item_poll_url(path),
+        f"/compose/file?path={quote(path)}",
     )
-    resp.headers["HX-Redirect"] = f"/compose/file?path={quote(path)}"
-    return resp
 
 
 @app.post("/compose/file/read")
@@ -2192,32 +2218,21 @@ def regenerate_update_route(request: Request, update_id: int):
 
 @app.get("/updates/{update_id}/recheck-status-poll")
 def update_recheck_status_poll(request: Request, update_id: int):
-    item_key = _item_key(update_id)
-    item = check_state.get_item_state(item_key)
+    def _landing_url(item):
+        # Finished (or the item vanished, e.g. after a restart) -- figure out where this
+        # container's update actually landed: the digest transition it was tracking may have
+        # been superseded (a new row, different id), resolved (no row at all), or unchanged
+        # (same id).
+        container_name = item["container_name"] if item else None
+        if container_name:
+            latest = db.get_latest_update_for_container(container_name)
+            if latest is not None:
+                return f"/updates/{latest['id']}"
+        return "/updates"
 
-    if item is not None and item["running"]:
-        return templates.TemplateResponse(
-            "_item_status_poll.html",
-            {"request": request, "update_id": update_id, "item": item, "progress_text": _progress_text(item)},
-        )
-
-    # Finished (or the item vanished, e.g. after a restart) -- figure out where this
-    # container's update actually landed: the digest transition it was tracking may have been
-    # superseded (a new row, different id), resolved (no row at all), or unchanged (same id).
-    container_name = item["container_name"] if item else None
-    check_state.clear_item(item_key)
-    redirect_url = "/updates"
-    if container_name:
-        latest = db.get_latest_update_for_container(container_name)
-        if latest is not None:
-            redirect_url = f"/updates/{latest['id']}"
-
-    resp = templates.TemplateResponse(
-        "_item_status_poll.html",
-        {"request": request, "update_id": update_id, "item": None, "progress_text": ""},
+    return _item_status_poll_response(
+        request, _item_key(update_id), f"/updates/{update_id}/recheck-status-poll", _landing_url,
     )
-    resp.headers["HX-Redirect"] = redirect_url
-    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -2281,7 +2296,11 @@ def _finding_read_toggle_response(request: Request, finding_id: int):
     finding = db.get_finding(finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
-    return templates.TemplateResponse("_finding_read_toggle.html", {"request": request, "finding": finding})
+    return _render_read_toggle(
+        request,
+        read_url=f"/findings/{finding_id}/read", unread_url=f"/findings/{finding_id}/unread",
+        is_unread=finding["read_status"] == "unread",
+    )
 
 
 @app.post("/findings/{finding_id}/read")
@@ -2310,7 +2329,12 @@ def _silence_toggle_response(request: Request, finding_id: int):
     finding = db.get_finding(finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
-    return templates.TemplateResponse("_silence_toggle.html", {"request": request, "finding": finding})
+    return _render_silence_toggle(
+        request,
+        silence_url=f"/findings/{finding_id}/silence",
+        unsilence_url=f"/findings/{finding_id}/unsilence",
+        silence_state="silenced" if finding["status"] == "silenced" else None,
+    )
 
 
 @app.post("/findings/{finding_id}/silence")

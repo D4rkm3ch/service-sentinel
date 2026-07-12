@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 import docker
 
@@ -118,11 +119,23 @@ def list_running_containers_for_logs() -> list[TrackedContainer]:
         client.close()
 
 
-def get_container_logs_since(container_name: str, since_iso: str | None, max_lines: int) -> str | None:
+def open_client() -> "docker.DockerClient":
+    """A caller-owned Docker client for batch operations -- get_container_logs_since() below
+    otherwise opens (and version-negotiates) a fresh client per call, which a Logs check over
+    dozens of containers pays dozens of times. The caller closes it."""
+    return docker.DockerClient(base_url=settings.docker_socket)
+
+
+def get_container_logs_since(container_name: str, since_iso: str | None, max_lines: int,
+                              client: "docker.DockerClient | None" = None) -> str | None:
     """Returns up to max_lines of log text for a container since the given ISO timestamp
     (or the configured lookback window if since_iso is None — first time this container has
-    been checked). Returns None if the container can't be found or logs can't be read."""
-    client = docker.DockerClient(base_url=settings.docker_socket)
+    been checked). Returns None if the container can't be found or logs can't be read.
+    Pass a client (see open_client) when fetching for many containers in one pass; without
+    one, a client is opened and closed just for this call."""
+    owns_client = client is None
+    if owns_client:
+        client = docker.DockerClient(base_url=settings.docker_socket)
     try:
         try:
             container = client.containers.get(container_name)
@@ -132,13 +145,11 @@ def get_container_logs_since(container_name: str, since_iso: str | None, max_lin
         kwargs = {"tail": max_lines, "timestamps": False}
         if since_iso:
             # docker-py accepts a datetime or a unix timestamp for `since`.
-            from datetime import datetime
             try:
                 kwargs["since"] = datetime.fromisoformat(since_iso)
             except ValueError:
                 pass
         else:
-            from datetime import datetime, timedelta, timezone
             kwargs["since"] = datetime.now(timezone.utc) - timedelta(hours=settings.log_lookback_hours)
 
         raw = container.logs(**kwargs)
@@ -148,4 +159,5 @@ def get_container_logs_since(container_name: str, since_iso: str | None, max_lin
             lines = lines[-max_lines:]
         return "\n".join(lines)
     finally:
-        client.close()
+        if owns_client:
+            client.close()

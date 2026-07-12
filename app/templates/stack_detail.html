@@ -1,8 +1,11 @@
 {% extends "base.html" %}
+{% import "_sort_header.html" as sh %}
 {% block title %}{{ display_name }} — Service Sentinel{% endblock %}
 {% block content %}
 
-<a href="/updates" class="back-link">← Back to Updates</a>
+<div class="back-link-row">
+  <a href="/updates" class="back-link">← Back to Updates</a>
+</div>
 
 <section class="panel">
   <div class="subject-title-row">
@@ -22,7 +25,7 @@
 
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
 
-  <div class="action-row" style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+  <div class="action-row action-row-spaced">
     <button type="button" class="updates-action-btn"
             hx-post="/updates/stack/check-now?stack_id={{ stack_id|urlencode }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
@@ -65,11 +68,11 @@
     </colgroup>
     <thead>
       <tr>
-        <th>Container</th>
-        <th>Image</th>
-        <th>Detected</th>
-        <th class="importance-cell">Importance</th>
-        <th class="read-cell">Read</th>
+        <th>{{ sh.sort_link('Container', 'container', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th>{{ sh.sort_link('Image', 'image', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th>{{ sh.sort_link('Detected', 'detected', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
+        <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="read-cell">{{ sh.sort_link('Read', 'read', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
         <th></th>
       </tr>
     </thead>
@@ -98,7 +101,7 @@
             <span class="badge badge-read">Read</span>
           {% endif %}
         </td>
-        <td><a href="/updates/{{ m.latest_update.id }}" class="row-chevron">›</a></td>
+        <td><a href="/updates/{{ m.latest_update.id }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
       </tr>
       {% else %}
       <tr id="row-{{ m.container_name }}">

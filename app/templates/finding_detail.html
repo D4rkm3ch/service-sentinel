@@ -16,16 +16,8 @@
   <div class="subject-title-row">
     <h1 class="mono subject-heading">{{ display_name }}</h1>
     <span class="badge badge-lg badge-sev-{{ finding.severity }}">{{ severity_label(finding.source, finding.severity) }}</span>
-    <span id="finding-read-status-badge">
-      {% if finding.read_status == 'unread' %}
-      <span class="badge badge-lg badge-unread">Unread</span>
-      {% else %}
-      <span class="badge badge-lg badge-read">Read</span>
-      {% endif %}
-    </span>
-    <span id="silence-status-badge">
-      {% if finding.status == 'silenced' %}<span class="badge badge-lg badge-silenced">Silenced</span>{% endif %}
-    </span>
+    {% with is_unread = finding.read_status == 'unread', show_badge = true %}{% include "_read_badge.html" %}{% endwith %}
+    {% with silence_state = finding.status if finding.status == 'silenced' else none %}{% include "_silence_badge.html" %}{% endwith %}
   </div>
   <p class="meta">
     {{ finding.title }}
@@ -34,29 +26,11 @@
     · last {{ finding.last_seen_at | local_dt }}
   </p>
 
-  <div class="action-row" style="display:flex; align-items:center; gap:10px;">
-    <span id="finding-read-toggle-btn">
-      {% if finding.read_status == 'unread' %}
-      <button type="button" class="button-info" hx-post="/findings/{{ finding.id }}/read" hx-target="#finding-read-toggle-btn" hx-swap="outerHTML">
-        Mark as Read
-      </button>
-      {% else %}
-      <button type="button" class="button-info" hx-post="/findings/{{ finding.id }}/unread" hx-target="#finding-read-toggle-btn" hx-swap="outerHTML">
-        Mark as Unread
-      </button>
-      {% endif %}
-    </span>
-    <span id="silence-toggle-btn">
-      {% if finding.status == 'active' %}
-      <button type="button" class="button-silence" hx-post="/findings/{{ finding.id }}/silence" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
-        Silence
-      </button>
-      {% else %}
-      <button type="button" class="button-silence" hx-post="/findings/{{ finding.id }}/unsilence" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
-        Unsilence
-      </button>
-      {% endif %}
-    </span>
+  <div class="action-row">
+    {% with read_url = '/findings/' ~ finding.id ~ '/read', unread_url = '/findings/' ~ finding.id ~ '/unread',
+            is_unread = finding.read_status == 'unread' %}{% include "_read_toggle.html" %}{% endwith %}
+    {% with silence_url = '/findings/' ~ finding.id ~ '/silence', unsilence_url = '/findings/' ~ finding.id ~ '/unsilence',
+            silence_state = finding.status if finding.status == 'silenced' else none %}{% include "_silence_toggle.html" %}{% endwith %}
     {% set base_url = '/logs/container/' ~ finding.subject if finding.source == 'logs' else '/compose/file' %}
     {% set qs = '' if finding.source == 'logs' else '?path=' ~ (finding.subject|urlencode) %}
     {% set noun = 'container' if finding.source == 'logs' else 'compose file' %}

@@ -1,0 +1,12 @@
+{# Read/Unread badge companion to _read_toggle.html. Params: is_unread, show_badge (Updates
+   hides it on errored rows, subject pages when nothing's active), oob (true only in the
+   post-toggle response, where this swaps into the title row out-of-band). #}
+<span id="read-status-badge"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if show_badge %}
+  {% if is_unread %}
+  <span class="badge badge-lg badge-unread">Unread</span>
+  {% else %}
+  <span class="badge badge-lg badge-read">Read</span>
+  {% endif %}
+{% endif %}
+</span>

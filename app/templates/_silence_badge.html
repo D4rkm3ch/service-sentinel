@@ -1,0 +1,9 @@
+{# Silenced/Partially Silenced badge companion to _silence_toggle.html. Params: silence_state,
+   oob (true only in the post-toggle response). 'active' renders an empty slot. #}
+<span id="silence-status-badge"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if silence_state == 'silenced' %}
+<span class="badge badge-lg badge-silenced">Silenced</span>
+{% elif silence_state == 'partially_silenced' %}
+<span class="badge badge-lg badge-partially-silenced">Partially Silenced</span>
+{% endif %}
+</span>

@@ -1,14 +1,18 @@
+{# The one Silence/Unsilence button used by every page that has one -- finding detail, Updates
+   detail (whole container), Logs stack, Logs/Compose subject pages. Pages include this where
+   the button sits and _silence_badge.html where the badge sits (title row); the post-toggle
+   htmx response is _silence_toggle_response.html, which re-renders both. Params: silence_url,
+   unsilence_url, silence_state ('active' | 'silenced' | 'partially_silenced' -- single-item
+   callers just map their boolean to active/silenced). A partially-silenced group still offers
+   "Silence" (the bulk action that finishes the job), same as 'active'. #}
 <span id="silence-toggle-btn">
-{% if finding.status == 'active' %}
-<button type="button" class="button-silence" hx-post="/findings/{{ finding.id }}/silence" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
-  Silence
-</button>
-{% else %}
-<button type="button" class="button-silence" hx-post="/findings/{{ finding.id }}/unsilence" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
+{% if silence_state == 'silenced' %}
+<button type="button" class="button-silence" hx-post="{{ unsilence_url }}" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
   Unsilence
 </button>
+{% else %}
+<button type="button" class="button-silence" hx-post="{{ silence_url }}" hx-target="#silence-toggle-btn" hx-swap="outerHTML">
+  Silence
+</button>
 {% endif %}
-</span>
-<span id="silence-status-badge" hx-swap-oob="true">
-{% if finding.status == 'silenced' %}<span class="badge badge-lg badge-silenced">Silenced</span>{% endif %}
 </span>

@@ -1,9 +1,11 @@
 import hashlib
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 
-from app import check_state, db
+from app import ai_provider, check_state, db
 from app.check_state import set_finished, set_running
 from app.compose_lookup import list_compose_files, redact_compose_file_text, subject_display_name
 from app.notifications import notify_compose_check_errors, notify_findings_digest
@@ -52,66 +54,94 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     (service-level -- Compose has no stack concept, see db.reset_compose_data's docstring),
     which call this directly with just their own subset.
 
+    Two phases: a fast sequential pass over every path (read, hash, compare -- pure local I/O,
+    no network) determines which files actually changed and need a real AI review; those are
+    then dispatched concurrently (capped by ai_provider.concurrency_limit(), same shape as
+    persist.py's Updates pipeline and log_watcher's Logs triage) rather than one after another.
+    A real-world report: a 43-file homelab took ~4 minutes for a check that's entirely local
+    file I/O plus AI calls -- no external release-note fetching at all -- because every file's
+    (independent) AI review waited for the previous one to finish first.
+
     on_progress (stage, done, total), when given, is called once upfront with (0, total) before
-    the loop starts and once per file as it's processed after -- same shape as log_watcher.
-    run_log_check_for's own on_progress, so the status badge's live "Checking compose files
-    (N/M)…" text works the same way at every scope instead of Compose's checks all silently
-    sitting at a bare, totalless "Checking…" for their entire duration -- most noticeable on a
-    single-file scoped check, where the one on-completion call used to land only after that
-    file's own (possibly slow, AI-driven) review had already finished. Unlike Logs' batched
-    triage call, each file's AI review happens inline as it's reached, so there's only the one
-    stage to report (no separate post-loop "triage" phase).
+    anything starts, once for every file skipped in the fast pass (near-instantly, since that
+    phase is pure local I/O), and once per file as its concurrent review completes -- same
+    "checking_compose_files" stage throughout (no separate post-loop "triage" phase, unlike
+    Logs' batched triage call) so the status badge's live "Checking compose files (N/M)…" text
+    keeps working the same way at every scope.
 
     Does NOT call set_running/set_finished (that's the full-check-only feature-level status
     badge) -- callers that want that wrap this themselves, same as run_log_check does."""
     checked = 0
-    reviewed = 0
-    findings_found = 0
     failed: dict[str, str] = {}
     checked_ok_paths: list[str] = []
-    new_findings = []
+    to_review: list[tuple[str, Path, str]] = []  # (path_str, path, content_hash)
     total = len(paths)
 
     if on_progress and total:
         on_progress("checking_compose_files", 0, total)
 
-    for i, path in enumerate(paths, 1):
+    done_count = 0
+
+    # Phase 1: fast sequential pass -- read, hash, compare against what's stored. Pure local
+    # I/O, so doing this one at a time costs nothing worth parallelizing; what it produces is
+    # the (usually much smaller) subset of files whose content actually changed and need the
+    # real, slow, AI review below.
+    for path in paths:
         checked += 1
         path_str = str(path)
         try:
             content = path.read_text()
         except OSError as exc:
             failed[path_str] = str(exc) or exc.__class__.__name__
+            done_count += 1
             if on_progress:
-                on_progress("checking_compose_files", i, total)
+                on_progress("checking_compose_files", done_count, total)
             continue
 
         checked_ok_paths.append(path_str)
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         previous_hash = db.get_compose_file_hash(path_str)
         if previous_hash == content_hash:
+            done_count += 1
             if on_progress:
-                on_progress("checking_compose_files", i, total)
+                on_progress("checking_compose_files", done_count, total)
             continue
 
         redacted = redact_compose_file_text(path)
         if redacted is None:
             db.set_compose_file_hash(path_str, content_hash)
+            done_count += 1
             if on_progress:
-                on_progress("checking_compose_files", i, total)
+                on_progress("checking_compose_files", done_count, total)
             continue
 
+        # Deferred to the concurrent phase below -- done_count/on_progress fire there instead,
+        # once this file's actual review completes, not here.
+        to_review.append((path_str, redacted, content_hash))
+
+    reviewed = 0
+    findings_found = 0
+    new_findings = []
+    progress_lock = threading.Lock()
+
+    def _review_one(item: tuple[str, str, str]) -> None:
+        nonlocal reviewed, findings_found, done_count
+        path_str, redacted, content_hash = item
         try:
             include_fix = db.get_deep_analysis_enabled("compose")
             findings = review_compose_file(path_str, redacted, include_fix=include_fix)
         except Exception as exc:
-            logger.exception("Compose review AI call failed for %s", path)
-            failed[path_str] = str(exc) or exc.__class__.__name__
+            logger.exception("Compose review AI call failed for %s", path_str)
+            with progress_lock:
+                failed[path_str] = str(exc) or exc.__class__.__name__
+                done_count += 1
+                current = done_count
             if on_progress:
-                on_progress("checking_compose_files", i, total)
-            continue
+                on_progress("checking_compose_files", current, total)
+            return
 
-        reviewed += 1
+        file_findings_count = 0
+        file_new_findings = []
         for finding in findings:
             title = finding.get("title")
             if not title:
@@ -126,15 +156,30 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
                 description_markdown=finding.get("description", ""),
                 suggested_fix=finding.get("fix"),
             )
-            findings_found += 1
+            file_findings_count += 1
             if is_new:
                 # Discord shows the service name(s) defined in the file, not the raw path --
                 # e.g. "tautulli", not "/compose/tautulli/compose.yaml".
-                new_findings.append({"subject": subject_display_name("compose", path_str), "severity": severity})
+                file_new_findings.append({"subject": subject_display_name("compose", path_str), "severity": severity})
 
         db.set_compose_file_hash(path_str, content_hash)
+
+        with progress_lock:
+            reviewed += 1
+            findings_found += file_findings_count
+            new_findings.extend(file_new_findings)
+            done_count += 1
+            current = done_count
         if on_progress:
-            on_progress("checking_compose_files", i, total)
+            on_progress("checking_compose_files", current, total)
+
+    # Phase 2: the actual AI reviews, dispatched concurrently -- with 43 files needing review
+    # (a real check that took ~4 minutes sequentially), this is what gets that down to roughly
+    # one file's worth of AI latency times (total / concurrency_limit) instead of times total.
+    if to_review:
+        max_workers = min(ai_provider.concurrency_limit(), len(to_review))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            list(pool.map(_review_one, to_review))
 
     db.clear_compose_check_errors(checked_ok_paths)
     db.record_compose_check_errors(failed)

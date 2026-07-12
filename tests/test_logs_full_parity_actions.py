@@ -167,7 +167,7 @@ def test_run_log_check_for_uses_a_fixed_number_of_connections_not_one_per_contai
 
 
 def test_run_log_check_for_only_stamps_the_checkpoint_for_containers_that_fetched_successfully():
-    def _fake_logs(name, since, max_lines):
+    def _fake_logs(name, since, max_lines, client=None):
         if name == "checkpoint-fail":
             raise RuntimeError("docker socket down")
         return None
@@ -866,7 +866,7 @@ def test_error_status_wins_over_issue_or_healthy_regardless_of_findings():
 
 
 def test_run_log_check_for_persists_an_error_and_counts_it():
-    def _fake_logs(name, since, max_lines):
+    def _fake_logs(name, since, max_lines, client=None):
         if name == "run-check-fails":
             raise RuntimeError("boom")
         return None

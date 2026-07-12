@@ -110,7 +110,8 @@ def test_detail_page_has_check_now_and_reset_and_recheck_with_only_the_latter_co
 
     detail = client.get(f"/updates/{sonarr['id']}")
     assert "Check Now" in detail.text
-    assert "Reset &amp; Re-check" in detail.text
+    # Casing unified with every other page's Reset button (this page alone said "Re-check").
+    assert "Reset &amp; Re-Check" in detail.text
     assert f'hx-post="/updates/{sonarr["id"]}/check-now"' in detail.text
     assert f'hx-post="/updates/{sonarr["id"]}/reset-and-recheck"' in detail.text
 
