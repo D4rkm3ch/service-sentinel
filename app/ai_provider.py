@@ -150,13 +150,20 @@ def concurrency_limit() -> int:
     return settings.ai_summarize_concurrency
 
 
+# If a response hits its max_tokens ceiling exactly rather than finishing naturally, it's been
+# cut off mid-sentence -- worse than the modest extra cost of one retry at a larger budget. Every
+# call site picks max_tokens sized for the typical case, not the occasional longer one, so this
+# is what actually makes truncation not happen in practice rather than each site over-budgeting
+# "just in case" (which would still have a ceiling that could eventually be hit).
+_TRUNCATION_RETRY_MULTIPLIER = 2
+
+
 def complete_text(system: str | None, user_message: str, max_tokens: int) -> str:
     """Single-turn text completion, provider-agnostic. Raises on failure -- same contract the
     direct anthropic.Anthropic() calls this replaces always had; every caller already handles
     an exception here as "this attempt failed," regardless of which provider raised it."""
-    if db.get_ai_provider() == "gemini":
-        return _complete_gemini(system, user_message, max_tokens)
-    return _complete_anthropic(system, user_message, max_tokens)
+    fn = _complete_gemini if db.get_ai_provider() == "gemini" else _complete_anthropic
+    return _with_truncation_retry(lambda mt: fn(system, user_message, mt), max_tokens)
 
 
 def web_search(user_message: str, max_tokens: int) -> str:
@@ -165,12 +172,23 @@ def web_search(user_message: str, max_tokens: int) -> str:
     actually performs on top of the normal completion cost for both providers, which is why
     this is only ever reached behind its own opt-in Settings toggle -- gating that is the
     caller's job, not this function's."""
-    if db.get_ai_provider() == "gemini":
-        return _web_search_gemini(user_message, max_tokens)
-    return _web_search_anthropic(user_message, max_tokens)
+    fn = _web_search_gemini if db.get_ai_provider() == "gemini" else _web_search_anthropic
+    return _with_truncation_retry(lambda mt: fn(user_message, mt), max_tokens)
 
 
-def _complete_anthropic(system: str | None, user_message: str, max_tokens: int) -> str:
+def _with_truncation_retry(fn, max_tokens: int) -> str:
+    text, truncated = fn(max_tokens)
+    if truncated:
+        retry_tokens = max_tokens * _TRUNCATION_RETRY_MULTIPLIER
+        logger.warning(
+            "Response hit max_tokens (%d) and was cut off -- retrying once with %d",
+            max_tokens, retry_tokens,
+        )
+        text, _ = fn(retry_tokens)
+    return text
+
+
+def _complete_anthropic(system: str | None, user_message: str, max_tokens: int) -> tuple[str, bool]:
     client = anthropic.Anthropic(api_key=db.get_anthropic_api_key())
     kwargs = {
         "model": db.get_anthropic_model(), "max_tokens": max_tokens,
@@ -179,19 +197,20 @@ def _complete_anthropic(system: str | None, user_message: str, max_tokens: int) 
     if system:
         kwargs["system"] = system
     response = client.messages.create(**kwargs)
-    return "".join(block.text for block in response.content if block.type == "text")
+    text = "".join(block.text for block in response.content if block.type == "text")
+    return text, response.stop_reason == "max_tokens"
 
 
-def _complete_gemini(system: str | None, user_message: str, max_tokens: int) -> str:
+def _complete_gemini(system: str | None, user_message: str, max_tokens: int) -> tuple[str, bool]:
     client = _gemini_client()
     config = genai_types.GenerateContentConfig(max_output_tokens=max_tokens, system_instruction=system)
     response = _call_gemini(lambda: client.models.generate_content(
         model=db.get_gemini_model(), contents=user_message, config=config,
     ))
-    return response.text or ""
+    return response.text or "", _gemini_hit_max_tokens(response)
 
 
-def _web_search_anthropic(user_message: str, max_tokens: int) -> str:
+def _web_search_anthropic(user_message: str, max_tokens: int) -> tuple[str, bool]:
     client = anthropic.Anthropic(api_key=db.get_anthropic_api_key())
     response = client.messages.create(
         model=db.get_anthropic_model(), max_tokens=max_tokens,
@@ -202,10 +221,10 @@ def _web_search_anthropic(user_message: str, max_tokens: int) -> str:
     # final answer in the last one -- joined with newlines (not concatenated bare) so a stray
     # brace in the narration can't fuse onto the real JSON answer and confuse extract_json.
     text_blocks = [block.text for block in response.content if block.type == "text"]
-    return "\n".join(text_blocks)
+    return "\n".join(text_blocks), response.stop_reason == "max_tokens"
 
 
-def _web_search_gemini(user_message: str, max_tokens: int) -> str:
+def _web_search_gemini(user_message: str, max_tokens: int) -> tuple[str, bool]:
     client = _gemini_client()
     config = genai_types.GenerateContentConfig(
         max_output_tokens=max_tokens,
@@ -214,4 +233,9 @@ def _web_search_gemini(user_message: str, max_tokens: int) -> str:
     response = _call_gemini(lambda: client.models.generate_content(
         model=db.get_gemini_model(), contents=user_message, config=config,
     ))
-    return response.text or ""
+    return response.text or "", _gemini_hit_max_tokens(response)
+
+
+def _gemini_hit_max_tokens(response) -> bool:
+    candidates = getattr(response, "candidates", None)
+    return bool(candidates) and candidates[0].finish_reason == genai_types.FinishReason.MAX_TOKENS

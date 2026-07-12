@@ -278,6 +278,84 @@ def test_complete_text_gemini_handles_a_none_response_text():
 
 
 # ---------------------------------------------------------------------------
+# Truncation retry -- a response that hits max_tokens exactly is cut off mid-sentence, so it's
+# automatically retried once with a larger budget rather than silently returned truncated.
+# ---------------------------------------------------------------------------
+
+def test_anthropic_truncated_response_retries_once_with_double_the_budget():
+    db.set_anthropic_api_key("sk-test")
+    cut_off = _anthropic_response("this got cut off mid-se")
+    cut_off.stop_reason = "max_tokens"
+    complete = _anthropic_response("this is the full response")
+    complete.stop_reason = "end_turn"
+
+    with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.side_effect = [cut_off, complete]
+        result = ai_provider.complete_text(system=None, user_message="hi", max_tokens=100)
+
+    assert result == "this is the full response"
+    calls = mock_client_cls.return_value.messages.create.call_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["max_tokens"] == 100
+    assert calls[1].kwargs["max_tokens"] == 200
+
+
+def test_anthropic_response_that_finishes_naturally_is_not_retried():
+    db.set_anthropic_api_key("sk-test")
+    resp = _anthropic_response("a complete answer")
+    resp.stop_reason = "end_turn"
+
+    with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.return_value = resp
+        result = ai_provider.complete_text(system=None, user_message="hi", max_tokens=100)
+
+    assert result == "a complete answer"
+    mock_client_cls.return_value.messages.create.assert_called_once()
+
+
+def test_gemini_truncated_response_retries_once_with_double_the_budget():
+    from google.genai import types as genai_types
+
+    db.set_ai_provider("gemini")
+    db.set_gemini_api_key("AIza-test")
+
+    cut_off = _gemini_response("cut off mid-se")
+    cut_off_candidate = MagicMock()
+    cut_off_candidate.finish_reason = genai_types.FinishReason.MAX_TOKENS
+    cut_off.candidates = [cut_off_candidate]
+
+    complete = _gemini_response("the full response")
+    complete_candidate = MagicMock()
+    complete_candidate.finish_reason = genai_types.FinishReason.STOP
+    complete.candidates = [complete_candidate]
+
+    with patch("app.ai_provider.genai.Client") as mock_client_cls:
+        mock_client_cls.return_value.models.generate_content.side_effect = [cut_off, complete]
+        result = ai_provider.complete_text(system=None, user_message="hi", max_tokens=100)
+
+    assert result == "the full response"
+    calls = mock_client_cls.return_value.models.generate_content.call_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["config"].max_output_tokens == 100
+    assert calls[1].kwargs["config"].max_output_tokens == 200
+
+
+def test_web_search_truncation_also_retries():
+    db.set_anthropic_api_key("sk-test")
+    cut_off = _anthropic_response('{"incompl')
+    cut_off.stop_reason = "max_tokens"
+    complete = _anthropic_response('{"found": true}')
+    complete.stop_reason = "end_turn"
+
+    with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.side_effect = [cut_off, complete]
+        result = ai_provider.web_search("find the notes", max_tokens=1200)
+
+    assert result == '{"found": true}'
+    assert mock_client_cls.return_value.messages.create.call_count == 2
+
+
+# ---------------------------------------------------------------------------
 # web_search()
 # ---------------------------------------------------------------------------
 

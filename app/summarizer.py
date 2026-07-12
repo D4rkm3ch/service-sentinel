@@ -176,7 +176,7 @@ Operator's compose configuration for this service:
         return ""
 
     return ai_provider.complete_text(
-        system=UPGRADE_GUIDANCE_SYSTEM_PROMPT, user_message=user_message, max_tokens=500,
+        system=UPGRADE_GUIDANCE_SYSTEM_PROMPT, user_message=user_message, max_tokens=800,
     ).strip()
 
 
