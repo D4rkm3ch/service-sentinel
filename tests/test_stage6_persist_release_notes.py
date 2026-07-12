@@ -203,14 +203,18 @@ def test_run_and_persist_check_reports_both_stages_in_order(monkeypatch):
 def test_release_notes_fetches_run_concurrently_not_sequentially():
     """Proves the thread pool is actually parallelizing fetches, not just wrapping the old
     sequential loop -- 4 fetches at 0.15s each must finish well under 4x0.15s if truly
-    concurrent (settings.ai_summarize_concurrency defaults to 4, so all 4 fit in one batch)."""
+    concurrent. Pins the concurrency setting itself (so all 4 fit in one batch) rather than
+    relying on its production default (lowered to 2 after real-world Gemini per-minute
+    rate-limiting), since this test's point is proving genuine concurrency, not exercising
+    whatever the current default happens to be."""
     def slow_fetch(image_repo, tag, source_override=None, changelog_url_override=None):
         time.sleep(0.15)
         return (f"notes for {image_repo}", "https://example.com")
 
     containers = [_c(f"c{i}", "update_available", repo=f"owner/repo{i}") for i in range(4)]
 
-    with patch("app.persist.release_notes.get_release_notes", side_effect=slow_fetch):
+    with patch("app.persist.release_notes.get_release_notes", side_effect=slow_fetch), \
+         patch("app.ai_provider.settings.ai_summarize_concurrency", 4):
         start = time.monotonic()
         persist.persist_check_outcome(_outcome(*containers))
         elapsed = time.monotonic() - start

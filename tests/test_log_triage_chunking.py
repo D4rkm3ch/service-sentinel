@@ -95,7 +95,11 @@ def test_chunks_are_triaged_concurrently_not_one_after_another():
     every chunk's own AI latency added together. Locks in that chunks now run concurrently
     (capped by ai_provider.concurrency_limit(), same shape as persist.py's Updates pipeline):
     with enough containers to force several chunks and each simulated AI call taking a fixed
-    delay, total elapsed time must be well under what running them one at a time would cost."""
+    delay, total elapsed time must be well under what running them one at a time would cost.
+    Pins the concurrency setting itself (so all 3 chunks fit in one batch) rather than relying
+    on its production default (lowered to 2 after real-world Gemini per-minute rate-limiting),
+    since this test's point is proving genuine concurrency, not exercising whatever the current
+    default happens to be."""
     import time
 
     names = [f"conc{i}" for i in range(log_watcher._MAX_BATCH_CONTAINERS * 3)]  # forces 3 chunks
@@ -108,7 +112,8 @@ def test_chunks_are_triaged_concurrently_not_one_after_another():
     with patch("app.log_watcher.get_container_logs_since", return_value="ERROR: boom"), \
          patch("app.log_watcher.extract_suspicious_excerpt", side_effect=lambda text: text), \
          patch("app.log_watcher.analyze_logs_batch", side_effect=slow_analyze), \
-         patch("app.log_watcher.notify_findings_digest"):
+         patch("app.log_watcher.notify_findings_digest"), \
+         patch("app.ai_provider.settings.ai_summarize_concurrency", 4):
         start = time.monotonic()
         log_watcher.run_log_check_for(names)
         elapsed = time.monotonic() - start

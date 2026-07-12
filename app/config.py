@@ -37,7 +37,16 @@ class Settings:
         # with many pending updates at once (e.g. right after a full reset) take many minutes.
         # Kept lower than the registry check concurrency since these are meaningfully more
         # expensive calls, and for release notes specifically, rate-limited (GitHub's API).
-        self.ai_summarize_concurrency: int = int(os.environ.get("AI_SUMMARIZE_CONCURRENCY", "4"))
+        #
+        # Real production traffic hit Gemini's per-minute request cap under the old default of
+        # 4 -- each container can need up to two AI calls (summary + upgrade guidance), so a
+        # burst of concurrent containers pushes well past a per-minute ceiling even on a paid
+        # key, not just the free tier. That triggers a real (correctly-handled, nothing lost)
+        # but still user-visible ~30s backoff sleep in _call_gemini's retry -- which reads as
+        # the check being "stuck" when it lands on the last item or two. Lowered to 2 to make
+        # that burst, and the resulting pause, meaningfully less likely, trading a bit of
+        # overall check speed for fewer of these stalls.
+        self.ai_summarize_concurrency: int = int(os.environ.get("AI_SUMMARIZE_CONCURRENCY", "2"))
 
         # Log watcher tuning — schedule itself now lives in the database (Settings tab),
         # not here, but these control how much log data gets pulled and pre-filtered.

@@ -112,7 +112,10 @@ def test_repeated_check_with_same_pending_update_does_not_resummarize():
 
 def test_summarization_runs_concurrently_not_sequentially():
     """Same concurrency proof as Stage 6's release-notes fetch (settings.ai_summarize_concurrency
-    caps both phases) -- 4 summarizations at 0.15s each must finish well under 4x0.15s."""
+    caps both phases) -- 4 summarizations at 0.15s each must finish well under 4x0.15s. Pins the
+    concurrency setting itself rather than relying on its production default (lowered to 2 after
+    real-world Gemini per-minute rate-limiting), since this test's point is proving genuine
+    concurrency, not exercising whatever the current default happens to be."""
     def slow_summarize(**kwargs):
         time.sleep(0.15)
         return (f"summary for {kwargs['container_name']}", "feature")
@@ -121,7 +124,8 @@ def test_summarization_runs_concurrently_not_sequentially():
 
     with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", return_value=("notes", "https://example.com")), \
-         patch("app.persist.summarize_update", side_effect=slow_summarize):
+         patch("app.persist.summarize_update", side_effect=slow_summarize), \
+         patch("app.ai_provider.settings.ai_summarize_concurrency", 4):
         start = time.monotonic()
         persist.persist_check_outcome(_outcome(*containers))
         elapsed = time.monotonic() - start
