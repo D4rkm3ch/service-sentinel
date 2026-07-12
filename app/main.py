@@ -70,7 +70,11 @@ templates.env.globals["get_uptime_str"] = get_uptime_str
 # severity value used for storage, sorting, and notification thresholds everywhere else.
 SEVERITY_LABELS = {
     "updates": {
-        "bugfix": "Bug Fixes",
+        # Covers routine fixes and dependency bumps as well as genuine security patches (e.g.
+        # an XSS/path-traversal fix) -- both land on the same underlying "bugfix" severity (see
+        # summarizer.py's severity rules), so the label needs to read honestly for either one
+        # rather than undersell a real security fix as just "Bug Fixes".
+        "bugfix": "Fixes & Security",
         "feature": "New Features",
         "action_needed": "Action Needed",
         "breaking": "Breaking Change",

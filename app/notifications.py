@@ -62,7 +62,9 @@ _ASSET = apprise.AppriseAsset(
 FINDING_SEVERITY_ORDER = {"suggestion": 0, "warning": 1, "critical": 2}
 UPDATE_SEVERITY_ORDER = {"bugfix": 0, "feature": 1, "action_needed": 2, "breaking": 3}
 UPDATE_SEVERITY_LABELS = {
-    "bugfix": "Bug Fixes", "feature": "New Features",
+    # Kept in sync with main.py's SEVERITY_LABELS["updates"] -- see that map's own comment for
+    # why "bugfix" reads as "Fixes & Security" now (it also covers genuine security patches).
+    "bugfix": "Fixes & Security", "feature": "New Features",
     "action_needed": "Action Needed", "breaking": "Breaking Change",
 }
 _UPDATE_NOTIFY_TYPE = {
