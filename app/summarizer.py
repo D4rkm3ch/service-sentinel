@@ -261,6 +261,8 @@ misconfiguration visible in the error text).
 
 If the excerpt itself explains that something is expected default behavior for how a container \
 commonly runs (e.g. a GUI app logging that it found no X server, which is normal for a headless \
+container; a container failing to set an advanced sysctl like `src_valid_mark` because it isn't \
+running with elevated privileges, which is the default and expected state for almost every \
 container) don't report it at all -- that's the same "routine, expected situation" case above, \
 just one where the explanation happens to be visible in the log line rather than something you \
 already knew. Never report something as an issue and then hedge in its own description that it \
@@ -270,12 +272,22 @@ Pick "category" by what's actually happening, not by which container it's happen
 request/query/connection that completes and gets a normal response, just not the content you \
 wanted (e.g. a search that returns zero results because of a category or filter mismatch), is \
 an "optimization" -- nothing failed. Reserve "error" for something that didn't complete \
-successfully (a connection refused, a request rejected, a crash), and "reliability" for \
-something intermittent or flaky (works sometimes, times out or drops other times). The same \
-kind of situation must get the same category regardless of which container or application it's \
-happening in -- e.g. "an indexer search succeeded but matched nothing in the configured \
-categories" is always an "optimization", never "reliability" or "error", whether it's Prowlarr, \
-Readarr, Sonarr, or anything else hitting that exact same shape of non-problem.
+successfully (a connection refused, a request rejected, a crash, a title/file that couldn't be \
+parsed at all), and "reliability" for something intermittent or flaky (works sometimes, times \
+out or drops other times). The same kind of situation must get the same category regardless of \
+which container or application it's happening in -- these exact shapes recur constantly across \
+a homelab's *arr-style applications (Sonarr, Radarr, Lidarr, Readarr, Prowlarr, etc.) and must \
+be judged the same way every time, not per-container:
+- "An indexer search succeeded but matched nothing in the configured categories" is always an \
+"optimization" (suggestion severity) -- nothing failed, the config just doesn't line up.
+- "A release/file's title couldn't be parsed at all, with nothing in the excerpt suggesting the \
+content itself is the wrong media type for this application" is an "error" -- something \
+genuinely didn't complete -- regardless of which specific *arr application logged it.
+- "A release/file's title couldn't be parsed, and the title itself is visibly the wrong media \
+type for this application" (e.g. adult content, a different show, a game, pushed to an \
+application that only handles one media type) is an "optimization" (suggestion severity) -- \
+the application is working correctly, the indexer/category configuration feeding it is what's \
+wrong, and that's a one-time config fix, not an ongoing problem.
 
 Pick "severity" by how urgently a human needs to act, independent of which "category" it's \
 filed under: "critical" is for something actively broken right now (a service down, a \
@@ -430,9 +442,11 @@ def generate_stack_name(service_names: list[str]) -> str:
         # slowness to exactly this call: Gemini's thinking-enabled models count internal
         # reasoning tokens against max_tokens too, so even this terse a prompt routinely blew
         # through 30 and needed two or three full retry round-trips (30 -> 60 -> 120 -> 240)
-        # just to echo one name back. Starting higher avoids most of those retries outright;
-        # the escalating retry in ai_provider.py still covers genuine outliers.
-        answer = ai_provider.complete_text(system=None, user_message=prompt, max_tokens=100).strip()
+        # just to echo one name back. Bumping to 100 cut most of that, but a second real-world
+        # dump showed even 100 still needed one retry (succeeding at 200) often enough that 200
+        # is the better starting point -- the escalating retry in ai_provider.py still covers
+        # genuine outliers.
+        answer = ai_provider.complete_text(system=None, user_message=prompt, max_tokens=200).strip()
         if answer in service_names:
             return answer
     except Exception:
