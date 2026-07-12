@@ -29,9 +29,12 @@ def test_status_poller_is_always_present_not_gated_on_running():
 
 
 def test_idle_poll_uses_a_slower_cadence_than_the_running_poll():
+    """Also fast-polls while other_running_feature is set (another feature's check, noticed via
+    the idle poll) -- not just this page's own state.running -- so the "A check is currently
+    running…" badge clears promptly once that other check finishes, not up to 3s later."""
     text = (TEMPLATES / "_status.html").read_text()
     assert "idle_poll_delay_ms" in text
-    assert "poll_delay_ms if state.running else idle_poll_delay_ms" in text
+    assert "poll_delay_ms if (state.running or other_running_feature) else idle_poll_delay_ms" in text
 
 
 def test_status_poll_route_passes_prev_running_through(client):
@@ -75,3 +78,62 @@ def test_base_html_button_poller_covers_all_three_features():
 def test_feature_header_check_now_button_carries_the_generic_class():
     text = (TEMPLATES / "_feature_header.html").read_text()
     assert 'class="{{ feature }}-action-btn"' in text
+
+
+# ---------------------------------------------------------------------------
+# Cross-feature "A check is currently running…" badge -- replaces the old sitewide banner
+# (base.html's #check-running-notice) with an inline variant of this same status badge, shown
+# on a feature's OWN page while a DIFFERENT feature's check is running elsewhere.
+# ---------------------------------------------------------------------------
+
+def test_updates_page_shows_running_badge_while_logs_check_is_in_progress(client):
+    check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
+    check_state.set_running("logs")
+    try:
+        resp = client.get("/updates/status-poll")
+        assert "A check is currently running" in resp.text
+        assert 'class="spinner"' in resp.text
+    finally:
+        check_state.release_running("logs")
+
+
+def test_own_feature_running_takes_priority_over_another_features_running_badge(client):
+    """If both this page's own check AND another feature's check happen to be running at once,
+    show this page's own live progress -- it's more specific/relevant than the generic "a check
+    is running" text, not a coin flip between the two."""
+    check_state._state["updates"] = {"running": True, "last_result": None, "last_run_at": None}
+    check_state.set_running("logs")
+    try:
+        resp = client.get("/updates/status-poll")
+        assert "A check is currently running" not in resp.text
+    finally:
+        check_state.release_running("logs")
+        check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
+
+
+def test_other_feature_badge_does_a_full_swap_only_on_the_transition_into_running(client):
+    """Same anti-flicker contract as the own-feature spinner (see
+    test_status_poll_does_not_re_render_the_spinner_node): the first tick that notices another
+    feature's check must build the badge wrapper fresh (prev_badge_running=false), but steady-
+    state ticks while it's still running must only swap the text span, never recreate the
+    spinner node."""
+    check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
+    check_state.set_running("logs")
+    try:
+        first = client.get("/updates/status-poll?prev_badge_running=false")
+        assert 'id="check-status-inner" hx-swap-oob="true"' in first.text
+        assert 'class="spinner"' in first.text
+
+        steady = client.get("/updates/status-poll?prev_badge_running=true")
+        assert 'id="check-status-inner" hx-swap-oob="true"' not in steady.text
+        assert 'class="spinner"' not in steady.text
+        assert 'id="check-status-text" hx-swap-oob="true"' in steady.text
+    finally:
+        check_state.release_running("logs")
+
+
+def test_updates_page_status_poller_carries_prev_badge_running_forward():
+    text = (TEMPLATES / "_status.html").read_text()
+    assert "prev_badge_running" in text
+    text = (TEMPLATES / "_status_poll.html").read_text()
+    assert "prev_badge_running" in text

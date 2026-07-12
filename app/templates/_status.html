@@ -4,6 +4,11 @@
     <span class="spinner" aria-hidden="true"></span>
     <span id="check-status-text">{{ progress_text }}</span>
   </div>
+{% elif other_running_feature %}
+  <div class="status-badge status-running">
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="check-status-text">A check is currently running…</span>
+  </div>
 {% else %}
   <div class="status-badge status-idle" id="check-status-text">
     {{ status_summary_text }}
@@ -11,6 +16,6 @@
 {% endif %}
 </div>
 <span class="status-poller"
-      hx-get="/{{ feature }}/status-poll?prev_running={{ 'true' if state.running else 'false' }}"
-      hx-trigger="load delay:{{ poll_delay_ms if state.running else idle_poll_delay_ms }}ms"
+      hx-get="/{{ feature }}/status-poll?prev_running={{ 'true' if state.running else 'false' }}&amp;prev_badge_running={{ 'true' if (state.running or other_running_feature) else 'false' }}"
+      hx-trigger="load delay:{{ poll_delay_ms if (state.running or other_running_feature) else idle_poll_delay_ms }}ms"
       hx-target="this" hx-swap="outerHTML"></span>

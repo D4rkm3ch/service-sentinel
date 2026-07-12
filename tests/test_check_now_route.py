@@ -83,9 +83,13 @@ def test_status_poll_does_not_re_render_the_spinner_node(client):
     with patch("app.main.persist.run_and_persist_check", side_effect=_slow_run_check_with_progress):
         resp = client.post("/updates/check-now")
         assert 'class="spinner"' in resp.text  # the one-time initial render does include it
+        # The real poller chain carries prev_badge_running=true forward from this render's own
+        # poller URL (see _status.html) -- a fresh, param-less poll wouldn't reflect what an
+        # actual browser does here (it would go through the "just started" full-swap branch).
+        assert "prev_badge_running=true" in resp.text
 
         time.sleep(0.25)
-        poll_resp = client.get("/updates/status-poll")
+        poll_resp = client.get("/updates/status-poll?prev_badge_running=true")
         assert 'class="spinner"' not in poll_resp.text  # but repeated polls must never re-render it
         assert 'id="check-status-text" hx-swap-oob="true"' in poll_resp.text
 

@@ -269,6 +269,15 @@ _IDLE_POLL_DELAY_MS = 3000
 def _status_context(request: Request, feature: str) -> dict:
     state = get_state(feature)
     progress = get_progress(feature)
+    # A different feature's check running elsewhere (this page's own action buttons are also
+    # disabled sitewide for this same reason -- see base.html) gets its own short "a check is
+    # running" variant of this same status badge, in place of the static "Last checked" text,
+    # rather than a separate banner elsewhere on the page -- it's temporary state exactly like
+    # this page's own running badge, so it belongs in the same spot as that badge, not a second
+    # place to look. Own-feature running always takes priority if both are somehow true at once.
+    other_running_feature = next(
+        (f for f in check_state.FEATURES if f != feature and get_state(f)["running"]), None,
+    )
     poll_delay_ms = 500 if feature in _FAST_POLL_FEATURES else 2000
     return {
         "request": request,
@@ -276,6 +285,7 @@ def _status_context(request: Request, feature: str) -> dict:
         "state": state,
         "progress": progress,
         "progress_text": _progress_text(progress),
+        "other_running_feature": other_running_feature,
         "poll_delay_ms": poll_delay_ms,
         "idle_poll_delay_ms": _IDLE_POLL_DELAY_MS,
         "status_summary_text": format_summary(feature, state),
@@ -290,7 +300,9 @@ def _render_status(request: Request, feature: str):
     return resp
 
 
-def _render_status_poll(request: Request, feature: str, prev_running: bool = False):
+def _render_status_poll(
+    request: Request, feature: str, prev_running: bool = False, prev_badge_running: bool = False,
+):
     """Backs the status badge's own perpetual self-poll (see _status.html/_status_poll.html):
     every response re-embeds a fresh poller span so the chain keeps running indefinitely at
     whatever cadence matches the current state, which is what lets a scheduled check (or a
@@ -298,8 +310,20 @@ def _render_status_poll(request: Request, feature: str, prev_running: bool = Fal
     own, with no click needed on this page. checkComplete only fires on a genuine running ->
     idle transition (prev_running says what the last poll considered current, compared against
     this poll's fresh state) -- firing it on every idle tick would re-trigger every table's
-    "every 20s, checkComplete from:body" listener every _IDLE_POLL_DELAY_MS for nothing."""
+    "every 20s, checkComplete from:body" listener every _IDLE_POLL_DELAY_MS for nothing.
+
+    prev_badge_running is a separate signal from prev_running: whether the badge was already
+    showing the running/spinner visual last tick, for ANY reason (this feature's own check, or
+    another feature's -- see other_running_feature in _status_context). _status_poll.html uses
+    it to pick a cheap text-only OOB swap while that stays true (steady-state ticking without
+    ever destroying/recreating the spinner's DOM node, which would restart its CSS animation
+    before a single rotation finishes -- see test_status_poll_does_not_re_render_the_spinner_node),
+    and a full-div swap only on the one tick that actually transitions into showing the badge --
+    covering both this feature's own start and noticing another feature's check via the idle
+    poll, neither of which prev_running (this feature's own running flag only) can tell apart
+    from a same-feature steady state on its own."""
     context = _status_context(request, feature)
+    context["prev_badge_running"] = prev_badge_running
     resp = templates.TemplateResponse("_status_poll.html", context)
     if prev_running and not context["state"]["running"]:
         resp.headers["HX-Trigger"] = "checkComplete"
@@ -313,8 +337,8 @@ def updates_check_now(request: Request):
 
 
 @app.get("/updates/status-poll")
-def updates_status_poll(request: Request, prev_running: bool = False):
-    return _render_status_poll(request, "updates", prev_running)
+def updates_status_poll(request: Request, prev_running: bool = False, prev_badge_running: bool = False):
+    return _render_status_poll(request, "updates", prev_running, prev_badge_running)
 
 
 @app.get("/updates/running-state")
@@ -374,8 +398,8 @@ def logs_check_now(request: Request):
 
 
 @app.get("/logs/status-poll")
-def logs_status_poll(request: Request, prev_running: bool = False):
-    return _render_status_poll(request, "logs", prev_running)
+def logs_status_poll(request: Request, prev_running: bool = False, prev_badge_running: bool = False):
+    return _render_status_poll(request, "logs", prev_running, prev_badge_running)
 
 
 @app.get("/logs/partial/issues")
@@ -414,8 +438,8 @@ def compose_check_now(request: Request):
 
 
 @app.get("/compose/status-poll")
-def compose_status_poll(request: Request, prev_running: bool = False):
-    return _render_status_poll(request, "compose", prev_running)
+def compose_status_poll(request: Request, prev_running: bool = False, prev_badge_running: bool = False):
+    return _render_status_poll(request, "compose", prev_running, prev_badge_running)
 
 
 @app.get("/compose/partial/issues")
