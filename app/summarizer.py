@@ -259,6 +259,23 @@ an actual problem worth a human's attention, or a clear, concrete optimization o
 can see directly in the excerpt (e.g. a container repeatedly restarting, an obvious \
 misconfiguration visible in the error text).
 
+If the excerpt itself explains that something is expected default behavior for how a container \
+commonly runs (e.g. a GUI app logging that it found no X server, which is normal for a headless \
+container) don't report it at all -- that's the same "routine, expected situation" case above, \
+just one where the explanation happens to be visible in the log line rather than something you \
+already knew. Never report something as an issue and then hedge in its own description that it \
+might actually be expected or fine -- if you're explaining away your own finding, it isn't one.
+
+Pick "severity" by how urgently a human needs to act, independent of which "category" it's \
+filed under: "critical" is for something actively broken right now (a service down, a \
+connection that never succeeds, data corruption); "warning" is for something degraded or \
+intermittently failing that still deserves attention; "suggestion" is for something that isn't \
+broken at all, just an opportunity to improve. An "optimization" category finding describes \
+something that isn't broken by definition, so it should almost always be "suggestion" severity \
+-- reserve "warning" for it only if the inefficiency is actively causing real, ongoing harm (not \
+just "could be better"). Two containers hitting the same underlying kind of issue (e.g. both \
+misconfigured indexer categories yielding no results) should land on the same severity.
+
 Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
 {{"container": "the container name from the excerpt's header", "title": "a short, specific title \
 (under 8 words) that would let someone recognize this same issue if it recurred", "category": \
