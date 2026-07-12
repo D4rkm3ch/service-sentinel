@@ -30,9 +30,15 @@ qualifies, write "None found."
 ## Relevant to your Setup
 This is the most important section. Cross-reference the features and breaking changes above \
 against the operator's actual compose configuration (provided below). Call out specifically \
-which env vars, volumes, ports, or labels they have set are affected, and how. If nothing in \
-the release touches their actual configuration, write exactly: "Nothing in this release affects \
-your configuration."
+which env vars, volumes, ports, or labels they have set are affected, and how. A bullet only \
+belongs here if it names something ACTUAL from their compose config -- a specific env var, \
+volume path, port number, or label they have set. "This feature is now available on your \
+instance" is not relevant to their setup just because they run the container -- every feature \
+in a release is technically "available" to every operator running it; that's not what this \
+section is for. If nothing in the release touches something specific in their actual \
+configuration, write exactly: "Nothing in this release affects your configuration." -- and \
+nothing else. Never write real bullets and then also add that exact sentence; if you wrote a \
+genuine bullet, that sentence doesn't belong, and if that sentence applies, no bullets do.
 
 Whenever the compose configuration provided can directly answer whether something applies -- a \
 specific env var is or isn't set, a service is or isn't present, a volume or port is or isn't \
