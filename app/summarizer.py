@@ -60,6 +60,14 @@ whether they do. Save conditional "if" phrasing for things that genuinely can't 
 from the compose file, like an in-app setting, database content, or which of several optional \
 providers they've picked inside the application's own UI.
 
+If a confirmed, real bullet here means the operator needs to actually change something to keep \
+working correctly (even if it's not urgent enough to belong in Breaking Changes above), say so \
+explicitly using clear "you need to..."/"you must..."/"you should plan to..." language -- don't \
+just neutrally restate the fact (e.g. not "You are using the deprecated X image", but "You are \
+using the deprecated X image and should plan to migrate, since it won't receive further \
+updates"). Two operators in an identical situation should never end up with different severities \
+just because one bullet happened to state the requirement plainly and the other only implied it.
+
 For all three sections: use a bullet list only when there are two or more distinct points to \
 make. If there's exactly one point, or none, write a plain sentence instead — a bullet list \
 with a single item, or a single item padded out to look like a list, reads worse than just \

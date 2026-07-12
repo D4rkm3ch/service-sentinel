@@ -67,6 +67,40 @@
         document.querySelectorAll(ALL_SELECTOR).forEach(function (el) { el.disabled = running; });
       }
 
+      // Stack/service/finding detail pages have no server-rendered status badge of their own
+      // (unlike the main Updates/Logs/Compose pages -- see _status.html/_status_poll.html) --
+      // just a permanently-present, normally-empty <span id="item-recheck-status"> right after
+      // their action buttons, which htmx only ever fills in with THIS item's own scoped check
+      // (a busy_message, or a running spinner + progress text, or empty again once idle -- see
+      // _item_status.html and its four scope-specific siblings). Reusing that exact spot for a
+      // "some other check is running elsewhere" blurb -- same running signal already polled
+      // above, same visual (spinner + short text) the main pages use -- means every page with
+      // check buttons gets the explanation, not just the three main ones. Marked with a data
+      // attribute so this never overwrites real htmx-owned content (a busy_message, or that
+      // item's own genuinely running progress): only ever written into an empty span or a span
+      // this same code already wrote into, and htmx's own outerHTML swap on click naturally
+      // clears the marker by replacing the whole element.
+      function updateElsewhereIndicator(anyRunning) {
+        if (document.getElementById("check-status")) return;
+        var target = document.getElementById("item-recheck-status");
+        if (!target) return;
+
+        var isOurs = target.getAttribute("data-elsewhere-indicator") === "true";
+        var isEmpty = target.innerHTML.trim() === "";
+
+        if (anyRunning && (isEmpty || isOurs)) {
+          if (!isOurs) {
+            target.innerHTML = '<span class="status-badge status-running">'
+              + '<span class="spinner" aria-hidden="true"></span>'
+              + '<span>A check is currently running…</span></span>';
+            target.setAttribute("data-elsewhere-indicator", "true");
+          }
+        } else if (isOurs && !anyRunning) {
+          target.innerHTML = "";
+          target.removeAttribute("data-elsewhere-indicator");
+        }
+      }
+
       document.body.addEventListener("htmx:beforeRequest", function (evt) {
         var cl = evt.target.classList;
         if (cl && FEATURES.some(function (f) { return cl.contains(f + "-action-btn"); })) {
@@ -78,7 +112,9 @@
         Promise.all(FEATURES.map(function (feature) {
           return fetch("/" + feature + "/running-state").then(function (r) { return r.json(); }).catch(function () { return { running: false }; });
         })).then(function (results) {
-          applyRunningState(results.some(function (r) { return r.running; }));
+          var anyRunning = results.some(function (r) { return r.running; });
+          applyRunningState(anyRunning);
+          updateElsewhereIndicator(anyRunning);
         });
       }
 

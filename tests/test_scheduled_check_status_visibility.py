@@ -137,3 +137,32 @@ def test_updates_page_status_poller_carries_prev_badge_running_forward():
     assert "prev_badge_running" in text
     text = (TEMPLATES / "_status_poll.html").read_text()
     assert "prev_badge_running" in text
+
+
+# ---------------------------------------------------------------------------
+# Stack/service/finding detail pages -- no server-rendered status badge of their own, just a
+# permanently-present #item-recheck-status span next to their buttons. base.html's existing
+# sitewide poll drives a "some check is running elsewhere" blurb into that same span.
+# ---------------------------------------------------------------------------
+
+def test_base_html_drives_the_elsewhere_indicator_from_the_existing_poll():
+    text = (TEMPLATES / "base.html").read_text()
+    assert "function updateElsewhereIndicator" in text
+    assert 'getElementById("item-recheck-status")' in text
+    # Skips pages that already have the real server-rendered badge (the three main pages).
+    assert 'getElementById("check-status")' in text
+    # Never stomps on real htmx-owned content (a busy_message or this item's own progress).
+    assert "data-elsewhere-indicator" in text
+    assert "updateElsewhereIndicator(anyRunning)" in text
+
+
+def test_every_sub_page_has_the_persistent_item_recheck_status_anchor():
+    """Regression guard: the client-side indicator only works because this span always exists,
+    even when idle -- if a future edit ever made it conditional, the indicator would have
+    nowhere to render on a fresh page load."""
+    for name in (
+        "detail.html", "finding_detail.html", "logs_stack_detail.html",
+        "stack_detail.html", "subject_findings.html",
+    ):
+        text = (TEMPLATES / name).read_text()
+        assert '<span id="item-recheck-status"></span>' in text, f"{name} is missing the anchor"
