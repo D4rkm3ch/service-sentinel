@@ -248,7 +248,6 @@ a {
    one toggle family rather than two unrelated colors. */
 .badge-unread { background: rgba(155, 132, 217, 0.18); color: var(--violet); }
 .badge-read { background: rgba(155, 132, 217, 0.08); color: var(--text-dim); }
-.badge-error { background: rgba(217, 112, 94, 0.15); color: var(--error); }
 .badge-lg {
   padding: 4px 12px;
   font-size: 13px;
@@ -321,6 +320,15 @@ a {
 
 .action-row {
   margin-top: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* Pages whose next sibling doesn't bring its own top spacing (stack/subject pages -- the
+   detail pages' .detail-body already pads itself). */
+.action-row-spaced {
+  margin-bottom: 20px;
 }
 
 .detail-body {
@@ -448,7 +456,6 @@ tr:hover .row-chevron {
   color: var(--accent);
 }
 
-.check-now-form { margin: 0; }
 
 .topbar-right {
   display: flex;
@@ -655,11 +662,6 @@ tr:hover .row-chevron {
 .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(16px);
   background: #eafaf3;
-}
-.toggle-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
 }
 .api-key-row {
   display: flex;

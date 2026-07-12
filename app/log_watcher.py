@@ -7,6 +7,7 @@ from app import ai_provider, check_state, db, stacks
 from app.check_state import set_finished, set_running
 from app.config import settings
 from app.docker_client import get_container_logs_since, list_running_containers_for_logs
+from app.docker_client import open_client as open_docker_client
 from app.log_filter import extract_suspicious_excerpt
 from app.notifications import notify_findings_digest, notify_logs_check_errors
 from app.summarizer import analyze_logs_batch
@@ -127,24 +128,42 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     if on_progress and total:
         on_progress("checking_logs", 0, total)
 
-    for name in container_names:
-        checked += 1
-        checkpoint = checkpoints.get(name)
-        try:
-            log_text = get_container_logs_since(name, checkpoint, settings.log_max_lines_per_container)
-        except Exception as exc:
-            logger.exception("Could not fetch logs for %s", name)
-            failed[name] = str(exc) or exc.__class__.__name__
+    # One shared Docker client for the whole fetch loop -- without it every container's fetch
+    # opens (and version-negotiates) its own client, paid once per container per check. If the
+    # shared open itself fails (daemon unreachable), fall back to client=None so each fetch
+    # attempts (and records) its own failure per-container, exactly like before -- the shared
+    # client is purely an optimization, never a new way for the whole check to fail.
+    docker_client = None
+    try:
+        docker_client = open_docker_client()
+    except Exception as exc:
+        # Expected whenever the daemon is unreachable -- each per-container fetch below will
+        # surface (and record) its own failure, so a short note beats a full traceback here.
+        logger.warning("Could not open a shared Docker client (%s); falling back to per-container connects", exc)
+    try:
+        for name in container_names:
+            checked += 1
+            checkpoint = checkpoints.get(name)
+            try:
+                log_text = get_container_logs_since(
+                    name, checkpoint, settings.log_max_lines_per_container, client=docker_client,
+                )
+            except Exception as exc:
+                logger.exception("Could not fetch logs for %s", name)
+                failed[name] = str(exc) or exc.__class__.__name__
+                if on_progress:
+                    on_progress("checking_logs", checked, total)
+                continue
+
+            checked_ok_names.append(name)
+            excerpt = extract_suspicious_excerpt(log_text) if log_text else None
+            if excerpt:
+                excerpts_by_container[name] = excerpt
             if on_progress:
                 on_progress("checking_logs", checked, total)
-            continue
-
-        checked_ok_names.append(name)
-        excerpt = extract_suspicious_excerpt(log_text) if log_text else None
-        if excerpt:
-            excerpts_by_container[name] = excerpt
-        if on_progress:
-            on_progress("checking_logs", checked, total)
+    finally:
+        if docker_client is not None:
+            docker_client.close()
 
     db.set_log_watch_checkpoints(checked_ok_names)
     db.clear_log_check_errors(checked_ok_names)

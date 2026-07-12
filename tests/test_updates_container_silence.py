@@ -95,7 +95,7 @@ def test_silence_toggle_on_the_detail_page_is_in_place_not_a_redirect(client):
     resp = client.post("/updates/container/silence-test-toggle/silence")
     assert resp.status_code == 200
     assert 'hx-post="/updates/container/silence-test-toggle/unsilence"' in resp.text
-    assert 'id="container-silence-status-badge" hx-swap-oob="true"' in resp.text
+    assert 'id="silence-status-badge" hx-swap-oob="true"' in resp.text
     assert db.get_container_state("silence-test-toggle")["silenced"] == 1
 
     resp = client.post("/updates/container/silence-test-toggle/unsilence")

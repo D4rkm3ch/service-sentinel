@@ -35,7 +35,7 @@ def test_mark_as_read_and_unread_toggle_in_place(client):
     resp = client.post(f"/findings/{fid}/unread")
     assert resp.status_code == 200
     assert 'hx-post="/findings/{}/read"'.format(fid) in resp.text
-    assert 'id="finding-read-status-badge" hx-swap-oob="true"' in resp.text
+    assert 'id="read-status-badge" hx-swap-oob="true"' in resp.text
     assert db.get_finding(fid)["read_status"] == "unread"
 
     resp = client.post(f"/findings/{fid}/read")

@@ -113,6 +113,17 @@ def clear_item(item_key: str) -> None:
         _item_state.pop(item_key, None)
 
 
+def is_running(feature: str) -> bool:
+    """The cheapest possible signal for the sitewide button-disable poll -- base.html hits
+    /{feature}/running-state for all three features once a second, indefinitely, from every
+    open tab, and only ever needs this one boolean. Reads just the in-memory flag: going
+    through get_state() instead would take its last-result DB fallback below on every single
+    poll of any feature that hasn't completed a check since the process started (checks might
+    only run once a day), turning the idle poll into three SQLite reads per second."""
+    with _lock:
+        return _state[feature]["running"]
+
+
 def get_state(feature: str) -> dict:
     with _lock:
         state = dict(_state[feature])
@@ -121,6 +132,15 @@ def get_state(feature: str) -> dict:
         if persisted:
             state["last_result"] = persisted.get("result")
             state["last_run_at"] = persisted.get("at")
+            with _lock:
+                # Cache the persisted fallback in memory so the frequently-polled status
+                # endpoints stop re-reading the DB on every poll until this feature's first
+                # check of the process's lifetime overwrites it (set_finished). Guarded so a
+                # check that finished while we were reading the DB isn't clobbered with the
+                # older persisted value.
+                if _state[feature]["last_result"] is None:
+                    _state[feature]["last_result"] = state["last_result"]
+                    _state[feature]["last_run_at"] = state["last_run_at"]
     return state
 
 

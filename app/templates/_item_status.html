@@ -1,3 +1,8 @@
+{# Shared per-item status fragment for every scoped action in the app -- Updates item/stack,
+   Logs container/stack, Compose file. The button rows on those pages all target the same
+   permanently-present <span id="item-recheck-status"> slot; the only thing that ever differed
+   between scopes was the status-poll endpoint, so callers pass it as poll_url instead of five
+   near-identical copies of this file each hardcoding their own. #}
 <span id="item-recheck-status">
 {% if busy_message %}
 <span class="meta">{{ busy_message }}</span>
@@ -6,6 +11,6 @@
   <span class="spinner" aria-hidden="true"></span>
   <span id="item-recheck-text">{{ progress_text }}</span>
 </span>
-<span class="status-poller" hx-get="/updates/{{ update_id }}/recheck-status-poll" hx-trigger="load delay:400ms" hx-target="this" hx-swap="outerHTML"></span>
+<span class="status-poller" hx-get="{{ poll_url }}" hx-trigger="load delay:400ms" hx-target="this" hx-swap="outerHTML"></span>
 {% endif %}
 </span>

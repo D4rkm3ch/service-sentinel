@@ -23,22 +23,8 @@
     {% if top_severity %}
     <span class="badge badge-lg badge-sev-{{ top_severity }}">{{ severity_label(source, top_severity) }}</span>
     {% endif %}
-    <span id="subject-read-status-badge">
-      {% if active_count %}
-        {% if unread_count %}
-        <span class="badge badge-lg badge-unread">Unread</span>
-        {% else %}
-        <span class="badge badge-lg badge-read">Read</span>
-        {% endif %}
-      {% endif %}
-    </span>
-    <span id="subject-silence-status-badge">
-      {% if silence_state == 'silenced' %}
-      <span class="badge badge-lg badge-silenced">Silenced</span>
-      {% elif silence_state == 'partially_silenced' %}
-      <span class="badge badge-lg badge-partially-silenced">Partially Silenced</span>
-      {% endif %}
-    </span>
+    {% with is_unread = unread_count > 0, show_badge = active_count > 0 %}{% include "_read_badge.html" %}{% endwith %}
+    {% include "_silence_badge.html" %}
   </div>
   {% if source == 'compose' %}
   <form id="subject-rename-form" method="post" action="/compose/file/rename" class="hidden stack-rename-form">
@@ -54,30 +40,11 @@
   {% set base_url = '/logs/container/' ~ subject if source == 'logs' else '/compose/file' %}
   {% set qs = '' if source == 'logs' else '?path=' ~ (subject|urlencode) %}
   {% set noun = 'container' if source == 'logs' else 'compose file' %}
-  <div class="action-row" style="display:flex; align-items:center; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
+  <div class="action-row action-row-spaced">
     {% if findings %}
-    <span id="subject-read-toggle-btn">
-      {% if unread_count %}
-      <button type="button" class="button-info" hx-post="{{ base_url }}/read{{ qs }}" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
-        Mark all as Read
-      </button>
-      {% else %}
-      <button type="button" class="button-info" hx-post="{{ base_url }}/unread{{ qs }}" hx-target="#subject-read-toggle-btn" hx-swap="outerHTML">
-        Mark all as Unread
-      </button>
-      {% endif %}
-    </span>
-    <span id="subject-silence-toggle-btn">
-      {% if silence_state == 'silenced' %}
-      <button type="button" class="button-silence" hx-post="{{ base_url }}/unsilence{{ qs }}" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
-        Unsilence
-      </button>
-      {% else %}
-      <button type="button" class="button-silence" hx-post="{{ base_url }}/silence{{ qs }}" hx-target="#subject-silence-toggle-btn" hx-swap="outerHTML">
-        Silence
-      </button>
-      {% endif %}
-    </span>
+    {% with read_url = base_url ~ '/read' ~ qs, unread_url = base_url ~ '/unread' ~ qs,
+            is_unread = unread_count > 0, mark_all = true %}{% include "_read_toggle.html" %}{% endwith %}
+    {% with silence_url = base_url ~ '/silence' ~ qs, unsilence_url = base_url ~ '/unsilence' ~ qs %}{% include "_silence_toggle.html" %}{% endwith %}
     {% endif %}
     <button type="button" class="{{ source }}-action-btn"
             hx-post="{{ base_url }}/check-now{{ qs }}"

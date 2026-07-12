@@ -8,15 +8,17 @@ from unittest.mock import patch
 
 from app import db
 
-DETAIL_TEMPLATE = Path(__file__).resolve().parent.parent / "app" / "templates" / "detail.html"
+READ_BADGE_TEMPLATE = Path(__file__).resolve().parent.parent / "app" / "templates" / "_read_badge.html"
 
 
 def test_both_read_and_unread_badge_branches_carry_badge_lg():
     """Checked against the template source directly rather than a live page: visiting the
     detail page unconditionally auto-marks an unread update as read (see main.py's
     update_detail route), so the "Unread" branch can never actually be observed by GETting
-    the page -- by the time any response renders, the status has already flipped."""
-    text = DETAIL_TEMPLATE.read_text()
+    the page -- by the time any response renders, the status has already flipped. The badge
+    markup itself now lives in the shared _read_badge.html partial (used by every page with a
+    read toggle), so this covers all of them at once."""
+    text = READ_BADGE_TEMPLATE.read_text()
     assert 'class="badge badge-lg badge-unread"' in text
     assert 'class="badge badge-lg badge-read"' in text
 
