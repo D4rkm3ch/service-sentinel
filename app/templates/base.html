@@ -108,6 +108,25 @@
         }
       });
 
+      // The main Updates/Logs/Compose page's own #check-status badge runs its own independent
+      // perpetual self-poll (see _status.html/_status_poll.html) at a cadence that starts at
+      // idle_poll_delay_ms (3000ms) and only switches to the fast cadence once IT notices
+      // something running, on its own schedule -- so on the tick where another feature's check
+      // starts, that badge can lag up to 3s behind this poll (which already runs every 1s and
+      // is what disables buttons instantly and drives every sub-page's elsewhere-indicator).
+      // Nudging its own poller element the moment this faster poll notices the transition into
+      // "something is running" closes that gap to at most 1s everywhere, not just here --
+      // edge-triggered (only on the false->true transition, not every tick) so it can't stack a
+      // second overlapping poll chain on top of the badge's own once that's already caught up.
+      var wasAnyRunning = false;
+      function nudgeMainBadge() {
+        var poller = document.querySelector("#check-status .status-poller");
+        if (!poller) return;
+        var url = poller.getAttribute("hx-get");
+        if (!url) return;
+        htmx.ajax("GET", url, { target: poller, swap: poller.getAttribute("hx-swap") || "outerHTML" });
+      }
+
       function poll() {
         Promise.all(FEATURES.map(function (feature) {
           return fetch("/" + feature + "/running-state").then(function (r) { return r.json(); }).catch(function () { return { running: false }; });
@@ -115,6 +134,8 @@
           var anyRunning = results.some(function (r) { return r.running; });
           applyRunningState(anyRunning);
           updateElsewhereIndicator(anyRunning);
+          if (anyRunning && !wasAnyRunning) nudgeMainBadge();
+          wasAnyRunning = anyRunning;
         });
       }
 

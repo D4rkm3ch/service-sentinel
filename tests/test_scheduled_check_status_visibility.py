@@ -166,3 +166,24 @@ def test_every_sub_page_has_the_persistent_item_recheck_status_anchor():
     ):
         text = (TEMPLATES / name).read_text()
         assert '<span id="item-recheck-status"></span>' in text, f"{name} is missing the anchor"
+
+
+# ---------------------------------------------------------------------------
+# Main page badge (#check-status) vs. the sitewide 1s poll -- the badge runs its own perpetual
+# self-poll (see _status.html/_status_poll.html) that only switches to the fast cadence once IT
+# notices something running, on its own schedule (up to idle_poll_delay_ms behind). A real-world
+# report: the main page's own badge could sit on stale text for up to 3s after another feature's
+# check had already started -- even though buttons were disabled and every sub-page's elsewhere-
+# indicator had already updated within 1s, via this same sitewide poll.
+# ---------------------------------------------------------------------------
+
+def test_base_html_nudges_the_main_badge_the_moment_it_notices_something_running():
+    text = (TEMPLATES / "base.html").read_text()
+    assert "function nudgeMainBadge" in text
+    assert 'querySelector("#check-status .status-poller")' in text
+    assert "htmx.ajax(" in text
+    # Edge-triggered on the false->true transition, not fired on every tick while something
+    # stays running -- the badge's own self-poll is already fast by then, so a second forced
+    # ajax call every second on top of it would just stack a redundant, overlapping poll chain.
+    assert "anyRunning && !wasAnyRunning" in text
+    assert "nudgeMainBadge()" in text
