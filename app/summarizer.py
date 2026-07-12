@@ -28,6 +28,15 @@ picked inside the application's own UI/database isn't something the compose file
 so it's just changelog information here, not a warning. If nothing qualifies, write "Nothing \
 notable."
 
+If the release notes themselves have no real changelog content -- just a version/build number \
+bump with nothing describing what actually changed -- that counts as nothing qualifying too. \
+Write "Nothing notable," never a restated version number dressed up as a sentence (e.g. not \
+"The app has been updated to version 1.2.3," which repeats the version header you were already \
+told not to restate and gives the operator no more information than they already had). Two \
+releases that are equally uninformative must land on the same "Nothing notable" -- and therefore \
+the same bugfix severity below -- regardless of whether the raw notes happened to include a \
+bare version string or said nothing at all.
+
 ## Breaking Changes
 Only include something here if BOTH are true: (1) the operator's actual compose configuration \
 (provided below) confirms it applies to them -- a specific env var, volume, port, or label they \
@@ -92,10 +101,17 @@ something in their own configuration (an env var, a volume, a port, a label) for
 work correctly, or to keep working the same way. This is not for optional new configuration \
 they could choose to use, or for anything you couldn't confirm applies to their actual setup — \
 only for something confirmed and required.
-3. feature — New Features above has real content (not "Nothing notable"), and neither of the \
-above applies.
-4. bugfix — everything else: routine fixes, internal-only changes, dependency bumps with no \
-user-facing effect, and nothing the operator needs to act on."""
+3. feature — New Features above describes at least one genuinely new, added capability or \
+enhancement (something the operator couldn't do before), and neither of the above applies. A \
+line that only describes existing behavior being corrected, adjusted, or removed -- "X now \
+correctly does Y," "fixed an issue where...," "Z has been removed" -- does not by itself count \
+as new content for this rule, even though it belongs in the New Features section above (see \
+that section's own instructions) and even though it's not "Nothing notable" either.
+4. bugfix — everything else: New Features above is either "Nothing notable," or entirely made \
+up of fixes/corrections/removals/internal changes/dependency bumps with no newly added \
+capability, and nothing the operator needs to act on. Two releases that both amount to "a \
+handful of behavior corrections, nothing new added" must land on the same bugfix severity, \
+regardless of how many such corrections there were or how each one happened to be phrased."""
 
 SEVERITY_LINE_PATTERN = re.compile(
     r"^\s*SEVERITY:\s*(bugfix|feature|action_needed|breaking)\s*$", re.IGNORECASE | re.MULTILINE

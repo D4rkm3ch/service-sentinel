@@ -55,12 +55,13 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     scoped Check now / Reset & re-check action (stack- and service-level), which call this
     directly with just their own subset.
 
-    on_progress (stage, done, total), when given, is called once per container as it's checked
-    (stage="checking_logs") and once before/after the batched AI call if one happens
-    (stage="triage_logs") -- same shape as persist.py's Updates pipeline, so the status badge's
-    live "Checking container logs (N/M)…" text works the same way at every scope (main page,
-    stack, and service) instead of Logs' checks all silently sitting at a generic "Checking…"
-    the whole time.
+    on_progress (stage, done, total), when given, is called once upfront with (0, total) before
+    each phase starts and once per completion after -- both stage="checking_logs" (per
+    container) and stage="triage_logs" (once before/after the batched AI call, if one happens)
+    -- same shape as persist.py's Updates pipeline (_run_concurrent_phase), so the status
+    badge's live "Checking container logs (N/M)…" text works the same way at every scope (main
+    page, stack, and service) instead of Logs' checks all silently sitting at a bare, totalless
+    "Checking…" for their entire duration.
 
     Checkpoints are read and written in two batched calls (db.get_log_watch_checkpoints /
     set_log_watch_checkpoints) rather than one small connection per container -- same
@@ -76,6 +77,13 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     checked_ok_names: list[str] = []
     failed: dict[str, str] = {}
     total = len(container_names)
+
+    # Reported once upfront (0, total) before the loop starts, not just after each completion
+    # -- without this, a scoped check covering just one or two containers would sit at a bare,
+    # totalless "Checking…" for its entire duration (see main.py's _progress_text: no total
+    # means no "(N/M)" text at all), only ever ticking over a moment before it was already done.
+    if on_progress and total:
+        on_progress("checking_logs", 0, total)
 
     for name in container_names:
         checked += 1

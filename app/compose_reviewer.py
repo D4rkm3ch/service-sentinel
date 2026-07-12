@@ -52,10 +52,13 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     (service-level -- Compose has no stack concept, see db.reset_compose_data's docstring),
     which call this directly with just their own subset.
 
-    on_progress (stage, done, total), when given, is called once per file as it's processed --
-    same shape as log_watcher.run_log_check_for's own on_progress, so the status badge's live
-    "Checking compose files (N/M)…" text works the same way at every scope instead of Compose's
-    checks all silently sitting at a generic "Checking…" the whole time. Unlike Logs' batched
+    on_progress (stage, done, total), when given, is called once upfront with (0, total) before
+    the loop starts and once per file as it's processed after -- same shape as log_watcher.
+    run_log_check_for's own on_progress, so the status badge's live "Checking compose files
+    (N/M)…" text works the same way at every scope instead of Compose's checks all silently
+    sitting at a bare, totalless "Checking…" for their entire duration -- most noticeable on a
+    single-file scoped check, where the one on-completion call used to land only after that
+    file's own (possibly slow, AI-driven) review had already finished. Unlike Logs' batched
     triage call, each file's AI review happens inline as it's reached, so there's only the one
     stage to report (no separate post-loop "triage" phase).
 
@@ -68,6 +71,9 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     checked_ok_paths: list[str] = []
     new_findings = []
     total = len(paths)
+
+    if on_progress and total:
+        on_progress("checking_compose_files", 0, total)
 
     for i, path in enumerate(paths, 1):
         checked += 1
