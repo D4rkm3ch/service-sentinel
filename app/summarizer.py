@@ -425,7 +425,14 @@ def generate_stack_name(service_names: list[str]) -> str:
         "written above — no extra text, no punctuation, nothing else."
     )
     try:
-        answer = ai_provider.complete_text(system=None, user_message=prompt, max_tokens=30).strip()
+        # 30 used to be the starting budget here, on the assumption a single echoed service
+        # name needs almost nothing -- but a real-world report traced part of the Logs check's
+        # slowness to exactly this call: Gemini's thinking-enabled models count internal
+        # reasoning tokens against max_tokens too, so even this terse a prompt routinely blew
+        # through 30 and needed two or three full retry round-trips (30 -> 60 -> 120 -> 240)
+        # just to echo one name back. Starting higher avoids most of those retries outright;
+        # the escalating retry in ai_provider.py still covers genuine outliers.
+        answer = ai_provider.complete_text(system=None, user_message=prompt, max_tokens=100).strip()
         if answer in service_names:
             return answer
     except Exception:
@@ -474,8 +481,12 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
     if not ai_provider.is_configured():
         return ""
 
+    # See generate_stack_name's own comment on why this starts well above what a "2 short
+    # sentences" reply looks like it should need -- Gemini's thinking-enabled models count
+    # internal reasoning tokens against max_tokens too, so a too-tight starting budget here
+    # just means paying for extra retry round-trips instead of a shorter real response.
     return ai_provider.complete_text(
-        system=STACK_ANALYSIS_SYSTEM_PROMPT, user_message=user_message, max_tokens=150,
+        system=STACK_ANALYSIS_SYSTEM_PROMPT, user_message=user_message, max_tokens=400,
     ).strip()
 
 
@@ -517,6 +528,7 @@ def analyze_log_stack_impact(stack_display_name: str, all_service_names: list[st
     if not ai_provider.is_configured():
         return ""
 
+    # See analyze_stack_impact's own comment (same reasoning-token overhead, same fix).
     return ai_provider.complete_text(
-        system=LOG_STACK_ANALYSIS_SYSTEM_PROMPT, user_message=user_message, max_tokens=150,
+        system=LOG_STACK_ANALYSIS_SYSTEM_PROMPT, user_message=user_message, max_tokens=400,
     ).strip()

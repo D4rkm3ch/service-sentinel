@@ -87,3 +87,31 @@ def test_triage_progress_reports_across_all_chunks_not_just_one():
     triage_calls = [c for c in progress_calls if c[0] == "triage_logs"]
     assert triage_calls[0] == ("triage_logs", 0, 2)
     assert triage_calls[-1] == ("triage_logs", 2, 2)
+
+
+def test_chunks_are_triaged_concurrently_not_one_after_another():
+    """A real-world report: 'only grabbing 9 responses but it's taking close to 50-60 seconds'
+    -- tracked to chunks being dispatched in a plain sequential for-loop, so total wait time was
+    every chunk's own AI latency added together. Locks in that chunks now run concurrently
+    (capped by ai_provider.concurrency_limit(), same shape as persist.py's Updates pipeline):
+    with enough containers to force several chunks and each simulated AI call taking a fixed
+    delay, total elapsed time must be well under what running them one at a time would cost."""
+    import time
+
+    names = [f"conc{i}" for i in range(log_watcher._MAX_BATCH_CONTAINERS * 3)]  # forces 3 chunks
+    delay = 0.3
+
+    def slow_analyze(chunk, include_fix=False):
+        time.sleep(delay)
+        return []
+
+    with patch("app.log_watcher.get_container_logs_since", return_value="ERROR: boom"), \
+         patch("app.log_watcher.extract_suspicious_excerpt", side_effect=lambda text: text), \
+         patch("app.log_watcher.analyze_logs_batch", side_effect=slow_analyze), \
+         patch("app.log_watcher.notify_findings_digest"):
+        start = time.monotonic()
+        log_watcher.run_log_check_for(names)
+        elapsed = time.monotonic() - start
+
+    # Sequential would take >= 3 * delay; concurrent (2+ workers) should land well under that.
+    assert elapsed < delay * 3 * 0.7, f"chunks look sequential -- took {elapsed:.2f}s for 3 chunks at {delay}s each"

@@ -1,7 +1,9 @@
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
-from app import check_state, db, stacks
+from app import ai_provider, check_state, db, stacks
 from app.check_state import set_finished, set_running
 from app.config import settings
 from app.docker_client import get_container_logs_since, list_running_containers_for_logs
@@ -88,10 +90,12 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     pull logs since each one's last checkpoint (or the configured lookback window, for a
     container with none), keep only lines that matched a suspicious keyword locally, and —
     only for containers that actually had something worth showing — send those excerpts to
-    Claude for triage in bounded-size chunks (see _chunk_excerpts). Containers with clean logs
-    never reach the API at all. Shared by the full check (run_log_check, every currently
-    running container) and every scoped Check now / Reset & re-check action (stack- and
-    service-level), which call this directly with just their own subset.
+    Claude for triage in bounded-size chunks (see _chunk_excerpts), dispatched concurrently
+    (capped by ai_provider.concurrency_limit()) rather than one after another -- several
+    chunks run in parallel instead of each one waiting for the last to finish. Containers with
+    clean logs never reach the API at all. Shared by the full check (run_log_check, every
+    currently running container) and every scoped Check now / Reset & re-check action (stack-
+    and service-level), which call this directly with just their own subset.
 
     on_progress (stage, done, total), when given, is called once upfront with (0, total) before
     each phase starts and once per completion after -- both stage="checking_logs" (per
@@ -155,16 +159,40 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     include_fix = db.get_deep_analysis_enabled("logs")
     findings: list[dict] = []
     triage_errors = 0
+    total_chunks = len(chunks)
     if on_progress:
-        on_progress("triage_logs", 0, len(chunks))
-    for i, chunk in enumerate(chunks, 1):
+        on_progress("triage_logs", 0, total_chunks)
+
+    # Chunks are dispatched concurrently (same thread-pool-capped-by-ai_provider.concurrency_
+    # limit() shape as persist.py's _run_concurrent_phase), not one after another -- a real-
+    # world report: with several chunks, running them sequentially meant total wait time was
+    # every chunk's AI latency added together (a check with a handful of chunks taking 50-60s
+    # for what's really only a few seconds of AI work per chunk). progress_lock guards
+    # findings/triage_errors/done_count the same way reconcile.run_check()'s own concurrent
+    # phase does -- safe to mutate from multiple worker threads at once.
+    progress_lock = threading.Lock()
+    done_count = 0
+
+    def _triage_chunk(chunk: dict[str, str]) -> None:
+        nonlocal triage_errors, done_count
         try:
-            findings.extend(analyze_logs_batch(chunk, include_fix=include_fix))
+            result = analyze_logs_batch(chunk, include_fix=include_fix)
         except Exception:
             logger.exception("Log triage AI call failed for a chunk of %d container(s)", len(chunk))
-            triage_errors += 1
+            result = None
+        with progress_lock:
+            if result is None:
+                triage_errors += 1
+            else:
+                findings.extend(result)
+            done_count += 1
+            current = done_count
         if on_progress:
-            on_progress("triage_logs", i, len(chunks))
+            on_progress("triage_logs", current, total_chunks)
+
+    max_workers = min(ai_provider.concurrency_limit(), total_chunks)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        list(pool.map(_triage_chunk, chunks))
 
     new_findings = []
     for finding in findings:
