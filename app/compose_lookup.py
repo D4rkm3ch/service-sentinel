@@ -11,6 +11,7 @@ import re
 
 import yaml
 
+from app import db
 from app.config import settings
 
 SECRET_KEY_PATTERN = re.compile(r"(PASSWORD|SECRET|TOKEN|KEY|PASS\b|APIKEY|CREDENTIAL)", re.IGNORECASE)
@@ -170,10 +171,15 @@ def get_service_names_for_file(file_path: str) -> list[str]:
 
 def subject_display_name(source: str, subject: str) -> str:
     """Friendly display label for a finding's subject: container name as-is for logs, or
-    the service name(s) defined in the file for compose (falling back to the raw path if
-    the file can't be parsed, e.g. it was deleted since the finding was recorded)."""
+    for compose -- a manual override if one's been set (never auto-overwritten by the
+    computed name), otherwise the service name(s) defined in the file (falling back to the
+    raw path if the file can't be parsed, e.g. it was deleted since the finding was
+    recorded)."""
     if source == "logs":
         return subject
+    override = db.get_compose_file_name(subject)
+    if override and override["name_source"] == "manual":
+        return override["display_name"]
     names = get_service_names_for_file(subject)
     return ", ".join(names) if names else subject
 

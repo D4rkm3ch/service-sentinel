@@ -1302,6 +1302,28 @@ async def reset_stack_name_route(request: Request):
     return RedirectResponse(url=_stack_return_url(form, stack_id), status_code=303)
 
 
+@app.post("/compose/file/rename")
+async def rename_compose_file_route(request: Request):
+    """Compose's counterpart to /updates/stack/rename above -- simpler than that route pair
+    since Compose has only the one detail page (no return_to dance needed) and no AI-generated
+    name to preserve a services_hash for (see compose_files' own schema comment)."""
+    form = await request.form()
+    path = form.get("path", "")
+    name = (form.get("name") or "").strip()
+    if path and name:
+        db.set_compose_file_name(path, name, "manual")
+    return RedirectResponse(url=f"/compose/file?path={quote(path)}", status_code=303)
+
+
+@app.post("/compose/file/reset-name")
+async def reset_compose_file_name_route(request: Request):
+    form = await request.form()
+    path = form.get("path", "")
+    if path:
+        db.reset_compose_file_name(path)
+    return RedirectResponse(url=f"/compose/file?path={quote(path)}", status_code=303)
+
+
 @app.post("/updates/stack/check-now")
 def check_now_stack_route(request: Request, stack_id: str = ""):
     """Non-destructive scoped re-check for every member of this stack: re-checks each one

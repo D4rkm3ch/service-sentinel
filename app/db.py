@@ -115,6 +115,18 @@ CREATE TABLE IF NOT EXISTS stacks (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS compose_files (
+    -- Compose's counterpart to stacks above, minus the AI-generation/services_hash machinery --
+    -- a compose file's display name is just its own services: keys joined together (see
+    -- compose_lookup.subject_display_name), computed fresh on every lookup rather than cached,
+    -- so there's nothing to invalidate the way an AI-generated stack name needs services_hash
+    -- for. This table exists purely to hold a manual override once an operator sets one.
+    file_path TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    name_source TEXT NOT NULL DEFAULT 'computed',  -- 'computed' or 'manual'
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS stack_analyses (
     -- stack_id is a PRIMARY KEY column holding a "{stack_id}:{source}" compound value (see
     -- _stack_analysis_key below) rather than a real composite PRIMARY KEY -- SQLite can't ALTER
@@ -1517,6 +1529,35 @@ def reset_stack_name(stack_id: str) -> None:
     """Clears a manual override so the next check regenerates an AI name from scratch."""
     with get_conn() as conn:
         conn.execute("DELETE FROM stacks WHERE stack_id = ?", (stack_id,))
+
+
+def get_compose_file_name(file_path: str) -> dict | None:
+    with get_conn() as conn:
+        cur = conn.execute("SELECT * FROM compose_files WHERE file_path = ?", (file_path,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def set_compose_file_name(file_path: str, display_name: str, name_source: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO compose_files (file_path, display_name, name_source, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(file_path) DO UPDATE SET
+                display_name = excluded.display_name,
+                name_source = excluded.name_source,
+                updated_at = excluded.updated_at
+            """,
+            (file_path, display_name, name_source, now_iso()),
+        )
+
+
+def reset_compose_file_name(file_path: str) -> None:
+    """Clears a manual override so the display name goes back to being computed fresh from
+    the file's own services: keys on every lookup."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM compose_files WHERE file_path = ?", (file_path,))
 
 
 # ---------------------------------------------------------------------------
