@@ -266,6 +266,17 @@ just one where the explanation happens to be visible in the log line rather than
 already knew. Never report something as an issue and then hedge in its own description that it \
 might actually be expected or fine -- if you're explaining away your own finding, it isn't one.
 
+Pick "category" by what's actually happening, not by which container it's happening in: a \
+request/query/connection that completes and gets a normal response, just not the content you \
+wanted (e.g. a search that returns zero results because of a category or filter mismatch), is \
+an "optimization" -- nothing failed. Reserve "error" for something that didn't complete \
+successfully (a connection refused, a request rejected, a crash), and "reliability" for \
+something intermittent or flaky (works sometimes, times out or drops other times). The same \
+kind of situation must get the same category regardless of which container or application it's \
+happening in -- e.g. "an indexer search succeeded but matched nothing in the configured \
+categories" is always an "optimization", never "reliability" or "error", whether it's Prowlarr, \
+Readarr, Sonarr, or anything else hitting that exact same shape of non-problem.
+
 Pick "severity" by how urgently a human needs to act, independent of which "category" it's \
 filed under: "critical" is for something actively broken right now (a service down, a \
 connection that never succeeds, data corruption); "warning" is for something degraded or \
@@ -274,7 +285,8 @@ broken at all, just an opportunity to improve. An "optimization" category findin
 something that isn't broken by definition, so it should almost always be "suggestion" severity \
 -- reserve "warning" for it only if the inefficiency is actively causing real, ongoing harm (not \
 just "could be better"). Two containers hitting the same underlying kind of issue (e.g. both \
-misconfigured indexer categories yielding no results) should land on the same severity.
+misconfigured indexer categories yielding no results) should land on the same category AND the \
+same severity, not just one or the other.
 
 Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
 {{"container": "the container name from the excerpt's header", "title": "a short, specific title \
