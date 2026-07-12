@@ -279,8 +279,55 @@ def test_complete_text_gemini_handles_a_none_response_text():
 
 # ---------------------------------------------------------------------------
 # Truncation retry -- a response that hits max_tokens exactly is cut off mid-sentence, so it's
-# automatically retried once with a larger budget rather than silently returned truncated.
+# automatically retried with an escalating budget (doubling each round, up to
+# _MAX_TRUNCATION_RETRIES times) rather than silently returned truncated after a single retry --
+# a genuinely verbose real response (many features + several breaking changes + a detailed
+# checklist) can still blow past 2x the original budget.
 # ---------------------------------------------------------------------------
+
+def test_anthropic_truncated_response_keeps_retrying_across_multiple_rounds():
+    """A single retry wasn't enough for a real, unusually verbose changelog -- this proves the
+    budget keeps escalating (100 -> 200 -> 400) across more than one retry until it succeeds."""
+    db.set_anthropic_api_key("sk-test")
+    cut_off_1 = _anthropic_response("cut off very early")
+    cut_off_1.stop_reason = "max_tokens"
+    cut_off_2 = _anthropic_response("cut off a bit later this time")
+    cut_off_2.stop_reason = "max_tokens"
+    complete = _anthropic_response("finally, the full response")
+    complete.stop_reason = "end_turn"
+
+    with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.side_effect = [cut_off_1, cut_off_2, complete]
+        result = ai_provider.complete_text(system=None, user_message="hi", max_tokens=100)
+
+    assert result == "finally, the full response"
+    calls = mock_client_cls.return_value.messages.create.call_args_list
+    assert len(calls) == 3
+    assert [c.kwargs["max_tokens"] for c in calls] == [100, 200, 400]
+
+
+def test_anthropic_gives_up_at_the_hard_ceiling_and_returns_the_last_attempt():
+    """A pathological case that never stops truncating must not retry forever or bill an
+    unbounded amount -- capped at _MAX_TOKENS_CEILING, returning whatever the last attempt got
+    rather than raising, since a truncated response is still more useful than none at all."""
+    db.set_anthropic_api_key("sk-test")
+
+    def _always_truncated(*args, **kwargs):
+        resp = _anthropic_response(f"still cut off at {kwargs['max_tokens']}")
+        resp.stop_reason = "max_tokens"
+        return resp
+
+    with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.side_effect = _always_truncated
+        result = ai_provider.complete_text(system=None, user_message="hi", max_tokens=5000)
+
+    calls = mock_client_cls.return_value.messages.create.call_args_list
+    # 5000 -> 8192 (capped) -- one attempt at the ceiling, then it stops rather than retrying
+    # forever at a budget that can't get any larger.
+    budgets = [c.kwargs["max_tokens"] for c in calls]
+    assert budgets == [5000, ai_provider._MAX_TOKENS_CEILING]
+    assert result == f"still cut off at {ai_provider._MAX_TOKENS_CEILING}"
+
 
 def test_anthropic_truncated_response_retries_once_with_double_the_budget():
     db.set_anthropic_api_key("sk-test")

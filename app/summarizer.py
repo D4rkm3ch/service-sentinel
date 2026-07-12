@@ -34,6 +34,14 @@ which env vars, volumes, ports, or labels they have set are affected, and how. I
 the release touches their actual configuration, write exactly: "Nothing in this release affects \
 your configuration."
 
+Whenever the compose configuration provided can directly answer whether something applies -- a \
+specific env var is or isn't set, a service is or isn't present, a volume or port is or isn't \
+mapped -- check it and state the answer definitively ("You have APP_URL set, so..."), never \
+hedge with "if you have X configured" or "if you are running Y" when you can already see \
+whether they do. Save conditional "if" phrasing for things that genuinely can't be determined \
+from the compose file, like an in-app setting, database content, or which of several optional \
+providers they've picked inside the application's own UI.
+
 For all three sections: use a bullet list only when there are two or more distinct points to \
 make. If there's exactly one point, or none, write a plain sentence instead — a bullet list \
 with a single item, or a single item padded out to look like a list, reads worse than just \
@@ -101,7 +109,7 @@ Operator's compose configuration for this service:
         raise RuntimeError("No AI provider is configured (see Settings)")
 
     for attempt in range(2):
-        text = ai_provider.complete_text(system=SYSTEM_PROMPT, user_message=user_message, max_tokens=1000)
+        text = ai_provider.complete_text(system=SYSTEM_PROMPT, user_message=user_message, max_tokens=2000)
 
         match = SEVERITY_LINE_PATTERN.search(text)
         severity = match.group(1).lower() if match else "feature"
@@ -139,6 +147,13 @@ that are almost certainly already satisfied by any working setup (e.g. a baselin
 requirement bump that virtually all modern hardware already meets). Only include a step if \
 there's a real, meaningful chance they need to actually act on it, not a hedge to "double check" \
 something that's already extremely likely fine.
+
+Whenever the compose configuration provided can directly answer whether a step applies -- a \
+specific service, env var, volume, or port is or isn't present -- check it and say so \
+definitively, never write conditional "if you are running X" or "if you have Y configured" \
+guidance when you can already see whether they do. Save "if" phrasing for things that genuinely \
+can't be determined from the compose file, like an in-app setting or which of several optional \
+providers they've picked inside the application's own UI.
 
 If there's genuinely nothing the operator needs to do beyond a normal update (pull the new \
 image, restart), write exactly: "No action needed beyond a normal update."
@@ -182,7 +197,7 @@ Operator's compose configuration for this service:
         return ""
 
     return ai_provider.complete_text(
-        system=UPGRADE_GUIDANCE_SYSTEM_PROMPT, user_message=user_message, max_tokens=800,
+        system=UPGRADE_GUIDANCE_SYSTEM_PROMPT, user_message=user_message, max_tokens=1200,
     ).strip()
 
 

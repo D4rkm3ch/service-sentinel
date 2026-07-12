@@ -151,11 +151,17 @@ def concurrency_limit() -> int:
 
 
 # If a response hits its max_tokens ceiling exactly rather than finishing naturally, it's been
-# cut off mid-sentence -- worse than the modest extra cost of one retry at a larger budget. Every
-# call site picks max_tokens sized for the typical case, not the occasional longer one, so this
-# is what actually makes truncation not happen in practice rather than each site over-budgeting
-# "just in case" (which would still have a ceiling that could eventually be hit).
+# cut off mid-sentence -- worse than the extra cost of retrying at a larger budget. A single
+# doubled retry wasn't enough in practice for a genuinely verbose real changelog (a release with
+# many features, several breaking changes, and a detailed upgrade checklist can still blow past
+# 2x); this keeps doubling for a few more rounds instead of giving up after one, capped at
+# _MAX_TOKENS_CEILING so a pathological case can't balloon into an unbounded bill. Every call
+# site still picks max_tokens sized for the typical case -- this is what makes the occasional
+# much-longer-than-typical response not truncate in practice, rather than each site
+# over-budgeting "just in case" (which would still have a ceiling that could eventually be hit).
 _TRUNCATION_RETRY_MULTIPLIER = 2
+_MAX_TRUNCATION_RETRIES = 3
+_MAX_TOKENS_CEILING = 8192
 
 
 def complete_text(system: str | None, user_message: str, max_tokens: int) -> str:
@@ -177,14 +183,24 @@ def web_search(user_message: str, max_tokens: int) -> str:
 
 
 def _with_truncation_retry(fn, max_tokens: int) -> str:
-    text, truncated = fn(max_tokens)
-    if truncated:
-        retry_tokens = max_tokens * _TRUNCATION_RETRY_MULTIPLIER
+    text = ""
+    budget = max_tokens
+    for attempt in range(_MAX_TRUNCATION_RETRIES + 1):
+        text, truncated = fn(budget)
+        if not truncated:
+            return text
+        if budget >= _MAX_TOKENS_CEILING:
+            logger.warning(
+                "Response still truncated at the %d-token ceiling after %d attempt(s) -- giving up",
+                _MAX_TOKENS_CEILING, attempt + 1,
+            )
+            break
+        next_budget = min(budget * _TRUNCATION_RETRY_MULTIPLIER, _MAX_TOKENS_CEILING)
         logger.warning(
-            "Response hit max_tokens (%d) and was cut off -- retrying once with %d",
-            max_tokens, retry_tokens,
+            "Response hit max_tokens (%d) and was cut off -- retrying with %d (attempt %d/%d)",
+            budget, next_budget, attempt + 1, _MAX_TRUNCATION_RETRIES,
         )
-        text, _ = fn(retry_tokens)
+        budget = next_budget
     return text
 
 
