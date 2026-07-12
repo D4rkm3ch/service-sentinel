@@ -163,6 +163,20 @@ _TRUNCATION_RETRY_MULTIPLIER = 2
 _MAX_TRUNCATION_RETRIES = 3
 _MAX_TOKENS_CEILING = 8192
 
+# Gemini's "thinking" models (2.5 Flash/Pro) spend an unpredictable number of internal
+# reasoning tokens before writing the actual answer, and those thinking tokens count against
+# max_output_tokens too -- so even a budget sized generously for the expected answer length can
+# still get eaten alive by thinking and trip the truncation retry above. Real production traffic
+# hit this repeatedly at several unrelated call sites (Logs' stack-naming and cross-service
+# calls, then separately Updates' summarize_update/generate_upgrade_guidance calls) -- each
+# fixed one at a time by raising that site's starting max_tokens, but the same failure kept
+# resurfacing at the next site, since raising one budget does nothing for the others. Capping the
+# thinking budget here, once, for every Gemini call, fixes the actual cause instead of chasing it
+# site by site. 512 leaves real room for the model to reason about a genuinely ambiguous case
+# without letting thinking alone consume an entire small output budget; 0 (fully disabled) isn't
+# used here since Gemini 2.5 Pro rejects it outright (Flash models allow 0, Pro requires >0).
+_GEMINI_THINKING_BUDGET = 512
+
 
 def complete_text(system: str | None, user_message: str, max_tokens: int) -> str:
     """Single-turn text completion, provider-agnostic. Raises on failure -- same contract the
@@ -219,7 +233,10 @@ def _complete_anthropic(system: str | None, user_message: str, max_tokens: int) 
 
 def _complete_gemini(system: str | None, user_message: str, max_tokens: int) -> tuple[str, bool]:
     client = _gemini_client()
-    config = genai_types.GenerateContentConfig(max_output_tokens=max_tokens, system_instruction=system)
+    config = genai_types.GenerateContentConfig(
+        max_output_tokens=max_tokens, system_instruction=system,
+        thinking_config=genai_types.ThinkingConfig(thinking_budget=_GEMINI_THINKING_BUDGET),
+    )
     response = _call_gemini(lambda: client.models.generate_content(
         model=db.get_gemini_model(), contents=user_message, config=config,
     ))
@@ -245,6 +262,7 @@ def _web_search_gemini(user_message: str, max_tokens: int) -> tuple[str, bool]:
     config = genai_types.GenerateContentConfig(
         max_output_tokens=max_tokens,
         tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
+        thinking_config=genai_types.ThinkingConfig(thinking_budget=_GEMINI_THINKING_BUDGET),
     )
     response = _call_gemini(lambda: client.models.generate_content(
         model=db.get_gemini_model(), contents=user_message, config=config,

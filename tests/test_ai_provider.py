@@ -445,3 +445,36 @@ def test_web_search_gemini_enables_google_search_grounding():
     kwargs = mock_client_cls.return_value.models.generate_content.call_args.kwargs
     tools = kwargs["config"].tools
     assert len(tools) == 1 and tools[0].google_search is not None
+
+
+# ---------------------------------------------------------------------------
+# Gemini thinking-budget cap -- a real-world report: several unrelated call sites (Logs'
+# stack-naming and cross-service calls, then separately Updates' summarize_update and
+# generate_upgrade_guidance calls) independently hit repeated truncation retries because
+# Gemini's internal reasoning tokens count against max_output_tokens too. Fixed once, centrally,
+# by capping the thinking budget on every Gemini call rather than continuing to raise each call
+# site's starting max_tokens as the next one turns up.
+# ---------------------------------------------------------------------------
+
+def test_complete_text_gemini_caps_the_thinking_budget():
+    db.set_ai_provider("gemini")
+    db.set_gemini_api_key("AIza-test")
+    with patch("app.ai_provider.genai.Client") as mock_client_cls:
+        mock_client_cls.return_value.models.generate_content.return_value = _gemini_response("ok")
+        ai_provider.complete_text(system=None, user_message="hi", max_tokens=100)
+
+    kwargs = mock_client_cls.return_value.models.generate_content.call_args.kwargs
+    thinking_config = kwargs["config"].thinking_config
+    assert thinking_config.thinking_budget == ai_provider._GEMINI_THINKING_BUDGET
+
+
+def test_web_search_gemini_also_caps_the_thinking_budget():
+    db.set_ai_provider("gemini")
+    db.set_gemini_api_key("AIza-test")
+    with patch("app.ai_provider.genai.Client") as mock_client_cls:
+        mock_client_cls.return_value.models.generate_content.return_value = _gemini_response('{"found": true}')
+        ai_provider.web_search("find the notes", max_tokens=1200)
+
+    kwargs = mock_client_cls.return_value.models.generate_content.call_args.kwargs
+    thinking_config = kwargs["config"].thinking_config
+    assert thinking_config.thinking_budget == ai_provider._GEMINI_THINKING_BUDGET
