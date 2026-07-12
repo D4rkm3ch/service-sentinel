@@ -134,6 +134,12 @@ the release notes actually say -- never invent generic advice like "always back 
 upgrading" unless the release notes specifically call out something that makes that unusually \
 important this time.
 
+The operator is already running this container successfully today -- skip pre-flight checks \
+that are almost certainly already satisfied by any working setup (e.g. a baseline CPU/OS \
+requirement bump that virtually all modern hardware already meets). Only include a step if \
+there's a real, meaningful chance they need to actually act on it, not a hedge to "double check" \
+something that's already extremely likely fine.
+
 If there's genuinely nothing the operator needs to do beyond a normal update (pull the new \
 image, restart), write exactly: "No action needed beyond a normal update."
 
