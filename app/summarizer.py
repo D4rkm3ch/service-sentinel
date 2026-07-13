@@ -352,15 +352,23 @@ to, overly permissive volume mounts (e.g. mounting the whole filesystem or the D
 read-write when read-only would do).
 - Reliability issues: missing restart policy, service dependencies that aren't declared via \
 depends_on.
-- Optimization opportunities: redundant or unused environment variables, obviously outdated \
-image-pinning practice (e.g. floating :latest on a service where that's risky), network \
+- Optimization opportunities: redundant or unused environment variables, network \
 misconfiguration.
 
-Do NOT flag missing resource limits (CPU/memory limits) — this homelab operator has decided \
-that's not worth reporting, even as a low-severity suggestion.
+Do NOT flag any of the following — this homelab operator has explicitly decided none of these \
+are worth reporting, even as a low-severity suggestion:
+- Missing resource limits (CPU/memory limits).
+- Image tag/version-pinning choice in either direction (floating :latest vs. a pinned version, \
+or recommending one floating tag over another) — assume it's a deliberate choice, not an \
+oversight, and never invent a specific version number to suggest since you don't have real \
+release data for these images.
+- Recommending network_mode: host as an optimization or convenience. (Still fine to flag it as \
+a security concern on a service that already uses it and doesn't need that level of host access.)
 
-Only report things with real substance — skip purely stylistic nitpicks. If the file looks fine, \
-say so by returning an empty array.
+Only report things with real substance — skip purely stylistic nitpicks, including restating a \
+default that's already in effect (e.g. adding an explicit ":rw" to a volume mount that's already \
+read-write by default) or preferences with no functional difference. If the file looks fine, say \
+so by returning an empty array.
 
 Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
 {{"title": "a short, specific title (under 8 words)", "category": one of "security", \
