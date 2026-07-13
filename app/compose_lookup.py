@@ -21,12 +21,32 @@ SECRET_KEY_PATTERN = re.compile(r"(PASSWORD|SECRET|TOKEN|KEY|PASS\b|APIKEY|CREDE
 # call -- and it's called on every Updates/Logs page render AND their 20-second self-refreshing
 # table partials, so an idle open tab was re-parsing the entire compose tree three times a
 # minute forever. Cached against a snapshot of every file's (path, mtime): the directory walk
-# still happens per call (cheap, and it's what detects adds/removes), but YAML parsing only
-# re-runs when a file actually changed. The cached index is shared -- callers treat it as
-# read-only (match_container_to_stack and friends only ever iterate it).
+# still happens per call, but YAML parsing only re-runs when a file actually changed. The
+# cached index is shared -- callers treat it as read-only (match_container_to_stack and
+# friends only ever iterate it).
 _index_lock = threading.Lock()
 _index_snapshot: tuple | None = None
 _index_cache: list[dict] = []
+
+# The directory walk itself -- assumed "cheap" above -- turned out to be the dominant cost with
+# a real-sized compose tree (a homelab-scale ~43-file report showed a single /updates render
+# under concurrent load spending ~85% of its time here): two full recursive Path.rglob() passes
+# plus a stat() per file, all pure-Python pathlib work that holds the GIL the whole time. With
+# several open tabs each independently rendering/auto-refreshing Updates, Logs, and Compose,
+# concurrent requests landing at the same moment each did their own full redundant walk,
+# serializing under the GIL instead of overlapping -- turning a sub-10ms request into a
+# multi-second one under load.
+#
+# Fixed with request coalescing ("single-flight"), not a time-based cache: a time-based cache
+# was tried first and reverted -- it broke the suite everywhere a test writes a compose file
+# and immediately expects build_stack_index() to see it, which turned out to be a load-bearing
+# assumption across many unrelated test files, not just this module's own. Coalescing instead
+# means calls that are genuinely concurrent (arrive while a walk is already in flight) share
+# that one walk's result; a call that arrives after the in-flight walk has finished always
+# starts a brand new one. No staleness window, ever -- only truly-simultaneous callers are
+# deduplicated.
+_snapshot_lock = threading.Lock()
+_snapshot_inflight: tuple[threading.Event, dict] | None = None
 
 
 def _redact_env(env) -> dict:
@@ -86,10 +106,10 @@ def find_service_config(container_name: str) -> dict | None:
     return None
 
 
-def _compose_paths_snapshot() -> tuple[list, tuple]:
-    """Every compose file under COMPOSE_ROOT plus a change-detection fingerprint of their
-    (path, mtime, size) triples. A file deleted mid-walk is simply skipped -- it'll be picked
-    up (as a removal) on the next call."""
+def _walk_compose_root() -> tuple[list, tuple]:
+    """The actual, uncached directory walk -- every compose file under COMPOSE_ROOT plus a
+    change-detection fingerprint of their (path, mtime, size) triples. A file deleted mid-walk
+    is simply skipped -- it'll be picked up (as a removal) on the next call."""
     paths = list(settings.compose_root.rglob("*.yml")) + list(settings.compose_root.rglob("*.yaml"))
     snapshot = []
     live_paths = []
@@ -101,6 +121,38 @@ def _compose_paths_snapshot() -> tuple[list, tuple]:
         live_paths.append(path)
         snapshot.append((str(path), stat.st_mtime_ns, stat.st_size))
     return live_paths, tuple(snapshot)
+
+
+def _compose_paths_snapshot() -> tuple[list, tuple]:
+    """Coalesced wrapper around _walk_compose_root() -- see the module-level comment above
+    _snapshot_lock for why this exists and why it's coalescing rather than a time-based cache.
+    The first caller to arrive becomes the leader and does the real walk; anyone else who
+    calls in while that's in flight waits on the same event and gets the identical result
+    instead of doing their own. Once the leader finishes, the slot clears immediately -- the
+    very next caller (even the leader's own very next call) always triggers a brand new walk."""
+    global _snapshot_inflight
+
+    with _snapshot_lock:
+        if _snapshot_inflight is not None:
+            event, holder = _snapshot_inflight
+            am_leader = False
+        else:
+            event = threading.Event()
+            holder = {}
+            _snapshot_inflight = (event, holder)
+            am_leader = True
+
+    if not am_leader:
+        event.wait()
+        return holder["result"]
+
+    try:
+        holder["result"] = _walk_compose_root()
+    finally:
+        with _snapshot_lock:
+            _snapshot_inflight = None
+        event.set()
+    return holder["result"]
 
 
 def build_stack_index() -> list[dict]:
