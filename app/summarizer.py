@@ -351,7 +351,11 @@ Look for:
 to, overly permissive volume mounts (e.g. mounting the whole filesystem or the Docker socket \
 read-write when read-only would do).
 - Reliability issues: missing restart policy, service dependencies that aren't declared via \
-depends_on.
+depends_on. A depends_on entry with condition: service_healthy pointing at a service with no \
+healthcheck defined is always "warning" severity, every time it occurs, in every file -- that \
+condition can never be satisfied, so the dependent service can never actually start correctly. \
+Don't rate this "suggestion" in one file and "warning" in another; it's the same functional \
+break wherever it appears.
 - Optimization opportunities: redundant or unused environment variables, network \
 misconfiguration.
 
@@ -376,7 +380,10 @@ Respond with ONLY a JSON array and nothing else — no markdown fences, no pream
 "description": "1-3 sentences explaining the issue"{fix_field}}}"""
 
 FIX_INSTRUCTION_COMPOSE = "a concrete suggested compose file change — the specific key(s) to " \
-    "add or edit, not generic advice"
+    "add or edit, not generic advice. State it as a from-the-actual-current-value " \
+    "to-the-recommended-value edit (e.g. \"change ':rw' to ':ro'\"), matching what the file " \
+    "actually has right now -- re-read the current value from the file before writing the fix " \
+    "so the direction of the change is never backwards from what the description says is wrong"
 FIX_FIELD_COMPOSE = f', "fix": "{FIX_INSTRUCTION_COMPOSE}"'
 
 
