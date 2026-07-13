@@ -349,13 +349,15 @@ this — you're reviewing structure and configuration, not credentials.
 Look for:
 - Security issues: unnecessarily exposed ports, containers running as root when they don't need \
 to, overly permissive volume mounts (e.g. mounting the whole filesystem or the Docker socket \
-read-write when read-only would do), missing resource limits that could let one container take \
-down the host.
+read-write when read-only would do).
 - Reliability issues: missing restart policy, service dependencies that aren't declared via \
 depends_on.
 - Optimization opportunities: redundant or unused environment variables, obviously outdated \
 image-pinning practice (e.g. floating :latest on a service where that's risky), network \
 misconfiguration.
+
+Do NOT flag missing resource limits (CPU/memory limits) — this homelab operator has decided \
+that's not worth reporting, even as a low-severity suggestion.
 
 Only report things with real substance — skip purely stylistic nitpicks. If the file looks fine, \
 say so by returning an empty array.
