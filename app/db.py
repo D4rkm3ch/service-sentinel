@@ -454,6 +454,42 @@ def get_release_notes_lookback_days(conn: sqlite3.Connection | None = None) -> i
 
 
 # ---------------------------------------------------------------------------
+# Logs lookback — how far back a container's log fetch reaches when there's no checkpoint to
+# work from (a container being watched for the first time, or one just reset -- see
+# reset_logs_data below). An ordinary Check now is never affected by this: it always fetches
+# strictly since the container's own last-checked checkpoint, incremental, regardless of this
+# setting. "since_reset" is the default and pairs with reset_logs_data's own behavior (see its
+# docstring) -- rather than clearing the checkpoint on reset (which used to make the very next
+# check fall back to a fixed window and could re-surface a since-fixed issue whose log lines
+# were still sitting in Docker's own buffer from before the fix), it stamps the checkpoint to
+# the reset moment itself, so the next check only ever sees logs written after that. The hour-
+# based options instead restore the old "always look back N hours" behavior on demand, for an
+# operator who wants a longer first look at a newly-watched or freshly reset container.
+# ---------------------------------------------------------------------------
+
+LOGS_LOOKBACK_HOURS = {
+    "since_reset": None,
+    "6": 6,
+    "12": 12,
+    "24": 24,
+    "72": 72,
+    "168": 168,
+}
+
+
+def get_logs_lookback(conn: sqlite3.Connection | None = None) -> str:
+    return _get_setting("logs_lookback", "since_reset", conn=conn)
+
+
+def set_logs_lookback(value: str) -> None:
+    _set_setting("logs_lookback", value)
+
+
+def get_logs_lookback_hours(conn: sqlite3.Connection | None = None) -> int | None:
+    return LOGS_LOOKBACK_HOURS.get(get_logs_lookback(conn=conn))
+
+
+# ---------------------------------------------------------------------------
 # Schedules — a "master" schedule everything uses by default, with an optional
 # per-feature override. Stored as small JSON specs (see schedule_spec.py) rather
 # than raw cron strings, so the UI can offer a plain Hourly/Daily/Weekly/Monthly
@@ -1268,24 +1304,43 @@ def set_log_watch_checkpoints(container_names: list[str]) -> None:
 
 
 def reset_logs_data(subjects: list[str] | None = None) -> None:
-    """Logs' equivalent of reset_updates_data(): wipes persisted findings, the per-container
-    checkpoint, and any cached overview blurb, so the next check re-scans that container's full
-    configured lookback window fresh -- as if seeing it for the first time -- rather than
-    "since last checkpoint" (which is what an ordinary Check now always does). subjects=None
-    (the global Reset & re-check button) wipes every Logs subject; a given list scopes the wipe
-    to just those container names (stack- or service-level Reset & re-check)."""
+    """Logs' equivalent of reset_updates_data(): wipes persisted findings and any cached
+    overview blurb, so the next check reviews fresh regardless of what it previously found.
+    subjects=None (the global Reset & re-check button) wipes every Logs subject; a given list
+    scopes the wipe to just those container names (stack- or service-level Reset & re-check).
+
+    The per-container checkpoint's fate depends on get_logs_lookback(): "since_reset" (the
+    default) stamps it to this exact moment instead of clearing it, so the next check only ever
+    sees logs written after the reset -- clearing it outright used to make that next check fall
+    back to a fixed time window instead, which could re-surface an already-fixed issue whose
+    log lines were still sitting in Docker's own buffer from before the fix. Any hour-based
+    lookback choice clears it instead, restoring that original "fall back to N hours" behavior
+    on demand. Only containers that already had a checkpoint get re-stamped -- one being reset
+    that never had one (never successfully checked, only ever errored, say) has no stale
+    checkpoint to protect against in the first place, so it's left to take the normal no-
+    checkpoint path on its next check like any other never-checked container."""
+    since_reset = get_logs_lookback() == "since_reset"
     with get_conn() as conn:
         if subjects is None:
+            checkpoint_names = [r["container_name"] for r in conn.execute("SELECT container_name FROM log_watch_state").fetchall()]
             conn.execute("DELETE FROM findings WHERE source = 'logs'")
             conn.execute("DELETE FROM log_watch_state")
             conn.execute("DELETE FROM subject_summaries WHERE source = 'logs'")
             conn.execute("DELETE FROM log_check_errors")
         elif subjects:
             qs = ",".join("?" * len(subjects))
+            checkpoint_names = [
+                r["container_name"]
+                for r in conn.execute(f"SELECT container_name FROM log_watch_state WHERE container_name IN ({qs})", subjects).fetchall()
+            ]
             conn.execute(f"DELETE FROM findings WHERE source = 'logs' AND subject IN ({qs})", subjects)
             conn.execute(f"DELETE FROM log_watch_state WHERE container_name IN ({qs})", subjects)
             conn.execute(f"DELETE FROM subject_summaries WHERE source = 'logs' AND subject IN ({qs})", subjects)
             conn.execute(f"DELETE FROM log_check_errors WHERE container_name IN ({qs})", subjects)
+        else:
+            checkpoint_names = []
+    if since_reset and checkpoint_names:
+        set_log_watch_checkpoints(checkpoint_names)
 
 
 def reset_compose_data(subjects: list[str] | None = None) -> None:

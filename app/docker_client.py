@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import docker
 
+from app import db
 from app.config import settings
 
 IGNORE_LABEL = "servicesentinel.ignore"
@@ -128,11 +129,13 @@ def open_client() -> "docker.DockerClient":
 
 def get_container_logs_since(container_name: str, since_iso: str | None, max_lines: int,
                               client: "docker.DockerClient | None" = None) -> str | None:
-    """Returns up to max_lines of log text for a container since the given ISO timestamp
-    (or the configured lookback window if since_iso is None — first time this container has
-    been checked). Returns None if the container can't be found or logs can't be read.
-    Pass a client (see open_client) when fetching for many containers in one pass; without
-    one, a client is opened and closed just for this call."""
+    """Returns up to max_lines of log text for a container since the given ISO timestamp (or
+    the configured lookback window if since_iso is None — a container being watched for the
+    first time, or one just reset with an hour-based lookback choice; see db.get_logs_lookback
+    and reset_logs_data's own docstring for the "since_reset" default's different behavior).
+    Returns None if the container can't be found or logs can't be read. Pass a client (see
+    open_client) when fetching for many containers in one pass; without one, a client is opened
+    and closed just for this call."""
     owns_client = client is None
     if owns_client:
         client = docker.DockerClient(base_url=settings.docker_socket)
@@ -150,7 +153,14 @@ def get_container_logs_since(container_name: str, since_iso: str | None, max_lin
             except ValueError:
                 pass
         else:
-            kwargs["since"] = datetime.now(timezone.utc) - timedelta(hours=settings.log_lookback_hours)
+            lookback_hours = db.get_logs_lookback_hours()
+            # None ("since_reset" with no checkpoint at all -- a container that's never been
+            # checked or reset) means no time bound whatsoever, relying purely on `tail` above
+            # to keep the fetch bounded -- same "uncapped, just bounded by the natural
+            # mechanism already in place" shape as the Release Notes lookback's own
+            # "since_check" option.
+            if lookback_hours is not None:
+                kwargs["since"] = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
 
         raw = container.logs(**kwargs)
         text = raw.decode("utf-8", errors="replace")

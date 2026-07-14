@@ -131,11 +131,12 @@ compose stack. This costs noticeably more tokens.</p>
 </section>
 
 <section class="panel">
-  <h2 class="settings-heading-lg">Release Notes Lookback Window</h2>
-  <p class="meta">How far back to look for missed releases, combined into one summary - still
-capped by your last actual check</p>
+  <h2 class="settings-heading-lg">Lookback Window</h2>
 
   <div class="settings-subsection settings-subsection-first">
+    <h4>Release Notes</h4>
+    <p class="meta">How far back to look for missed releases, combined into one summary - still
+capped by your last actual check</p>
     <select name="release_notes_lookback" class="mono field-input" hx-post="/settings/release-notes-lookback"
             hx-trigger="change" hx-target="#saved-release-notes-lookback">
       <option value="since_check" {{ 'selected' if release_notes_lookback == 'since_check' else '' }}>No limit (since last check)</option>
@@ -146,6 +147,23 @@ capped by your last actual check</p>
       <option value="365" {{ 'selected' if release_notes_lookback == '365' else '' }}>Last year</option>
     </select>
     <span class="saved-indicator-slot" id="saved-release-notes-lookback"></span>
+  </div>
+
+  <div class="settings-subsection">
+    <h4>Runtime</h4>
+    <p class="meta">How far back a container's logs reach when there's no checkpoint to work
+from yet - a container watched for the first time, or one just reset. An ordinary Check now
+always looks only since its last check, regardless of this setting</p>
+    <select name="logs_lookback" class="mono field-input" hx-post="/settings/logs-lookback"
+            hx-trigger="change" hx-target="#saved-logs-lookback">
+      <option value="since_reset" {{ 'selected' if logs_lookback == 'since_reset' else '' }}>No limit (since last reset)</option>
+      <option value="6" {{ 'selected' if logs_lookback == '6' else '' }}>Last 6 hours</option>
+      <option value="12" {{ 'selected' if logs_lookback == '12' else '' }}>Last 12 hours</option>
+      <option value="24" {{ 'selected' if logs_lookback == '24' else '' }}>Last 24 hours</option>
+      <option value="72" {{ 'selected' if logs_lookback == '72' else '' }}>Last 3 days</option>
+      <option value="168" {{ 'selected' if logs_lookback == '168' else '' }}>Last 7 days</option>
+    </select>
+    <span class="saved-indicator-slot" id="saved-logs-lookback"></span>
   </div>
 </section>
 
@@ -170,7 +188,7 @@ capped by your last actual check</p>
     {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
   </div>
 
-  {% for feature, title in [('updates', 'Updates'), ('logs', 'Runtime Health'), ('compose', 'Configuration Health')] %}
+  {% for feature, title in [('updates', 'Update Schedule'), ('logs', 'Runtime Schedule'), ('compose', 'Configuration Schedule')] %}
   <div class="settings-subsection">
     <h4>{{ title }}</h4>
     {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,

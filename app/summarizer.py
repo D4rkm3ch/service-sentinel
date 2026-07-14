@@ -117,6 +117,42 @@ SEVERITY_LINE_PATTERN = re.compile(
     r"^\s*SEVERITY:\s*(bugfix|feature|action_needed|breaking)\s*$", re.IGNORECASE | re.MULTILINE
 )
 
+_LIST_ITEM_LINE = re.compile(r"^[-*]\s+(.*)$")
+
+
+def _debulletize_single_item_sections(markdown_text: str) -> str:
+    """The system prompt above (see "use a bullet list only when there are two or more distinct
+    points") asks the model to write a single point as a plain sentence rather than a one-item
+    bullet list -- a real-world report showed a "## New Features" section with a lone bullet
+    anyway, since a prompt instruction is a request, not a guarantee. Enforced here in code
+    instead: any "## " section whose entire body is exactly one bullet line has that line's
+    marker stripped, turning it into a plain sentence. Genuine 2+-item lists, and sections that
+    were already plain sentences, are left untouched."""
+    lines = markdown_text.split("\n")
+    sections: list[tuple[str | None, list[str]]] = []
+    header = None
+    body: list[str] = []
+    for line in lines:
+        if line.startswith("## "):
+            sections.append((header, body))
+            header, body = line, []
+        else:
+            body.append(line)
+    sections.append((header, body))
+
+    out: list[str] = []
+    for header, body in sections:
+        if header is not None:
+            out.append(header)
+        non_blank = [line for line in body if line.strip()]
+        list_items = [line for line in non_blank if _LIST_ITEM_LINE.match(line.strip())]
+        if len(non_blank) == 1 and len(list_items) == 1:
+            out.append("")
+            out.append(_LIST_ITEM_LINE.match(non_blank[0].strip()).group(1))
+        else:
+            out.extend(body)
+    return "\n".join(out)
+
 
 def summarize_update(
     container_name: str,
@@ -162,7 +198,7 @@ Operator's compose configuration for this service:
         summary_markdown = SEVERITY_LINE_PATTERN.sub("", text).strip()
 
         if summary_markdown:
-            return summary_markdown, severity
+            return _debulletize_single_item_sections(summary_markdown), severity
 
         logger.warning(
             "Model returned no summary content for %s beyond the severity line (attempt %d/2)",

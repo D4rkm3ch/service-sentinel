@@ -44,8 +44,8 @@ def test_deep_analysis_and_cross_service_copy_is_shortened(client):
 def test_release_notes_section_is_renamed_and_intro_merged():
     from pathlib import Path
     text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "settings.html").read_text()
-    assert "Release Notes Lookback Window" in text
-    assert "<h4>Lookback Window</h4>" not in text
+    assert ">Lookback Window<" in text
+    assert "<h4>Release Notes</h4>" in text
     assert "If you've missed several releases" not in text
 
 

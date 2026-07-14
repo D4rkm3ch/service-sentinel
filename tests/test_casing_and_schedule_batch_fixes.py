@@ -46,10 +46,11 @@ def test_suggested_fix_and_upgrade_guidance_headings_are_title_cased():
 
 
 def test_settings_lookback_window_heading_is_title_cased():
-    """The standalone "Lookback Window" subheading was folded into the section's own title
-    (see the UI overhaul's settings copy pass) -- "Release Notes Lookback Window" now."""
+    """Split back into its own "Lookback Window" section heading with per-feature subsections
+    (Release Notes, Runtime) once a second lookback setting (Logs/Runtime) existed -- folding
+    both into one combined title stopped scaling past the original single Release Notes case."""
     text = (ROOT / "app" / "templates" / "settings.html").read_text()
-    assert "Release Notes Lookback Window" in text
+    assert ">Lookback Window<" in text
 
 
 def test_notes_not_found_and_up_to_date_badges_are_title_cased():

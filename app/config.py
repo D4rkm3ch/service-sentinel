@@ -39,9 +39,9 @@ class Settings:
         # deploy-time constant could fit, and operators need to be able to change it without a
         # redeploy the same way the provider/model/key already can.
 
-        # Log watcher tuning — schedule itself now lives in the database (Settings tab),
-        # not here, but these control how much log data gets pulled and pre-filtered.
-        self.log_lookback_hours: int = int(os.environ.get("LOG_LOOKBACK_HOURS", "24"))
+        # Log watcher tuning — the lookback window itself now lives in the database (Settings
+        # tab, see db.get_logs_lookback), not here, but this still controls how much log data
+        # gets pulled and pre-filtered per container.
         self.log_max_lines_per_container: int = int(os.environ.get("LOG_MAX_LINES_PER_CONTAINER", "5000"))
 
     def validate(self) -> list[str]:

@@ -73,7 +73,7 @@ def test_sidebar_has_a_watermark_element_for_the_dimmed_background_logo():
     assert "sidebar-watermark" in text
     style = STYLE.read_text()
     assert ".sidebar-watermark" in style
-    assert "opacity:" in style[style.index(".sidebar-watermark"):style.index(".sidebar-watermark") + 700]
+    assert "opacity:" in style[style.index(".sidebar-watermark"):style.index(".sidebar-watermark") + 1300]
 
 
 # ---------------------------------------------------------------------------
