@@ -1258,10 +1258,13 @@ def _run_claimed_logs_bulk_regenerate() -> None:
     try:
         container_names = [row["name"] for row in db.all_log_watch_states_with_status()]
         for name in container_names:
+            if check_state.is_cancel_requested("logs"):
+                break
             findings = db.list_findings_for_subject("logs", name, include_silenced=True)
             if len(findings) >= 2:
                 _get_or_build_overview("logs", name, name, findings, force=True)
-        stacks.run_log_stack_analysis_pass(container_names, force=True)
+        if not check_state.is_cancel_requested("logs"):
+            stacks.run_log_stack_analysis_pass(container_names, force=True)
     except Exception:
         logger.exception("Bulk Regenerate AI Response failed unexpectedly for Logs")
     finally:
@@ -1301,6 +1304,8 @@ def _run_claimed_compose_bulk_regenerate() -> None:
     try:
         file_paths = [row["name"] for row in db.all_compose_file_states_with_status()]
         for path in file_paths:
+            if check_state.is_cancel_requested("compose"):
+                break
             findings = db.list_findings_for_subject("compose", path, include_silenced=True)
             if len(findings) >= 2:
                 display_name = compose_lookup.subject_display_name("compose", path)

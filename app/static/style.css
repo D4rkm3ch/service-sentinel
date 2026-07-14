@@ -404,6 +404,20 @@ button:disabled, button:disabled:hover {
   border-color: var(--error);
 }
 
+/* A Check Now button flipped into Cancel (see base.html's applyCheckNowMode) -- same red
+   treatment as .button-danger so it reads as a stop/abort action at a glance instead of
+   blending into the green "start a check" look it has the rest of the time. */
+.check-now-btn[data-cancel-mode="true"] {
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
+}
+.check-now-btn[data-cancel-mode="true"]:hover {
+  background: var(--error);
+  color: #1a0e0e;
+  border-color: var(--error);
+}
+
 /* Same outlined shape as .button-danger, amber instead of red -- for an action that isn't
    destructive (nothing gets wiped) but also isn't a plain safe action either, e.g.
    "Regenerate AI Response." Reuses the existing --warn color the severity badges already use

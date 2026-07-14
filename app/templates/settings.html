@@ -32,7 +32,7 @@
       <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
     </div>
     <div class="stepper-row">
-      <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests</label>
+      <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests (4 recommended)</label>
       <div class="stepper">
         <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', -1)">&minus;</button>
         <input type="number" inputmode="numeric" class="mono field-input stepper-input"
@@ -59,7 +59,7 @@
       <span class="saved-indicator-slot" id="saved-gemini_model"></span>
     </div>
     <div class="stepper-row">
-      <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests</label>
+      <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests (4 recommended)</label>
       <div class="stepper">
         <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', -1)">&minus;</button>
         <input type="number" inputmode="numeric" class="mono field-input stepper-input"
@@ -331,10 +331,14 @@ function saveConcurrency(provider, rawValue) {
   const slot = document.getElementById('saved-' + provider + '_concurrency');
   const min = parseInt(input.min, 10);
   const max = parseInt(input.max, 10);
-  const value = parseInt(rawValue, 10);
-  if (isNaN(value) || value < min || value > max) {
-    slot.innerHTML = '<span class="test-result-error">Must be ' + min + '-' + max + '</span>';
-    return;
+  let value = parseInt(rawValue, 10);
+  if (isNaN(value)) value = min;
+  // Typing something out of range snaps back into 1-10 rather than rejecting the input --
+  // there's nothing genuinely invalid about "12", it just means "as high as this goes".
+  const clamped = Math.min(max, Math.max(min, value));
+  if (clamped !== value) {
+    input.value = clamped;
+    value = clamped;
   }
   fetch('/settings/ai/' + provider + '-concurrency', {
     method: 'POST',
