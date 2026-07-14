@@ -103,7 +103,12 @@ main {
   max-width: 1260px;
   width: 100%;
   margin: 0 auto;
-  padding: 32px 24px;
+  /* Vertical padding matches .panel's own margin-bottom (20px, the same gap used between every
+     panel/table sitewide) so the gap from the topbar to the first panel -- and from the last
+     panel to the footer -- reads the same as the gap between any two panels, instead of the
+     larger 32px it used to be. Top and bottom stay equal to each other on purpose (see
+     test_footer_layout.py's test_main_top_and_bottom_padding_match). */
+  padding: 20px 24px;
   flex: 1 0 auto;
 }
 
