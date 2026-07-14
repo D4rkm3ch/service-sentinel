@@ -1493,6 +1493,32 @@ def set_gemini_model(model: str) -> None:
     _set_setting("gemini_model", model)
 
 
+# How many AI calls persist.py's fan-out phases run at once for each provider -- previously a
+# single value shared by both (see AI_SUMMARIZE_CONCURRENCY in config.py), now per-provider and
+# UI-editable since the right number genuinely differs by provider (and by tier within a
+# provider) rather than being one global constant. Clamped to 1-10 by the routes in main.py that
+# write these; read paths trust the stored value since nothing else can write it.
+AI_CONCURRENCY_MIN = 1
+AI_CONCURRENCY_MAX = 10
+AI_CONCURRENCY_DEFAULT = 4
+
+
+def get_anthropic_concurrency() -> int:
+    return int(_get_setting("anthropic_concurrency", str(AI_CONCURRENCY_DEFAULT)))
+
+
+def set_anthropic_concurrency(value: int) -> None:
+    _set_setting("anthropic_concurrency", str(value))
+
+
+def get_gemini_concurrency() -> int:
+    return int(_get_setting("gemini_concurrency", str(AI_CONCURRENCY_DEFAULT)))
+
+
+def set_gemini_concurrency(value: int) -> None:
+    _set_setting("gemini_concurrency", str(value))
+
+
 def get_github_token() -> str:
     return _get_setting("github_token", "")
 

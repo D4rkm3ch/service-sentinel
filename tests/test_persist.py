@@ -190,7 +190,13 @@ def test_persist_check_outcome_uses_a_fixed_number_of_connections_not_one_per_co
     stacks.run_stack_analysis_pass()'s own Deep Analysis toggle read (Stage 12) -- checked once
     per batch same as everything else here, and these 20 containers are all on different image
     repos with no compose files in this test's COMPOSE_ROOT, so there's no stack to actually
-    analyze regardless."""
+    analyze regardless. Two more still come from ai_provider.concurrency_limit()'s own pair of
+    Settings reads (provider + that provider's own concurrency setting, now per-provider and
+    DB-backed rather than a single deploy-time constant) -- called once for the release notes
+    fetch phase (all 20 containers are new, so that phase has work); the summarization phase
+    never reaches it at all here since it's gated behind is_configured() (no provider
+    configured in this test), same "checked once per phase that actually runs, not once per
+    container" shape as everything else counted above."""
     original_connect = sqlite3.connect
     connect_calls = []
 
@@ -203,7 +209,7 @@ def test_persist_check_outcome_uses_a_fixed_number_of_connections_not_one_per_co
     with patch("app.db.sqlite3.connect", side_effect=counting_connect):
         persist.persist_check_outcome(_outcome(*containers))
 
-    assert connect_calls == [1, 1, 1, 1, 1], f"expected a fixed connection count for the whole batch, got {len(connect_calls)}"
+    assert connect_calls == [1, 1, 1, 1, 1, 1, 1], f"expected a fixed connection count for the whole batch, got {len(connect_calls)}"
     assert len(db.list_tracked_containers_with_status()) == 20
 
 
@@ -230,7 +236,7 @@ def test_connection_count_stays_fixed_even_when_every_container_has_a_prior_chec
     with patch("app.db.sqlite3.connect", side_effect=counting_connect):
         persist.persist_check_outcome(_outcome(*containers))
 
-    assert connect_calls == [1, 1, 1, 1, 1], f"expected a fixed connection count for the whole batch, got {len(connect_calls)}"
+    assert connect_calls == [1, 1, 1, 1, 1, 1, 1], f"expected a fixed connection count for the whole batch, got {len(connect_calls)}"
 
 
 def test_persist_check_outcome_rolls_back_completely_on_failure():

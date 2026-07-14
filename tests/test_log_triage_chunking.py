@@ -9,9 +9,10 @@ into bounded-size groups before each is sent to the AI as its own call (same "ma
 calls, not one giant fragile one" principle persist.py's Updates pipeline already uses), so a
 single chunk's failure only loses that chunk's findings, not the whole check's."""
 
+import threading
 from unittest.mock import patch
 
-from app import db, log_watcher
+from app import check_state, db, log_watcher
 
 db.init_db()
 
@@ -113,10 +114,47 @@ def test_chunks_are_triaged_concurrently_not_one_after_another():
          patch("app.log_watcher.extract_suspicious_excerpt", side_effect=lambda text: text), \
          patch("app.log_watcher.analyze_logs_batch", side_effect=slow_analyze), \
          patch("app.log_watcher.notify_findings_digest"), \
-         patch("app.ai_provider.settings.ai_summarize_concurrency", 4):
+         patch("app.ai_provider.concurrency_limit", return_value=4):
         start = time.monotonic()
         log_watcher.run_log_check_for(names)
         elapsed = time.monotonic() - start
 
     # Sequential would take >= 3 * delay; concurrent (2+ workers) should land well under that.
     assert elapsed < delay * 3 * 0.7, f"chunks look sequential -- took {elapsed:.2f}s for 3 chunks at {delay}s each"
+
+
+def test_cancel_stops_queued_chunks_but_lets_in_flight_ones_finish():
+    """Same Cancel-button contract as compose's own test (see
+    test_compose_check_concurrency.py) -- a chunk already picked up by a worker thread still
+    gets triaged for real, but chunks still queued behind the concurrency cap are skipped once
+    Cancel is clicked."""
+    import time
+
+    names = [f"cancel{i}" for i in range(log_watcher._MAX_BATCH_CONTAINERS * 6)]  # forces 6 chunks
+    delay = 0.2
+    call_count = 0
+    call_lock = threading.Lock()
+
+    def slow_analyze(chunk, include_fix=False):
+        nonlocal call_count
+        with call_lock:
+            call_count += 1
+            is_first = call_count == 1
+        if is_first:
+            check_state.request_cancel("logs")
+        time.sleep(delay)
+        return []
+
+    try:
+        with patch("app.log_watcher.get_container_logs_since", return_value="ERROR: boom"), \
+             patch("app.log_watcher.extract_suspicious_excerpt", side_effect=lambda text: text), \
+             patch("app.log_watcher.analyze_logs_batch", side_effect=slow_analyze), \
+             patch("app.log_watcher.notify_findings_digest"), \
+             patch("app.ai_provider.concurrency_limit", return_value=2):
+            result = log_watcher.run_log_check_for(names)
+
+        assert result["cancelled"] is True
+        assert call_count < 6, f"expected some chunks to be skipped, but all {call_count} got triaged"
+    finally:
+        check_state.set_running("logs")
+        check_state.release_running("logs")

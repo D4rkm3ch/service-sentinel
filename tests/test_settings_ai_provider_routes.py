@@ -15,15 +15,19 @@ def clean_settings():
     db.set_ai_provider("anthropic")
     db.set_anthropic_api_key("")
     db.set_anthropic_model("claude-sonnet-5")
+    db.set_anthropic_concurrency(db.AI_CONCURRENCY_DEFAULT)
     db.set_gemini_api_key("")
     db.set_gemini_model("gemini-2.5-flash")
+    db.set_gemini_concurrency(db.AI_CONCURRENCY_DEFAULT)
     db.set_github_token("")
     yield
     db.set_ai_provider("anthropic")
     db.set_anthropic_api_key("")
     db.set_anthropic_model("claude-sonnet-5")
+    db.set_anthropic_concurrency(db.AI_CONCURRENCY_DEFAULT)
     db.set_gemini_api_key("")
     db.set_gemini_model("gemini-2.5-flash")
+    db.set_gemini_concurrency(db.AI_CONCURRENCY_DEFAULT)
     db.set_github_token("")
 
 
@@ -140,3 +144,53 @@ def test_blank_github_token_submission_does_not_run_a_test(client):
         resp = client.post("/settings/ai/github-token", data={"api_key": ""})
     assert resp.json()["ok"] is False
     mock_test.assert_not_called()
+
+
+def test_saving_anthropic_concurrency_persists_it(client):
+    resp = client.post("/settings/ai/anthropic-concurrency", data={"value": "7"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "value": 7}
+    assert db.get_anthropic_concurrency() == 7
+
+
+def test_saving_gemini_concurrency_persists_it(client):
+    resp = client.post("/settings/ai/gemini-concurrency", data={"value": "1"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "value": 1}
+    assert db.get_gemini_concurrency() == 1
+
+
+def test_concurrency_boundary_values_are_accepted(client):
+    resp = client.post("/settings/ai/anthropic-concurrency", data={"value": "10"})
+    assert resp.json() == {"ok": True, "value": 10}
+    resp = client.post("/settings/ai/anthropic-concurrency", data={"value": "1"})
+    assert resp.json() == {"ok": True, "value": 1}
+
+
+def test_concurrency_out_of_range_is_rejected_without_being_saved(client):
+    resp = client.post("/settings/ai/anthropic-concurrency", data={"value": "11"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
+    assert db.get_anthropic_concurrency() == db.AI_CONCURRENCY_DEFAULT
+
+    resp = client.post("/settings/ai/gemini-concurrency", data={"value": "0"})
+    assert resp.json()["ok"] is False
+    assert db.get_gemini_concurrency() == db.AI_CONCURRENCY_DEFAULT
+
+
+def test_concurrency_non_numeric_value_is_rejected(client):
+    resp = client.post("/settings/ai/anthropic-concurrency", data={"value": "abc"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
+    assert db.get_anthropic_concurrency() == db.AI_CONCURRENCY_DEFAULT
+
+
+def test_concurrency_settings_are_independent_and_reflected_on_the_page(client):
+    client.post("/settings/ai/anthropic-concurrency", data={"value": "6"})
+    client.post("/settings/ai/gemini-concurrency", data={"value": "2"})
+    assert db.get_anthropic_concurrency() == 6
+    assert db.get_gemini_concurrency() == 2
+
+    page = client.get("/settings")
+    assert 'id="anthropic_concurrency_input"' in page.text
+    assert 'id="gemini_concurrency_input"' in page.text

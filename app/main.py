@@ -369,6 +369,26 @@ def compose_running_state():
     return {"running": is_running("compose")}
 
 
+@app.post("/checks/cancel")
+def cancel_running_check():
+    """Every Check Now button in the app (main page, stack, item, finding-detail -- see
+    base.html) posts here once it's showing "Cancel" instead of "Check Now", regardless of
+    which feature or scope it belongs to -- the UI already treats "a check is running" as one
+    sitewide state (see base.html's poll()), not three independent ones, so any of them can
+    cancel whatever's actually running. Deliberately feature-agnostic rather than three separate
+    /updates|logs|compose/cancel routes: the button that's visible as "Cancel" doesn't
+    necessarily belong to the feature that's running (e.g. every button dims/flips together),
+    so the caller has no reliable way to know which one to hit.
+
+    Fire-and-forget: the worker loop notices check_state.is_cancel_requested() between items and
+    stops on its own between items (an in-flight AI call finishes naturally, queued ones don't
+    start) -- this route doesn't wait for that, and doesn't need to render anything, since the
+    existing running-state poll (already running once a second) is what flips every button and
+    status badge back once the check actually finishes."""
+    check_state.request_cancel_running_checks()
+    return {"status": "ok"}
+
+
 @app.get("/updates/partial")
 def updates_partial(request: Request, sort: str = "importance", dir: str = "asc",
                      csort: str = "container", cdir: str = "asc", show_silenced: bool = False):
@@ -918,9 +938,13 @@ def settings_page(request: Request):
             "anthropic_key_configured": bool(db.get_anthropic_api_key()),
             "anthropic_model": db.get_anthropic_model(),
             "anthropic_models": ANTHROPIC_MODELS,
+            "anthropic_concurrency": db.get_anthropic_concurrency(),
             "gemini_key_configured": bool(db.get_gemini_api_key()),
             "gemini_model": db.get_gemini_model(),
             "gemini_models": GEMINI_MODELS,
+            "gemini_concurrency": db.get_gemini_concurrency(),
+            "ai_concurrency_min": db.AI_CONCURRENCY_MIN,
+            "ai_concurrency_max": db.AI_CONCURRENCY_MAX,
             "github_token_configured": bool(db.get_github_token()),
             "active_tab": "settings",
         },
@@ -1036,6 +1060,40 @@ async def save_gemini_model(request: Request):
         raise HTTPException(status_code=400, detail="Unknown model")
     db.set_gemini_model(model)
     return _saved(request)
+
+
+def _parse_concurrency_value(raw: str) -> tuple[int | None, str | None]:
+    """Shared validation for both providers' concurrency fields -- must be a whole number
+    between db.AI_CONCURRENCY_MIN and db.AI_CONCURRENCY_MAX. Returns (value, None) on success
+    or (None, message) on failure, so the route can turn a bad value into the same inline
+    red-text feedback the API key fields already use, rather than a raw 400."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None, "Enter a whole number."
+    if not (db.AI_CONCURRENCY_MIN <= value <= db.AI_CONCURRENCY_MAX):
+        return None, f"Must be between {db.AI_CONCURRENCY_MIN} and {db.AI_CONCURRENCY_MAX}."
+    return value, None
+
+
+@app.post("/settings/ai/anthropic-concurrency")
+async def save_anthropic_concurrency(request: Request):
+    form = await request.form()
+    value, error = _parse_concurrency_value(form.get("value", ""))
+    if error:
+        return {"ok": False, "message": error}
+    db.set_anthropic_concurrency(value)
+    return {"ok": True, "value": value}
+
+
+@app.post("/settings/ai/gemini-concurrency")
+async def save_gemini_concurrency(request: Request):
+    form = await request.form()
+    value, error = _parse_concurrency_value(form.get("value", ""))
+    if error:
+        return {"ok": False, "message": error}
+    db.set_gemini_concurrency(value)
+    return {"ok": True, "value": value}
 
 
 @app.post("/settings/schedule/{scope}")

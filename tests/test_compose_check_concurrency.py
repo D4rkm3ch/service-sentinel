@@ -6,10 +6,11 @@ Locks in that changed files are reviewed concurrently (capped by ai_provider.con
 same shape as persist.py's Updates pipeline and log_watcher's Logs triage) instead of one after
 another."""
 
+import threading
 import time
 from unittest.mock import patch
 
-from app import ai_provider, compose_reviewer, db
+from app import ai_provider, check_state, compose_reviewer, db
 from app.config import settings
 
 
@@ -31,7 +32,7 @@ def test_changed_files_are_reviewed_concurrently_not_one_after_another():
 
     try:
         with patch("app.compose_reviewer.review_compose_file", side_effect=slow_review), \
-             patch("app.ai_provider.settings.ai_summarize_concurrency", 4):
+             patch("app.ai_provider.concurrency_limit", return_value=4):
             start = time.monotonic()
             compose_reviewer.run_compose_check_for(files)
             elapsed = time.monotonic() - start
@@ -62,6 +63,43 @@ def test_progress_still_reports_upfront_and_reaches_the_full_total():
         dones = sorted(d for _, d, _ in calls[1:])
         assert dones == [1, 2, 3, 4, 5]
     finally:
+        for f in files:
+            f.unlink()
+        with db.get_conn() as conn:
+            for f in files:
+                conn.execute("DELETE FROM compose_file_state WHERE file_path = ?", (str(f),))
+
+
+def test_cancel_stops_queued_files_but_lets_in_flight_ones_finish():
+    """The Cancel-button contract (see check_state.request_cancel/is_cancel_requested): a file
+    a worker thread has already picked up still gets its real AI call, but files still waiting
+    behind the concurrency cap are skipped once Cancel is clicked, rather than every remaining
+    file still getting reviewed."""
+    files = [_compose_file(f"cancel{i}.yml", f"svc{i}") for i in range(6)]
+    delay = 0.2
+    call_count = 0
+    call_lock = threading.Lock()
+
+    def slow_review(path_str, redacted, include_fix=False):
+        nonlocal call_count
+        with call_lock:
+            call_count += 1
+            is_first = call_count == 1
+        if is_first:
+            check_state.request_cancel("compose")
+        time.sleep(delay)
+        return []
+
+    try:
+        with patch("app.compose_reviewer.review_compose_file", side_effect=slow_review), \
+             patch("app.ai_provider.concurrency_limit", return_value=2):
+            result = compose_reviewer.run_compose_check_for(files)
+
+        assert result["cancelled"] is True
+        assert call_count < 6, f"expected some files to be skipped, but all {call_count} got reviewed"
+    finally:
+        check_state.set_running("compose")
+        check_state.release_running("compose")
         for f in files:
             f.unlink()
         with db.get_conn() as conn:

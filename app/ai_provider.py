@@ -12,6 +12,7 @@ not a new abstraction.
 """
 
 import logging
+import threading
 import time
 
 import anthropic
@@ -20,7 +21,6 @@ from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from app import db
-from app.config import settings
 
 logger = logging.getLogger("service_sentinel.ai_provider")
 
@@ -35,6 +35,37 @@ logger = logging.getLogger("service_sentinel.ai_provider")
 # rather than burning a couple of minutes of retries that were never going to succeed today.
 _GEMINI_MAX_ATTEMPTS = 5
 _GEMINI_NO_RETRY = genai_types.HttpRetryOptions(attempts=1)
+
+# A count of every 429 _call_gemini() has hit during the current check, surfaced through each
+# feature's result dict (see run_claimed_updates_check/run_log_check_for/run_compose_check_for)
+# and from there into check_state.format_summary()'s status-badge text -- so hitting a rate
+# limit is visible in the UI itself instead of only in the container logs, which is the reason
+# an operator would ever think to lower a provider's concurrency setting in the first place.
+# Reset at the start of each top-level check and read once at the end -- see this module's
+# docstring note wherever reset_rate_limited_count()/rate_limited_count() are called for why a
+# single shared counter (rather than one scoped per call) is good enough here: the app already
+# treats "a check is running" as one sitewide lock (see base.html), so genuinely concurrent
+# checks from two different features racing each other is an accepted, pre-existing edge case,
+# not a new one this introduces.
+_rate_limit_lock = threading.Lock()
+_rate_limited_count = 0
+
+
+def reset_rate_limited_count() -> None:
+    global _rate_limited_count
+    with _rate_limit_lock:
+        _rate_limited_count = 0
+
+
+def rate_limited_count() -> int:
+    with _rate_limit_lock:
+        return _rate_limited_count
+
+
+def _note_rate_limited() -> None:
+    global _rate_limited_count
+    with _rate_limit_lock:
+        _rate_limited_count += 1
 
 
 def _gemini_client() -> "genai.Client":
@@ -93,6 +124,7 @@ def _call_gemini(fn):
         except genai_errors.ClientError as exc:
             if exc.code != 429:
                 raise
+            _note_rate_limited()
             is_daily_quota, retry_after = _gemini_quota_info(exc)
             if is_daily_quota:
                 logger.warning("Gemini free-tier daily quota exhausted -- not retrying until it resets")
@@ -142,12 +174,19 @@ def is_configured() -> bool:
 
 def concurrency_limit() -> int:
     """How many AI calls persist.py's fan-out phases (release notes web search fallback,
-    summarization) should run at once. Used to be forced to 1 for Gemini regardless of tier --
-    the free tier's request/minute cap is tight enough that a handful of concurrent calls
-    exhausts it almost immediately -- but a paid Gemini key has no such constraint (nor does
-    Anthropic), and _call_gemini()'s own retry/backoff already handles an occasional 429 or
-    503 gracefully under concurrency, so there's no longer a blanket reason to serialize."""
-    return settings.ai_summarize_concurrency
+    summarization) should run at once, for whichever provider is currently active. Used to be
+    forced to 1 for Gemini regardless of tier -- the free tier's request/minute cap is tight
+    enough that a handful of concurrent calls exhausts it almost immediately -- but a paid
+    Gemini key has no such constraint (nor does Anthropic), and _call_gemini()'s own
+    retry/backoff already handles an occasional 429 or 503 gracefully under concurrency, so
+    there's no longer a blanket reason to serialize.
+
+    Per-provider (not one global value) and UI-editable in Settings -- see db.get_anthropic_
+    concurrency/get_gemini_concurrency -- since the right number genuinely differs by provider
+    and by tier within a provider, not something one constant can fit."""
+    if db.get_ai_provider() == "gemini":
+        return db.get_gemini_concurrency()
+    return db.get_anthropic_concurrency()
 
 
 # If a response hits its max_tokens ceiling exactly rather than finishing naturally, it's been

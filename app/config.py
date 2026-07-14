@@ -31,27 +31,13 @@ class Settings:
         # wait time, so doing them one at a time is what makes a large stack slow to check.
         self.registry_check_concurrency: int = int(os.environ.get("REGISTRY_CHECK_CONCURRENCY", "10"))
 
-        # Release notes fetching (Stage 6) and AI summarization (Stage 7, once it lands) both
-        # involve real network/model latency per container (several seconds each, especially
-        # with the web search fallback) — running these one at a time is what makes a check
-        # with many pending updates at once (e.g. right after a full reset) take many minutes.
-        # Kept lower than the registry check concurrency since these are meaningfully more
-        # expensive calls, and for release notes specifically, rate-limited (GitHub's API).
-        #
-        # Real production traffic hit Gemini's per-minute request cap under the original default
-        # of 4 -- each container can need up to two AI calls (summary + upgrade guidance), so a
-        # burst of concurrent containers pushes well past a per-minute ceiling even on a paid
-        # key, not just the free tier. That triggers a real (correctly-handled, nothing lost)
-        # but still user-visible ~30s backoff sleep in _call_gemini's retry -- which reads as
-        # the check being "stuck" when it lands on the last item or two. Lowered to 2 at the
-        # time to make that burst, and the resulting pause, meaningfully less likely, trading a
-        # bit of overall check speed for fewer of these stalls.
-        #
-        # Raised back to 4 once the operator confirmed a paid Gemini key -- the per-minute
-        # ceiling that caused the 429s above is a free-tier limit; a paid key's much higher cap
-        # makes that burst unlikely to matter in practice, and _call_gemini's retry/backoff
-        # still absorbs it gracefully on the rare occasion it does.
-        self.ai_summarize_concurrency: int = int(os.environ.get("AI_SUMMARIZE_CONCURRENCY", "4"))
+        # Release notes fetching and AI summarization concurrency used to live here as one
+        # global env-var-backed value (AI_SUMMARIZE_CONCURRENCY). It's now per-provider and
+        # UI-editable from Settings instead -- see db.get_anthropic_concurrency/
+        # get_gemini_concurrency and ai_provider.concurrency_limit() -- since the right number
+        # genuinely differs by provider (and by tier within a provider), not something one
+        # deploy-time constant could fit, and operators need to be able to change it without a
+        # redeploy the same way the provider/model/key already can.
 
         # Log watcher tuning — schedule itself now lives in the database (Settings tab),
         # not here, but these control how much log data gets pulled and pre-filtered.

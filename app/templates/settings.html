@@ -31,6 +31,18 @@
       </select>
       <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
     </div>
+    <div class="stepper-row">
+      <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests</label>
+      <div class="stepper">
+        <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', -1)">&minus;</button>
+        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+               id="anthropic_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+               value="{{ anthropic_concurrency }}" onchange="saveConcurrency('anthropic', this.value)"
+               onkeydown="if (event.key === 'Enter') this.blur();">
+        <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', 1)">+</button>
+      </div>
+      <span class="saved-indicator-slot" id="saved-anthropic_concurrency"></span>
+    </div>
   </div>
 
   <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'faded' }}" id="gemini-provider-section">
@@ -45,6 +57,18 @@
         {% endfor %}
       </select>
       <span class="saved-indicator-slot" id="saved-gemini_model"></span>
+    </div>
+    <div class="stepper-row">
+      <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests</label>
+      <div class="stepper">
+        <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', -1)">&minus;</button>
+        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+               id="gemini_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+               value="{{ gemini_concurrency }}" onchange="saveConcurrency('gemini', this.value)"
+               onkeydown="if (event.key === 'Enter') this.blur();">
+        <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', 1)">+</button>
+      </div>
+      <span class="saved-indicator-slot" id="saved-gemini_concurrency"></span>
     </div>
   </div>
 
@@ -288,6 +312,43 @@ function testAndSaveApiKey(provider) {
     }
   }).catch(() => {
     resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  });
+}
+
+function adjustConcurrency(provider, delta) {
+  const input = document.getElementById(provider + '_concurrency_input');
+  const min = parseInt(input.min, 10);
+  const max = parseInt(input.max, 10);
+  let value = parseInt(input.value, 10);
+  if (isNaN(value)) value = min;
+  value = Math.min(max, Math.max(min, value + delta));
+  input.value = value;
+  saveConcurrency(provider, value);
+}
+
+function saveConcurrency(provider, rawValue) {
+  const input = document.getElementById(provider + '_concurrency_input');
+  const slot = document.getElementById('saved-' + provider + '_concurrency');
+  const min = parseInt(input.min, 10);
+  const max = parseInt(input.max, 10);
+  const value = parseInt(rawValue, 10);
+  if (isNaN(value) || value < min || value > max) {
+    slot.innerHTML = '<span class="test-result-error">Must be ' + min + '-' + max + '</span>';
+    return;
+  }
+  fetch('/settings/ai/' + provider + '-concurrency', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'value=' + encodeURIComponent(value),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      input.value = data.value;
+      slot.innerHTML = '<span class="saved-indicator">Saved</span>';
+    } else {
+      slot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+    }
+  }).catch(() => {
+    slot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
   });
 }
 

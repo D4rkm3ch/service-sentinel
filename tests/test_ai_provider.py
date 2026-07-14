@@ -216,6 +216,62 @@ def test_call_gemini_never_retries_a_non_rate_limit_error():
     mock_sleep.assert_not_called()
 
 
+def test_call_gemini_notes_a_rate_limited_hit_on_a_retried_per_minute_429():
+    ai_provider.reset_rate_limited_count()
+    calls = [_per_minute_429("0.01s"), "ok"]
+
+    def fn():
+        result = calls.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    with patch("app.ai_provider.time.sleep"):
+        ai_provider._call_gemini(fn)
+
+    assert ai_provider.rate_limited_count() == 1
+
+
+def test_call_gemini_notes_a_rate_limited_hit_on_an_exhausted_daily_quota_too():
+    ai_provider.reset_rate_limited_count()
+
+    def fn():
+        raise _per_day_429()
+
+    with patch("app.ai_provider.time.sleep"):
+        with pytest.raises(genai_errors.ClientError):
+            ai_provider._call_gemini(fn)
+
+    assert ai_provider.rate_limited_count() == 1
+
+
+def test_call_gemini_does_not_note_a_rate_limited_hit_on_a_non_429_error():
+    ai_provider.reset_rate_limited_count()
+
+    def fn():
+        raise genai_errors.ClientError(500, {"error": {"code": 500, "status": "INTERNAL"}})
+
+    with pytest.raises(genai_errors.ClientError):
+        ai_provider._call_gemini(fn)
+
+    assert ai_provider.rate_limited_count() == 0
+
+
+def test_reset_rate_limited_count_zeroes_it_out():
+    ai_provider.reset_rate_limited_count()
+
+    def fn():
+        raise _per_day_429()
+
+    with patch("app.ai_provider.time.sleep"):
+        with pytest.raises(genai_errors.ClientError):
+            ai_provider._call_gemini(fn)
+    assert ai_provider.rate_limited_count() == 1
+
+    ai_provider.reset_rate_limited_count()
+    assert ai_provider.rate_limited_count() == 0
+
+
 def test_call_gemini_retries_a_transient_server_overload_and_succeeds():
     """A 503 ('experiencing high demand') is Google's infrastructure, not quota -- worth a
     short retry rather than failing outright and waiting for the next check's auto-retry."""
@@ -255,16 +311,18 @@ def test_call_gemini_gives_up_after_max_attempts_for_persistent_server_overload(
 
 def test_concurrency_limit_uses_the_configured_value_for_gemini():
     """No longer forced to 1 -- that was specifically a free-tier accommodation; the retry
-    logic in _call_gemini() handles occasional rate-limiting under concurrency gracefully."""
+    logic in _call_gemini() handles occasional rate-limiting under concurrency gracefully.
+    Per-provider now (see db.get_gemini_concurrency/get_anthropic_concurrency), not one shared
+    value, so setting Gemini's doesn't affect Anthropic's."""
     db.set_ai_provider("gemini")
-    with patch("app.ai_provider.settings.ai_summarize_concurrency", 7):
-        assert ai_provider.concurrency_limit() == 7
+    db.set_gemini_concurrency(7)
+    assert ai_provider.concurrency_limit() == 7
 
 
 def test_concurrency_limit_uses_the_configured_value_for_anthropic():
     db.set_ai_provider("anthropic")
-    with patch("app.ai_provider.settings.ai_summarize_concurrency", 7):
-        assert ai_provider.concurrency_limit() == 7
+    db.set_anthropic_concurrency(7)
+    assert ai_provider.concurrency_limit() == 7
 
 
 def test_complete_text_gemini_handles_a_none_response_text():

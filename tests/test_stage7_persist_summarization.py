@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app import db, persist
+from app import check_state, db, persist
 
 db.init_db()
 
@@ -111,7 +111,7 @@ def test_repeated_check_with_same_pending_update_does_not_resummarize():
 
 
 def test_summarization_runs_concurrently_not_sequentially():
-    """Same concurrency proof as Stage 6's release-notes fetch (settings.ai_summarize_concurrency
+    """Same concurrency proof as Stage 6's release-notes fetch (ai_provider.concurrency_limit()
     caps both phases) -- 4 summarizations at 0.15s each must finish well under 4x0.15s. Pins the
     concurrency setting itself rather than relying on its production default (lowered to 2 after
     real-world Gemini per-minute rate-limiting), since this test's point is proving genuine
@@ -125,7 +125,7 @@ def test_summarization_runs_concurrently_not_sequentially():
     with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", return_value=("notes", "https://example.com")), \
          patch("app.persist.summarize_update", side_effect=slow_summarize), \
-         patch("app.ai_provider.settings.ai_summarize_concurrency", 4):
+         patch("app.ai_provider.concurrency_limit", return_value=4):
         start = time.monotonic()
         persist.persist_check_outcome(_outcome(*containers))
         elapsed = time.monotonic() - start
@@ -135,6 +135,39 @@ def test_summarization_runs_concurrently_not_sequentially():
         rows = db.list_tracked_containers_with_status()
         row = next(r for r in rows if r["container_name"] == f"c{i}")
         assert db.get_update(row["id"])["summary_markdown"] == f"summary for c{i}"
+
+
+def test_cancel_stops_queued_summarizations_but_lets_in_flight_ones_finish():
+    """The Cancel-button contract (see check_state.request_cancel/is_cancel_requested and
+    persist.py's _run_concurrent_phase) applies to the summarization phase same as everywhere
+    else: a container a worker thread already picked up still gets its real AI call, but ones
+    still queued behind the concurrency cap are skipped once Cancel is clicked."""
+    call_count = 0
+    call_lock = threading.Lock()
+
+    def slow_summarize(**kwargs):
+        nonlocal call_count
+        with call_lock:
+            call_count += 1
+            is_first = call_count == 1
+        if is_first:
+            check_state.request_cancel("updates")
+        time.sleep(0.2)
+        return (f"summary for {kwargs['container_name']}", "feature")
+
+    containers = [_c(f"cancel{i}", "update_available", repo=f"owner/cancelrepo{i}") for i in range(6)]
+
+    try:
+        with patch("app.persist.ai_provider.is_configured", return_value=True), \
+             patch("app.persist.release_notes.get_release_notes", return_value=("notes", "https://example.com")), \
+             patch("app.persist.summarize_update", side_effect=slow_summarize), \
+             patch("app.ai_provider.concurrency_limit", return_value=2):
+            persist.persist_check_outcome(_outcome(*containers))
+
+        assert call_count < 6, f"expected some containers to be skipped, but all {call_count} got summarized"
+    finally:
+        check_state.set_running("updates")
+        check_state.release_running("updates")
 
 
 def test_progress_reports_summarizing_stage_only_for_containers_with_notes():

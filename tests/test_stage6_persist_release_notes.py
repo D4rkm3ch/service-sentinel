@@ -214,7 +214,7 @@ def test_release_notes_fetches_run_concurrently_not_sequentially():
     containers = [_c(f"c{i}", "update_available", repo=f"owner/repo{i}") for i in range(4)]
 
     with patch("app.persist.release_notes.get_release_notes", side_effect=slow_fetch), \
-         patch("app.ai_provider.settings.ai_summarize_concurrency", 4):
+         patch("app.ai_provider.concurrency_limit", return_value=4):
         start = time.monotonic()
         persist.persist_check_outcome(_outcome(*containers))
         elapsed = time.monotonic() - start

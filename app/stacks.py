@@ -7,8 +7,7 @@ import hashlib
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import check_state, compose_lookup, db
-from app.config import settings
+from app import ai_provider, check_state, compose_lookup, db
 from app.summarizer import analyze_log_stack_impact, analyze_stack_impact, generate_stack_name
 
 logger = logging.getLogger("service_sentinel.stacks")
@@ -126,7 +125,7 @@ def run_stack_analysis_pass(containers: list[dict], force: bool = False) -> None
     if not groups:
         return
 
-    with ThreadPoolExecutor(max_workers=settings.ai_summarize_concurrency) as pool:
+    with ThreadPoolExecutor(max_workers=ai_provider.concurrency_limit()) as pool:
         futures = [
             pool.submit(regenerate_stack_analysis, stack_id, members, force)
             for stack_id, members in groups.items()
@@ -262,7 +261,7 @@ def run_log_stack_analysis_pass(container_names: list[str], force: bool = False)
     if not groups:
         return
 
-    with ThreadPoolExecutor(max_workers=settings.ai_summarize_concurrency) as pool:
+    with ThreadPoolExecutor(max_workers=ai_provider.concurrency_limit()) as pool:
         futures = [
             pool.submit(regenerate_log_stack_analysis, stack_id, members, force)
             for stack_id, members in groups.items()
