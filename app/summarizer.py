@@ -362,7 +362,10 @@ misconfiguration.
 Before flagging a volume mount's read/write mode in either direction, check its actual current \
 suffix in the file as written (:ro, :rw, or no suffix at all, which defaults to read-write) — \
 never describe a mount as read-write if it already has :ro, and never recommend a change the \
-file has already made.
+file has already made. This check happens BEFORE you start drafting the finding, not after: if \
+the mount is already at the value you'd otherwise recommend, there is no finding here at all -- \
+not even one that says it's already correct or that no change is needed. A correctly-configured \
+mount doesn't get a JSON object; it gets nothing.
 
 Do NOT flag any of the following — this homelab operator has explicitly decided none of these \
 are worth reporting, even as a low-severity suggestion:
@@ -376,17 +379,24 @@ a security concern on a service that already uses it and doesn't need that level
 - Adding an explicit ":rw" to a mount that's already read-write by default. This applies no \
 matter what reasoning you construct for it (clarity, defensive future-proofing, preventing a \
 later accidental edit, etc.) -- the mount's behavior doesn't change, so none of those reasons \
-make it a real finding. If you notice yourself building a case for why explicit ":rw" would \
-help, that's the signal to drop it, not report it.
+make it a real finding.
+- Recommending read-only for a volume that's a service's OWN config, cache, database-data, or \
+download directory -- the kind of path the service itself writes to in order to function (save \
+settings, write cache files, write its database, save downloaded files). These categories need \
+write access by definition; don't raise it as a security concern and then hedge in the fix that \
+"rw is generally required so no change is recommended" -- if that's the honest conclusion, the \
+finding was never real, so don't start writing it in the first place. Reserve read-only \
+recommendations for volumes the service only ever reads from (source media libraries, other \
+services' data it doesn't own).
+
+These exclusions are pre-filters, not second thoughts: decide whether a finding belongs in one \
+of these categories BEFORE drafting its title/description/fix, not by writing it out and then \
+noticing partway through that it doesn't hold up. Once you've started a finding object, you will \
+tend to finish it even when your own reasoning no longer supports it -- so the discipline has to \
+happen at the decision to start one, not at the end.
 
 Only report things with real substance — skip purely stylistic nitpicks or preferences with no \
-functional difference. If, while working out what to recommend, you talk yourself out of the \
-concern -- whether because the fix would just restate the current value back at itself, or \
-because your own reasoning concludes no real change is actually warranted (e.g. landing on "no \
-change needed" or downplaying it as "not a critical concern" after laying out the issue) -- drop \
-the finding entirely rather than reporting your own reasoning's dead end. A finding you can't \
-finish making the case for isn't a finding. If the file looks fine, say so by returning an empty \
-array.
+functional difference. If the file looks fine, say so by returning an empty array.
 
 Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
 {{"title": "a short, specific title (under 8 words) naming the exact setting, service, or mount \
