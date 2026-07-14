@@ -151,12 +151,16 @@ capped by your last actual check</p>
 
   <div class="settings-subsection">
     <h4>Runtime</h4>
-    <p class="meta">How far back a container's logs reach when there's no checkpoint to work
-from yet - a container watched for the first time, or one just reset. An ordinary Check now
-always looks only since its last check, regardless of this setting</p>
+    <p class="meta">Use checkpoints so each check only looks at logs since the last one - turn
+off to always re-scan the lookback window below on every check instead</p>
+    {{ ts.toggle_switch('logs_use_checkpoint', logs_use_checkpoint, '/settings/logs-use-checkpoint', 'Use checkpoint') }}
+    <p class="meta" style="margin-top:12px">How far back a container's logs reach when its
+checkpoint isn't used for a fetch - a container watched for the first time, one just reset, or
+every check while the toggle above is off</p>
     <select name="logs_lookback" class="mono field-input" hx-post="/settings/logs-lookback"
             hx-trigger="change" hx-target="#saved-logs-lookback">
-      <option value="since_reset" {{ 'selected' if logs_lookback == 'since_reset' else '' }}>No limit (since last reset)</option>
+      <option value="1" {{ 'selected' if logs_lookback == '1' else '' }}>Last 1 hour</option>
+      <option value="3" {{ 'selected' if logs_lookback == '3' else '' }}>Last 3 hours</option>
       <option value="6" {{ 'selected' if logs_lookback == '6' else '' }}>Last 6 hours</option>
       <option value="12" {{ 'selected' if logs_lookback == '12' else '' }}>Last 12 hours</option>
       <option value="24" {{ 'selected' if logs_lookback == '24' else '' }}>Last 24 hours</option>

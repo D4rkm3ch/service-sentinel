@@ -89,7 +89,8 @@ def run_log_check() -> dict:
 def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = None) -> dict:
     """The actual fetch/filter/triage pass, scoped to whichever container names are given --
     pull logs since each one's last checkpoint (or the configured lookback window, for a
-    container with none), keep only lines that matched a suspicious keyword locally, and —
+    container with none, or for every container if db.get_logs_use_checkpoint() is off), keep
+    only lines that matched a suspicious keyword locally, and —
     only for containers that actually had something worth showing — send those excerpts to
     Claude for triage in bounded-size chunks (see _chunk_excerpts), dispatched concurrently
     (capped by ai_provider.concurrency_limit()) rather than one after another -- several
@@ -116,7 +117,14 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     checked = 0
     findings_found = 0
     excerpts_by_container: dict[str, str] = {}
+    # Checkpoints are still fetched (and, further down, still written) regardless of this
+    # toggle -- other things display "last checked" from them, and flipping the toggle back on
+    # later should pick up incrementally right away rather than having lost that history. Only
+    # whether they're actually PASSED to the fetch below (see the loop) is gated on it -- off
+    # means every container's fetch always uses the configured lookback window, ignoring
+    # whatever checkpoint it has.
     checkpoints = db.get_log_watch_checkpoints(container_names)
+    use_checkpoint = db.get_logs_use_checkpoint()
     checked_ok_names: list[str] = []
     failed: dict[str, str] = {}
     total = len(container_names)
@@ -147,7 +155,7 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
                 cancelled = True
                 break
             checked += 1
-            checkpoint = checkpoints.get(name)
+            checkpoint = checkpoints.get(name) if use_checkpoint else None
             try:
                 log_text = get_container_logs_since(
                     name, checkpoint, settings.log_max_lines_per_container, client=docker_client,

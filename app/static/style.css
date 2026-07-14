@@ -338,18 +338,23 @@ code {
   position: absolute;
   width: 320px;
   height: 320px;
-  /* Flush against the rail's own left wall -- the mark's left edge lands exactly at the
-     sidebar's left edge, with .sidebar's own overflow:hidden clipping whatever spills past its
-     right edge (at the expanded width, most of it; at the collapsed width, all but a sliver). */
-  left: 0;
+  /* Anchored via `right` (to the rail's own right edge), not `left` -- this is what makes the
+     mark visually slide out with the rail as it expands/collapses (the rail's own width
+     transition moves this box's rendered left edge along with it, since `right`'s offset is
+     constant but the edge it's measured from moves) rather than sitting statically pinned to
+     the left wall regardless of collapsed/expanded state, which was tried and reverted (real-
+     world feedback: this "slide with the rail" motion was the original, wanted behavior).
+     -100px specifically -- combined with the "left" background-position below -- lands the
+     mark's own left edge exactly at the rail's left wall at the EXPANDED width (220px:
+     220 + 100 - 320 = 0), while the collapsed width (60px) shows only a cropped sliver of the
+     mark's own right portion, sliding further into view as the rail expands. */
+  right: -100px;
   bottom: -60px;
   /* "left" (not "center") for the horizontal background-position -- the source SVG's own
      viewBox is slightly taller than it is wide, so "contain" inside this square box already
      leaves empty horizontal margin on both sides to preserve its aspect ratio; centering that
-     letterboxed image left a visible gap between the mark and the rail's actual left wall even
-     with left:0 above (that's positioning this whole 320px box, not the drawn content inside
-     it). Anchoring left instead pushes all of that empty margin to the right side, where it's
-     harmless (already past the visible rail width, clipped by overflow:hidden anyway). */
+     letterboxed image would put that margin on both sides instead of entirely on the right
+     (where .sidebar's own overflow:hidden and the -100px offset above already expect it). */
   background: url("/static/logo-white.svg") no-repeat left center / contain;
   opacity: 0.12;
   pointer-events: none;

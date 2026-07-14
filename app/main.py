@@ -1041,6 +1041,7 @@ def settings_page(request: Request):
             "update_severities": list(UPDATE_SEVERITIES),
             "release_notes_lookback": db.get_release_notes_lookback(),
             "logs_lookback": db.get_logs_lookback(),
+            "logs_use_checkpoint": db.get_logs_use_checkpoint(),
             "timezone": db.get_timezone(), "available_timezones": AVAILABLE_TIMEZONES,
             "ai_provider": db.get_ai_provider(),
             "anthropic_key_configured": bool(db.get_anthropic_api_key()),
@@ -1107,10 +1108,17 @@ async def save_release_notes_lookback(request: Request):
 @app.post("/settings/logs-lookback")
 async def save_logs_lookback(request: Request):
     form = await request.form()
-    value = form.get("logs_lookback", "since_reset")
+    value = form.get("logs_lookback", "6")
     if value not in db.LOGS_LOOKBACK_HOURS:
         raise HTTPException(status_code=400, detail="Unknown lookback value")
     db.set_logs_lookback(value)
+    return _saved(request)
+
+
+@app.post("/settings/logs-use-checkpoint")
+async def save_logs_use_checkpoint(request: Request):
+    form = await request.form()
+    db.set_logs_use_checkpoint(form.get("enabled") == "on")
     return _saved(request)
 
 

@@ -63,18 +63,14 @@ def _wait_until_not_running(feature: str = "logs"):
 # db.py -- reset_logs_data, bulk silence/read, batched checkpoints
 # ---------------------------------------------------------------------------
 
-def test_reset_logs_data_global_wipes_findings_and_overview():
-    """Default lookback mode is "since_reset" -- the checkpoint is re-stamped to the reset
-    moment (not cleared), so it's still non-None afterward. See
-    test_reset_logs_data_stamps_checkpoint_to_now_under_since_reset and
-    test_reset_logs_data_clears_checkpoint_under_an_hour_based_lookback below for the two
-    checkpoint behaviors this function actually cares about."""
+def test_reset_logs_data_global_wipes_findings_checkpoint_and_overview():
     db.set_log_watch_checkpoint("reset-global-a")
     db.upsert_finding("logs", "reset-global-a", "OOM", "crash", "critical", "desc")
     db.set_subject_summary("logs", "reset-global-a", "hash1", "An overview.")
 
     db.reset_logs_data()
 
+    assert db.get_log_watch_checkpoint("reset-global-a") is None
     assert db.list_findings_for_subject("logs", "reset-global-a", include_silenced=True) == []
     assert db.get_subject_summary("logs", "reset-global-a") is None
 
@@ -85,14 +81,10 @@ def test_reset_logs_data_scoped_only_touches_the_given_subjects():
     db.upsert_finding("logs", "reset-scoped-a", "OOM", "crash", "critical", "desc")
     db.upsert_finding("logs", "reset-scoped-b", "Disk full", "resource", "warning", "desc")
 
-    checkpoint_before = db.get_log_watch_checkpoint("reset-scoped-a")
     db.reset_logs_data(subjects=["reset-scoped-a"])
 
+    assert db.get_log_watch_checkpoint("reset-scoped-a") is None
     assert db.list_findings_for_subject("logs", "reset-scoped-a", include_silenced=True) == []
-    # Since-reset stamps a fresh checkpoint rather than clearing it -- still present, and moved
-    # forward to (at least) the reset moment.
-    assert db.get_log_watch_checkpoint("reset-scoped-a") is not None
-    assert db.get_log_watch_checkpoint("reset-scoped-a") >= checkpoint_before
     # untouched
     assert db.get_log_watch_checkpoint("reset-scoped-b") is not None
     assert len(db.list_findings_for_subject("logs", "reset-scoped-b", include_silenced=True)) == 1
@@ -102,41 +94,6 @@ def test_reset_logs_data_with_an_empty_subject_list_is_a_noop():
     db.set_log_watch_checkpoint("reset-empty-a")
     db.reset_logs_data(subjects=[])
     assert db.get_log_watch_checkpoint("reset-empty-a") is not None
-
-
-def test_reset_logs_data_stamps_checkpoint_to_now_under_since_reset():
-    """The default lookback mode -- a real-world report: resetting used to clear the checkpoint
-    outright, so the very next check fell back to a fixed time window and could re-surface an
-    already-fixed issue whose log lines were still sitting in Docker's own log buffer from
-    before the fix. Stamping to "now" instead means that next check only ever sees logs written
-    after the reset."""
-    db.set_logs_lookback("since_reset")
-    try:
-        db.set_log_watch_checkpoint("reset-since-a")
-        db.reset_logs_data(subjects=["reset-since-a"])
-        assert db.get_log_watch_checkpoint("reset-since-a") is not None
-    finally:
-        db.set_logs_lookback("since_reset")
-
-
-def test_reset_logs_data_clears_checkpoint_under_an_hour_based_lookback():
-    """Picking an hour-based lookback restores the original "clear the checkpoint, fall back to
-    N hours on the next check" behavior on demand."""
-    db.set_logs_lookback("24")
-    try:
-        db.set_log_watch_checkpoint("reset-hours-a")
-        db.reset_logs_data(subjects=["reset-hours-a"])
-        assert db.get_log_watch_checkpoint("reset-hours-a") is None
-    finally:
-        db.set_logs_lookback("since_reset")
-
-
-def test_reset_logs_data_never_fabricates_a_checkpoint_for_a_subject_that_never_had_one():
-    """A subject being reset that was never successfully checked before (only ever errored, or
-    was never checked at all) has no stale checkpoint to protect against -- it's left with none
-    at all, same as any other never-checked container, rather than gaining one it never earned."""
-    db.reset_logs_data(subjects=["reset-never-checked-a"])
-    assert db.get_log_watch_checkpoint("reset-never-checked-a") is None
 
 
 def test_get_and_set_log_watch_checkpoints_are_batched():
@@ -188,11 +145,11 @@ def test_set_findings_read_status_for_subject_only_touches_active_findings():
 def test_run_log_check_for_uses_a_fixed_number_of_connections_not_one_per_container():
     """Regression test mirroring test_persist.py's own connection-count guard: checkpoint
     read/write used to be one small sqlite3.connect() per container (get_log_watch_checkpoint /
-    set_log_watch_checkpoint called inside the per-container loop). Batched now -- exactly 3
-    connections (checkpoint read, checkpoint write, clearing any stale check-error rows for the
-    containers that just succeeded) for the whole pass, regardless of container count. No
-    connection for recording NEW errors here since none occur in this all-clean scenario --
-    see the sibling test below for that path."""
+    set_log_watch_checkpoint called inside the per-container loop). Batched now -- exactly 4
+    connections (the logs_use_checkpoint toggle read, checkpoint read, checkpoint write,
+    clearing any stale check-error rows for the containers that just succeeded) for the whole
+    pass, regardless of container count. No connection for recording NEW errors here since none
+    occur in this all-clean scenario -- see the sibling test below for that path."""
     names = [f"conn-count-{i}" for i in range(15)]
     original_connect = sqlite3.connect
     connect_calls = []
@@ -205,7 +162,7 @@ def test_run_log_check_for_uses_a_fixed_number_of_connections_not_one_per_contai
          patch("app.db.sqlite3.connect", side_effect=counting_connect):
         result = log_watcher.run_log_check_for(names)
 
-    assert connect_calls == [1, 1, 1], f"expected a fixed 3-connection batch, got {len(connect_calls)}"
+    assert connect_calls == [1, 1, 1, 1], f"expected a fixed 4-connection batch, got {len(connect_calls)}"
     assert result == {"checked": 15, "findings_found": 0, "errors": 0, "rate_limited": 0, "cancelled": False}
 
 
