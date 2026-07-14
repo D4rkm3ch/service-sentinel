@@ -150,8 +150,10 @@ def test_check_all_button_posts_to_the_check_all_route_on_click():
 # ---------------------------------------------------------------------------
 
 def test_html_tag_has_a_hardcoded_dark_default_for_the_no_js_fallback():
+    """Nordic Blue is the real app default accent (see style.css's accent family blocks), not
+    just a placeholder, so it's hardcoded here the same way data-theme="dark" is."""
     text = _base_html()
-    assert '<html lang="en" data-theme="dark">' in text
+    assert '<html lang="en" data-theme="dark" data-accent="nordic">' in text
 
 
 def test_head_has_a_blocking_inline_theme_script_before_the_stylesheet_link():

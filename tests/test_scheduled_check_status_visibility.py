@@ -217,7 +217,16 @@ def test_checks_status_reports_the_running_feature_and_its_progress(client):
     check_state._state["logs"] = {"running": False, "last_result": None, "last_run_at": None}
     check_state._state["compose"] = {"running": False, "last_result": None, "last_run_at": None}
     resp = client.get("/checks/status")
-    assert resp.json() == {"running": False, "feature": None, "progress_text": "", "cancelling": False}
+    data = resp.json()
+    assert data["running"] is False
+    assert data["feature"] is None
+    assert data["progress_text"] == ""
+    assert data["cancelling"] is False
+    # summary_text/summary_status feed the topbar's idle health summary (see
+    # _compact_health_summary) -- exact text depends on shared DB state other test files also
+    # touch, so only the shape is checked here, not the specific wording.
+    assert isinstance(data["summary_text"], str) and data["summary_text"]
+    assert data["summary_status"] in ("idle", "ok", "warn")
 
     check_state.set_running("logs")
     check_state.set_progress("logs", "checking_logs", 23, 59)
@@ -228,6 +237,9 @@ def test_checks_status_reports_the_running_feature_and_its_progress(client):
         assert data["feature"] == "logs"
         assert "23/59" in data["progress_text"]
         assert data["cancelling"] is False
+        # No idle summary while something is running -- the banner takes that space instead.
+        assert data["summary_text"] == ""
+        assert data["summary_status"] == ""
 
         check_state.request_cancel("logs")
         resp = client.get("/checks/status")

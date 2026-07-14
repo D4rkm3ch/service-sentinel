@@ -1,21 +1,25 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-accent="nordic">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Service Sentinel{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo-black.svg">
-  <!-- Stamps the real theme onto <html> (from localStorage, if this browser has ever picked one)
-       before the stylesheet below is even requested -- data-theme="dark" above is only the
-       no-JS/first-ever-visit fallback. Blocking and inline on purpose: an externally-sourced
-       script, or one placed after the stylesheet, would let one frame paint in the wrong theme
-       first, a visible flash every single page load rather than a one-time cost. -->
+  <!-- Stamps the real theme + accent onto <html> (from localStorage, if this browser has ever
+       picked either) before the stylesheet below is even requested -- data-theme="dark"/
+       data-accent="nordic" above are only the no-JS/first-ever-visit fallback (and Nordic Blue
+       really is the app's actual default, not just a placeholder). Blocking and inline on
+       purpose: an externally-sourced script, or one placed after the stylesheet, would let one
+       frame paint in the wrong theme/accent first, a visible flash every single page load
+       rather than a one-time cost. -->
   <script>
     (function () {
       try {
-        var saved = localStorage.getItem("service-sentinel-theme");
-        if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
-      } catch (e) { /* localStorage unavailable (private browsing, etc.) -- stay on the dark default */ }
+        var savedTheme = localStorage.getItem("service-sentinel-theme");
+        if (savedTheme === "light" || savedTheme === "dark") document.documentElement.dataset.theme = savedTheme;
+        var savedAccent = localStorage.getItem("service-sentinel-accent");
+        if (savedAccent) document.documentElement.dataset.accent = savedAccent;
+      } catch (e) { /* localStorage unavailable (private browsing, etc.) -- stay on the defaults */ }
     })();
   </script>
   <link rel="stylesheet" href="/static/style.css?v={{ static_asset_version }}">
@@ -46,15 +50,9 @@
         <path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 12l9 5 9-5"/><path d="M3 16l9 5 9-5"/>
       </symbol>
       <symbol id="icon-settings" viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="4"/>
-        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1"/>
-        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(45 12 12)"/>
-        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(90 12 12)"/>
-        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(135 12 12)"/>
-        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(180 12 12)"/>
-        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(225 12 12)"/>
-        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(270 12 12)"/>
-        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(315 12 12)"/>
+        <line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2"/>
+        <line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2"/>
+        <line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="18" r="2"/>
       </symbol>
       <symbol id="icon-sun" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/>
@@ -87,27 +85,37 @@
         </span>
         <button type="button" id="check-running-banner-cancel" class="button-danger topbar-status-cancel">Cancel</button>
       </div>
+      <!-- Idle counterpart to the banner above -- a compact combined health summary shown
+           whenever nothing is running, so this region isn't just blank at rest. The two are
+           mutually exclusive (see updateBanner in the script below): starting a check hides
+           this and shows the banner, finishing a check hides the banner and brings this back. -->
+      <div id="topbar-idle-summary" class="topbar-status" style="display:none">
+        <span class="status-badge">
+          <span id="topbar-idle-summary-dot" class="status-dot"></span>
+          <span id="topbar-idle-summary-text"></span>
+        </span>
+      </div>
     </div>
     <div class="topbar-end">
       <button type="button" id="check-all-btn" class="check-all-btn">Check All</button>
-      <!-- Preview only -- picking an option here doesn't actually change the app's accent color
-           yet (see base.html's own script comment below). It's here so the picker's eventual
-           look -- a swatch button that opens a named-color list -- can be judged for real
-           instead of guessed at from a single disabled placeholder. -->
+      <!-- Nordic Blue and Emerald Green (data-accent set) are real -- picking either actually
+           switches the app's --accent family and persists it. The other four are still
+           preview-only stubs (no data-accent attribute -- see the script below): picking one
+           just moves the swatch button/checkmark, nothing else changes. -->
       <div class="accent-picker">
         <button type="button" id="accent-swatch-btn" class="icon-button accent-swatch-btn"
-                aria-haspopup="true" aria-expanded="false" title="Accent color (preview only)">
-          <span class="accent-swatch-dot accent-dot-emerald" aria-hidden="true"></span>
-          <span id="accent-swatch-label">Emerald Green</span>
+                aria-haspopup="true" aria-expanded="false" title="Accent color">
+          <span class="accent-swatch-dot accent-dot-nordic" aria-hidden="true"></span>
+          <span id="accent-swatch-label">Nordic Blue</span>
         </button>
         <div id="accent-picker-menu" class="accent-picker-menu hidden" role="menu">
           <button type="button" class="accent-picker-option active" role="menuitemradio" aria-checked="true"
-                  data-swatch="accent-dot-emerald" data-label="Emerald Green">
-            <span class="accent-swatch-dot accent-dot-emerald" aria-hidden="true"></span> Emerald Green
+                  data-swatch="accent-dot-nordic" data-label="Nordic Blue" data-accent="nordic">
+            <span class="accent-swatch-dot accent-dot-nordic" aria-hidden="true"></span> Nordic Blue
           </button>
           <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false"
-                  data-swatch="accent-dot-nordic" data-label="Nordic Blue">
-            <span class="accent-swatch-dot accent-dot-nordic" aria-hidden="true"></span> Nordic Blue
+                  data-swatch="accent-dot-emerald" data-label="Emerald Green" data-accent="emerald">
+            <span class="accent-swatch-dot accent-dot-emerald" aria-hidden="true"></span> Emerald Green
           </button>
           <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false"
                   data-swatch="accent-dot-amber" data-label="Sunset Amber">
@@ -201,6 +209,9 @@
       var banner = document.getElementById("check-running-banner");
       var bannerText = document.getElementById("check-running-banner-text");
       var bannerCancelBtn = document.getElementById("check-running-banner-cancel");
+      var idleSummary = document.getElementById("topbar-idle-summary");
+      var idleSummaryDot = document.getElementById("topbar-idle-summary-dot");
+      var idleSummaryText = document.getElementById("topbar-idle-summary-text");
 
       function applyRunningState(running) {
         document.querySelectorAll(ALL_SELECTOR).forEach(function (el) { el.disabled = running; });
@@ -214,14 +225,23 @@
       // which check_state.py keeps set server-side until the check (or the next one) clears it.
       var cancelRequestedLocally = false;
 
+      function updateIdleSummary(data) {
+        if (!idleSummary) return;
+        if (idleSummaryText) idleSummaryText.textContent = data.summary_text || "";
+        if (idleSummaryDot) idleSummaryDot.className = "status-dot status-dot-" + (data.summary_status || "idle");
+      }
+
       function updateBanner(data) {
         if (!banner) return;
         if (!data.running) {
           banner.style.display = "none";
           cancelRequestedLocally = false;
           if (bannerCancelBtn) bannerCancelBtn.disabled = false;
+          updateIdleSummary(data);
+          if (idleSummary) idleSummary.style.display = "";
           return;
         }
+        if (idleSummary) idleSummary.style.display = "none";
         banner.style.display = "";
         var cancelling = data.cancelling || cancelRequestedLocally;
         if (bannerText) bannerText.textContent = cancelling ? "Cancelling…" : (data.progress_text || "Checking…");
@@ -282,7 +302,7 @@
 
       function poll() {
         fetch("/checks/status").then(function (r) { return r.json(); }).catch(function () {
-          return { running: false, feature: null, progress_text: "", cancelling: false };
+          return { running: false, feature: null, progress_text: "", cancelling: false, summary_text: "", summary_status: "idle" };
         }).then(function (data) {
           applyRunningState(data.running);
           updateBanner(data);
@@ -336,13 +356,15 @@
       });
     })();
 
-    // Accent color picker -- PREVIEW ONLY. Picking an option here updates the swatch button's
-    // own dot/label and which option shows the active checkmark, purely so the picker's look
-    // can be judged with real options in it -- it deliberately does NOT touch any --accent CSS
-    // variable, save anything, or otherwise change the app's actual color. Wiring an option's
-    // pick through to a real, persisted accent color is a later pass, once there's an actual
-    // design decision on which colors to ship.
+    // Accent color picker. Nordic Blue and Emerald Green are real -- their option carries a
+    // data-accent attribute (see the markup above), and picking one actually sets
+    // document.documentElement.dataset.accent (which style.css's [data-theme][data-accent]
+    // blocks key off of) and persists it, same localStorage-backed pattern as the light/dark
+    // toggle. The other four options have no data-accent attribute -- picking one only moves
+    // the swatch button/checkmark, since there's no matching CSS block for them yet (see
+    // style.css's own comment on the accent family blocks).
     (function () {
+      var STORAGE_KEY = "service-sentinel-accent";
       var wrapper = document.querySelector(".accent-picker");
       var toggleBtn = document.getElementById("accent-swatch-btn");
       var menu = document.getElementById("accent-picker-menu");
@@ -355,6 +377,27 @@
         toggleBtn.setAttribute("aria-expanded", "false");
       }
 
+      function selectOption(option) {
+        menu.querySelectorAll(".accent-picker-option").forEach(function (o) {
+          o.classList.remove("active");
+          o.setAttribute("aria-checked", "false");
+        });
+        option.classList.add("active");
+        option.setAttribute("aria-checked", "true");
+        if (swatchDot) swatchDot.className = "accent-swatch-dot " + option.dataset.swatch;
+        if (swatchLabel) swatchLabel.textContent = option.dataset.label;
+      }
+
+      // Re-sync the picker's own displayed state to whatever data-accent the head script
+      // already applied (from localStorage) -- without this, a returning visitor who'd picked
+      // Emerald Green would see the *color* correctly (the head script handles that before
+      // paint) but the picker itself would still show Nordic Blue as checked until clicked.
+      var currentAccent = document.documentElement.dataset.accent;
+      if (currentAccent) {
+        var currentOption = menu.querySelector('.accent-picker-option[data-accent="' + currentAccent + '"]');
+        if (currentOption) selectOption(currentOption);
+      }
+
       toggleBtn.addEventListener("click", function (evt) {
         evt.stopPropagation();
         menu.classList.toggle("hidden");
@@ -364,14 +407,11 @@
 
       menu.querySelectorAll(".accent-picker-option").forEach(function (option) {
         option.addEventListener("click", function () {
-          menu.querySelectorAll(".accent-picker-option").forEach(function (o) {
-            o.classList.remove("active");
-            o.setAttribute("aria-checked", "false");
-          });
-          option.classList.add("active");
-          option.setAttribute("aria-checked", "true");
-          if (swatchDot) swatchDot.className = "accent-swatch-dot " + option.dataset.swatch;
-          if (swatchLabel) swatchLabel.textContent = option.dataset.label;
+          selectOption(option);
+          if (option.dataset.accent) {
+            document.documentElement.dataset.accent = option.dataset.accent;
+            try { localStorage.setItem(STORAGE_KEY, option.dataset.accent); } catch (e) { /* private browsing, etc. */ }
+          }
           close();
         });
       });

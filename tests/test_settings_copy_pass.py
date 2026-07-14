@@ -55,11 +55,18 @@ def test_apprise_hint_explains_why_format_markdown_is_appended(client):
     assert "shown below is added automatically" not in text
 
 
-def test_test_notification_hint_is_short(client):
-    """No trailing period -- a single-sentence settings blurb, see the periods-removal pass."""
+def test_apprise_url_uses_the_test_and_save_cancel_button_pair_not_a_hint_paragraph(client):
+    """Replaced the old lone "Send test notification" button + explanatory hint text with the
+    same Test & Save / Cancel pair the API key fields already use -- the pair itself is
+    self-explanatory, so the separate hint paragraph is gone entirely."""
     text = _settings_text(client)
-    assert "Only saved after a successful test</p>" in text
+    assert "Only saved after a successful test" not in text
     assert "typing alone doesn't save it" not in text
+    assert "Send test notification" not in text
+    apprise_section = text[text.index('id="apprise_urls_wrapper"'):]
+    apprise_section = apprise_section[:apprise_section.index("</div>", apprise_section.index("api-key-row"))]
+    assert "Test &amp; Save" in apprise_section
+    assert 'onclick="cancelAppriseEdit()"' in apprise_section
 
 
 def test_include_errors_labels_drop_the_leading_also(client):

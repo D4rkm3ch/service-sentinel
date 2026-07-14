@@ -17,8 +17,14 @@
   --border: #2a2e37;
   --text: #d8dae0;
   --text-dim: #868c98;
-  --accent: #5ec9a6;
-  --accent-dim: #3a7a63;
+  /* --accent/--accent-dim/--on-accent/--accent-wash are set here too (to Nordic Blue's own
+     values, the app's default accent) purely as a safe fallback for an unrecognized or unset
+     [data-accent] -- the combined [data-theme][data-accent] blocks further down are more
+     specific and override these whenever a real accent family actually matches. */
+  --accent: #5da9e0;
+  --accent-dim: #33587a;
+  --on-accent: #0a1520;
+  --accent-wash: rgba(93, 169, 224, 0.1);
   --warn: #d9a441;
   --error: #d9705e;
   --info: #5b93d9;
@@ -29,7 +35,6 @@
      near-black text reads best on them. Light theme's equivalents are deep/saturated instead
      (for contrast against a white page), so its
      own block below flips these to near-white. */
-  --on-accent: #0e1210;
   --on-error: #1a0e0e;
   --on-warn: #1a1508;
   --on-info: #0d1420;
@@ -40,10 +45,6 @@
   --hover-tint: rgba(255, 255, 255, 0.03);
   --icon-hover-tint: rgba(255, 255, 255, 0.05);
   --code-bg: rgba(255, 255, 255, 0.06);
-  /* Translucent accent wash for the active sidebar link -- new in this theme system, so
-     (unlike the pre-existing hardcoded rgba(94,201,166,...) washes elsewhere on badges/rows,
-     left alone for now, see their own comment) this one is theme-aware from the start. */
-  --accent-wash: rgba(94, 201, 166, 0.1);
   /* The toggle switch's off-state knob -- same as --text here (a light knob reads fine against
      the dark track), but light theme's own block below softens this instead of reusing its
      near-black --text, which read as too bold/heavy a dot against that theme's pale track. */
@@ -60,13 +61,15 @@
   --border: #dde1e7;
   --text: #1b1e24;
   --text-dim: #5b6270;
-  --accent: #1f8f68;
-  --accent-dim: #7fbfa4;
+  /* Same Nordic Blue fallback reasoning as the dark block above. */
+  --accent: #2b5f9e;
+  --accent-dim: #8fb4d9;
+  --on-accent: #eef4fc;
+  --accent-wash: rgba(43, 95, 158, 0.12);
   --warn: #a66a1d;
   --error: #c13f2b;
   --info: #2f6bb0;
   --violet: #6b4fc4;
-  --on-accent: #f5fdf9;
   --on-error: #fdf3f1;
   --on-warn: #fdf6ea;
   --on-info: #eef4fc;
@@ -74,9 +77,40 @@
   --hover-tint: rgba(0, 0, 0, 0.035);
   --icon-hover-tint: rgba(0, 0, 0, 0.05);
   --code-bg: rgba(0, 0, 0, 0.05);
-  --accent-wash: rgba(31, 143, 104, 0.12);
   --toggle-knob: #9aa1ab;
   color-scheme: light;
+}
+
+/* Accent color families -- the topbar's accent picker (base.html) can only actually switch
+   between these two, Nordic Blue (the default) and Emerald Green; the other four options it
+   lists are preview-only stubs with no matching block here (see base.html's own script
+   comment), so picking one of those leaves the real accent on whichever of these two was last
+   actually chosen. Keyed on BOTH [data-theme] and [data-accent] -- higher specificity than the
+   theme-only blocks above, so these win for the four properties they touch whenever they match,
+   and fall back to the theme block's own (Nordic Blue) values otherwise. */
+:root[data-theme="dark"][data-accent="nordic"] {
+  --accent: #5da9e0;
+  --accent-dim: #33587a;
+  --on-accent: #0a1520;
+  --accent-wash: rgba(93, 169, 224, 0.1);
+}
+:root[data-theme="dark"][data-accent="emerald"] {
+  --accent: #5ec9a6;
+  --accent-dim: #3a7a63;
+  --on-accent: #0e1210;
+  --accent-wash: rgba(94, 201, 166, 0.1);
+}
+:root[data-theme="light"][data-accent="nordic"] {
+  --accent: #2b5f9e;
+  --accent-dim: #8fb4d9;
+  --on-accent: #eef4fc;
+  --accent-wash: rgba(43, 95, 158, 0.12);
+}
+:root[data-theme="light"][data-accent="emerald"] {
+  --accent: #1f8f68;
+  --accent-dim: #7fbfa4;
+  --on-accent: #f5fdf9;
+  --accent-wash: rgba(31, 143, 104, 0.12);
 }
 
 * { box-sizing: border-box; }
@@ -754,6 +788,21 @@ tr:hover .row-chevron {
   to { transform: rotate(360deg); }
 }
 
+/* Idle counterpart to .spinner in the topbar's compact health summary (#topbar-idle-summary,
+   base.html) -- a plain static dot instead of an animated ring, since there's nothing actually
+   in progress to show motion for. Color communicates the same "how's it looking" at a glance
+   .status-running's green already gives the spinner while a check is actually running. */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.status-dot-ok { background: var(--accent); }
+.status-dot-warn { background: var(--warn); }
+.status-dot-idle { background: var(--text-dim); }
+
 .htmx-request button { opacity: 0.6; cursor: default; }
 
 /* Icon sprite (see base.html's <symbol> defs) -- every icon in the app (nav rail, hamburger,
@@ -813,11 +862,13 @@ tr:hover .row-chevron {
   flex: none;
 }
 
-/* Fixed preview colors -- deliberately NOT var(--accent) (unlike every other color in this
-   file): these represent options a picker could offer, independent of whichever one happens to
-   be the app's real current accent, so they need their own literal values. */
+/* Fixed swatch colors -- deliberately NOT var(--accent) (unlike every other color in this
+   file): each one needs to show its OWN color regardless of which accent happens to be active
+   right now, not the current one. Emerald/Nordic's values here are kept in sync with their real
+   [data-accent] blocks above; the other four are still preview-only stubs with no real block to
+   match (see base.html's own script comment) -- their swatch is just what they'd look like. */
 .accent-dot-emerald { background: #5ec9a6; }
-.accent-dot-nordic { background: #5b93d9; }
+.accent-dot-nordic { background: #5da9e0; }
 .accent-dot-amber { background: #d9a441; }
 .accent-dot-violet { background: #9b84d9; }
 .accent-dot-crimson { background: #d9705e; }

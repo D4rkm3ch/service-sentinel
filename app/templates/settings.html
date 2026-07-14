@@ -193,14 +193,15 @@ capped by your last actual check</p>
     <div class="input-with-suffix {{ '' if notify.enabled else 'dimmed' }}" id="apprise_urls_wrapper">
       <input type="text" name="apprise_urls" id="apprise_urls_field" class="mono"
              placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}
+             data-saved-value="{{ notify.apprise_urls.replace('?format=markdown', '') }}"
              value="{{ notify.apprise_urls.replace('?format=markdown', '') }}">
       <span class="input-suffix">?format=markdown</span>
     </div>
-    <p class="meta apprise-disclaimer">Only saved after a successful test</p>
-    <div>
+    <div class="api-key-row">
       <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
-        Send test notification
+        Test &amp; Save
       </button>
+      <button type="button" class="button-danger" onclick="cancelAppriseEdit()">Cancel</button>
       <span id="apprise-test-result"></span>
     </div>
   </div>
@@ -441,6 +442,24 @@ function toggleAppriseField(enabled) {
   const wrapper = document.getElementById('apprise_urls_wrapper');
   if (wrapper) wrapper.classList.toggle('dimmed', !enabled);
 }
+
+// ---- Apprise URL Test & Save / Cancel -- same shape as the API key fields' own pair, adapted
+// for a field that's always visible/editable (no lock/unlock, nothing to mask) rather than a
+// secret: Cancel just discards whatever's typed and reverts to the last value that actually
+// passed a test (data-saved-value, kept in sync below whenever a test succeeds -- the route
+// itself only ever persists on a successful test, see POST /settings/notify/apprise-test). ----
+function cancelAppriseEdit() {
+  const field = document.getElementById('apprise_urls_field');
+  field.value = field.dataset.savedValue || '';
+  document.getElementById('apprise-test-result').innerHTML = '';
+}
+
+document.body.addEventListener('htmx:afterSwap', function (evt) {
+  if (evt.detail.target && evt.detail.target.id === 'apprise-test-result' && evt.detail.target.querySelector('.test-result-ok')) {
+    const field = document.getElementById('apprise_urls_field');
+    if (field) field.dataset.savedValue = field.value;
+  }
+});
 
 // ---- Per-feature "notify on check errors" toggle gating -- only meaningful while that
 // feature's own notifications are enabled at all, so it's dimmed/disabled in lockstep with it. ----

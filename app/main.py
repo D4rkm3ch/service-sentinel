@@ -386,6 +386,41 @@ def cancel_running_check():
     return {"status": "ok"}
 
 
+def _compact_health_summary() -> tuple[str, str]:
+    """Feeds the topbar's idle-state health summary (GET /checks/status, read only while nothing
+    is running) -- combines all three features' own latest-result counts, the exact same source
+    _build_card() reads for the Overview cards, into one line so the topbar is doing something
+    useful at rest instead of sitting blank between checks. Returns (text, status) where status
+    is "idle" (nothing enabled, or nothing has ever run), "ok" (enabled features all clear), or
+    "warn" (at least one open issue/pending update) -- the topbar dot's color class."""
+    total = 0
+    any_run = False
+    any_enabled = False
+    for feature in check_state.FEATURES:
+        if not db.get_feature_enabled(feature):
+            continue
+        any_enabled = True
+        # Whether a check has ever completed has to come from check_state (set_finished() stamps
+        # this at the end of every real check, found-something-or-not) rather than each
+        # summary's own last_at -- latest_update_summary()'s in particular only reflects the
+        # timestamp of a currently-PENDING update row, so a container with everything up to date
+        # would otherwise read as "never checked" forever, not "all clear".
+        if check_state.get_state(feature).get("last_run_at"):
+            any_run = True
+        if feature == "updates":
+            count = db.latest_update_summary()["unread"]
+        else:
+            count = db.findings_health_summary(feature)["active"]
+        total += count
+    if not any_enabled:
+        return "All checks disabled", "idle"
+    if not any_run:
+        return "No checks run yet", "idle"
+    if total == 0:
+        return "All clear", "ok"
+    return f"{total} issue{'s' if total != 1 else ''} found", "warn"
+
+
 @app.get("/checks/status")
 def checks_status():
     """Single sitewide poll target for base.html's top banner -- whichever feature is currently
@@ -397,7 +432,11 @@ def checks_status():
     Only one feature is ever running at a time in practice (see base.html's own note on why the
     UI treats "a check is running" as one sitewide state) -- if that were ever violated, this
     just reports the first one found, same as request_cancel_running_checks() signals all of
-    them regardless."""
+    them regardless.
+
+    When nothing is running, also carries the compact health summary that replaces the banner
+    in the topbar's center region at rest (see _compact_health_summary) -- summary_text/
+    summary_status are blank while a check IS running, since the banner takes that space instead."""
     for feature in check_state.FEATURES:
         if is_running(feature):
             return {
@@ -405,8 +444,14 @@ def checks_status():
                 "feature": feature,
                 "progress_text": _progress_text(get_progress(feature)),
                 "cancelling": check_state.is_cancel_requested(feature),
+                "summary_text": "",
+                "summary_status": "",
             }
-    return {"running": False, "feature": None, "progress_text": "", "cancelling": False}
+    summary_text, summary_status = _compact_health_summary()
+    return {
+        "running": False, "feature": None, "progress_text": "", "cancelling": False,
+        "summary_text": summary_text, "summary_status": summary_status,
+    }
 
 
 @app.post("/checks/check-all")
