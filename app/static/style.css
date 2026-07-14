@@ -48,8 +48,11 @@
 }
 
 :root[data-theme="light"] {
-  --bg: #f3f4f6;
-  --bg-panel: #ffffff;
+  /* Dulled a step from the first pass (page bg was #f3f4f6, panels a stark pure #ffffff) --
+     off-grey instead of off-white on both, still clearly a light theme, just easier on the
+     eyes than a near-white panel sitting on a near-white page. */
+  --bg: #e9eaed;
+  --bg-panel: #f6f7f8;
   --border: #dde1e7;
   --text: #1b1e24;
   --text-dim: #5b6270;
@@ -234,7 +237,11 @@ code {
   position: absolute;
   width: 320px;
   height: 320px;
-  right: -120px;
+  /* Pulled left just enough to show more of the mark than a naive right:0 would crop off, while
+     staying short of -100px (the point at which the image's own left edge would reach the
+     sidebar's left edge, i.e. stop being cut off at all) -- still meant to read as a watermark
+     bleeding off the right edge, not a fully-framed logo. */
+  right: -105px;
   bottom: -60px;
   background: url("/static/logo-white.svg") no-repeat center / contain;
   opacity: 0.05;
@@ -694,6 +701,12 @@ tr:hover .row-chevron {
   padding: 0;
   font-size: 14px;
   cursor: pointer;
+  /* Without this, an <svg> icon's inline baseline alignment (extra descender space browsers
+     reserve below it, same as inline text) reads as visibly off-center inside the button's own
+     square box -- flex centering ignores baseline and centers the icon's actual box instead. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .icon-button:hover {
   color: var(--text);
@@ -748,6 +761,12 @@ tr:hover .row-chevron {
 
 .sidebar-toggle {
   flex: none;
+  /* Nudges the button (and everything after it in .topbar-start, shifted the same amount)
+     left just enough that its icon lines up with the collapsed rail's nav icons directly below
+     it: a nav icon centers at 19px (.sidebar-link's own left padding) + 9px (half of its 18px
+     icon) = 28px from the sidebar's left edge, while this button -- without the nudge -- centers
+     at .topbar's 20px left padding + 15px (half of its own 30px box) = 35px. */
+  margin-left: -7px;
 }
 
 /* Sun/moon swap for the light/dark toggle -- both icons always exist in the DOM (simpler than
@@ -760,10 +779,13 @@ tr:hover .row-chevron {
 :root[data-theme="dark"] .theme-toggle-btn .icon-moon { display: block; }
 :root[data-theme="light"] .theme-toggle-btn .icon-sun { display: block; }
 
-/* Accent color swatch -- a colored dot + the current theme's name, structurally a normal
-   .icon-button-shaped control even though it's disabled/inert for now (see base.html's own
-   note): only one accent color exists today, so there's nothing to actually pick yet, but the
-   control reads the same as the light/dark toggle next to it rather than looking half-built. */
+/* Accent color picker -- PREVIEW ONLY for now (see base.html's own script comment): opens a
+   small popover of named color options, but picking one only updates the swatch button and the
+   popover's own checkmark, never the app's real --accent. .accent-picker is just a positioning
+   context (position:relative) for the absolutely-positioned menu below it. */
+.accent-picker {
+  position: relative;
+}
 .accent-swatch-btn {
   display: flex;
   align-items: center;
@@ -777,8 +799,56 @@ tr:hover .row-chevron {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--accent);
   flex: none;
+}
+
+/* Fixed preview colors -- deliberately NOT var(--accent) (unlike every other color in this
+   file): these represent options a picker could offer, independent of whichever one happens to
+   be the app's real current accent, so they need their own literal values. */
+.accent-dot-emerald { background: #5ec9a6; }
+.accent-dot-nordic { background: #5b93d9; }
+.accent-dot-amber { background: #d9a441; }
+.accent-dot-violet { background: #9b84d9; }
+.accent-dot-crimson { background: #d9705e; }
+.accent-dot-teal { background: #4fb8c9; }
+
+.accent-picker-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  min-width: 170px;
+  padding: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.accent-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: left;
+}
+.accent-picker-option:hover { background: var(--hover-tint); }
+/* Checkmark on the active option -- an actual glyph rather than a border/background highlight,
+   so "which one is picked" reads clearly even though (for now) nothing else on the page changes
+   to confirm it. */
+.accent-picker-option.active { color: var(--accent); }
+.accent-picker-option.active::after {
+  content: "✓";
+  margin-left: auto;
 }
 
 /* "Check All" -- Updates, then Logs, then Compose's existing full checks, strictly one after

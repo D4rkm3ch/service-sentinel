@@ -80,14 +80,43 @@
     </div>
     <div class="topbar-end">
       <button type="button" id="check-all-btn" class="check-all-btn">Check All</button>
-      <!-- Only one accent color exists yet (see style.css's own note) -- disabled rather than
-           wired up to a picker that has nothing to actually pick between, so it doesn't look
-           clickable-but-broken. Still a real, visible control (name + dot) so the eventual
-           multi-color picker has an obvious place to land without another layout change. -->
-      <button type="button" id="accent-swatch-btn" class="icon-button accent-swatch-btn" disabled title="Accent color: Green (only option for now)">
-        <span class="accent-swatch-dot" aria-hidden="true"></span>
-        Green
-      </button>
+      <!-- Preview only -- picking an option here doesn't actually change the app's accent color
+           yet (see base.html's own script comment below). It's here so the picker's eventual
+           look -- a swatch button that opens a named-color list -- can be judged for real
+           instead of guessed at from a single disabled placeholder. -->
+      <div class="accent-picker">
+        <button type="button" id="accent-swatch-btn" class="icon-button accent-swatch-btn"
+                aria-haspopup="true" aria-expanded="false" title="Accent color (preview only)">
+          <span class="accent-swatch-dot accent-dot-emerald" aria-hidden="true"></span>
+          <span id="accent-swatch-label">Emerald Green</span>
+        </button>
+        <div id="accent-picker-menu" class="accent-picker-menu hidden" role="menu">
+          <button type="button" class="accent-picker-option active" role="menuitemradio" aria-checked="true"
+                  data-swatch="accent-dot-emerald" data-label="Emerald Green">
+            <span class="accent-swatch-dot accent-dot-emerald" aria-hidden="true"></span> Emerald Green
+          </button>
+          <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false"
+                  data-swatch="accent-dot-nordic" data-label="Nordic Blue">
+            <span class="accent-swatch-dot accent-dot-nordic" aria-hidden="true"></span> Nordic Blue
+          </button>
+          <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false"
+                  data-swatch="accent-dot-amber" data-label="Sunset Amber">
+            <span class="accent-swatch-dot accent-dot-amber" aria-hidden="true"></span> Sunset Amber
+          </button>
+          <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false"
+                  data-swatch="accent-dot-violet" data-label="Royal Violet">
+            <span class="accent-swatch-dot accent-dot-violet" aria-hidden="true"></span> Royal Violet
+          </button>
+          <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false"
+                  data-swatch="accent-dot-crimson" data-label="Crimson Red">
+            <span class="accent-swatch-dot accent-dot-crimson" aria-hidden="true"></span> Crimson Red
+          </button>
+          <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false"
+                  data-swatch="accent-dot-teal" data-label="Ocean Teal">
+            <span class="accent-swatch-dot accent-dot-teal" aria-hidden="true"></span> Ocean Teal
+          </button>
+        </div>
+      </div>
       <button type="button" id="theme-toggle-btn" class="icon-button theme-toggle-btn" aria-label="Switch color theme" title="Switch color theme">
         <svg class="icon icon-sun"><use href="#icon-sun"/></svg>
         <svg class="icon icon-moon"><use href="#icon-moon"/></svg>
@@ -294,6 +323,54 @@
         var next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
         document.documentElement.dataset.theme = next;
         try { localStorage.setItem(STORAGE_KEY, next); } catch (e) { /* private browsing, etc. */ }
+      });
+    })();
+
+    // Accent color picker -- PREVIEW ONLY. Picking an option here updates the swatch button's
+    // own dot/label and which option shows the active checkmark, purely so the picker's look
+    // can be judged with real options in it -- it deliberately does NOT touch any --accent CSS
+    // variable, save anything, or otherwise change the app's actual color. Wiring an option's
+    // pick through to a real, persisted accent color is a later pass, once there's an actual
+    // design decision on which colors to ship.
+    (function () {
+      var wrapper = document.querySelector(".accent-picker");
+      var toggleBtn = document.getElementById("accent-swatch-btn");
+      var menu = document.getElementById("accent-picker-menu");
+      var swatchDot = toggleBtn ? toggleBtn.querySelector(".accent-swatch-dot") : null;
+      var swatchLabel = document.getElementById("accent-swatch-label");
+      if (!wrapper || !toggleBtn || !menu) return;
+
+      function close() {
+        menu.classList.add("hidden");
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+
+      toggleBtn.addEventListener("click", function (evt) {
+        evt.stopPropagation();
+        menu.classList.toggle("hidden");
+        var open = !menu.classList.contains("hidden");
+        toggleBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+
+      menu.querySelectorAll(".accent-picker-option").forEach(function (option) {
+        option.addEventListener("click", function () {
+          menu.querySelectorAll(".accent-picker-option").forEach(function (o) {
+            o.classList.remove("active");
+            o.setAttribute("aria-checked", "false");
+          });
+          option.classList.add("active");
+          option.setAttribute("aria-checked", "true");
+          if (swatchDot) swatchDot.className = "accent-swatch-dot " + option.dataset.swatch;
+          if (swatchLabel) swatchLabel.textContent = option.dataset.label;
+          close();
+        });
+      });
+
+      document.addEventListener("click", function (evt) {
+        if (!wrapper.contains(evt.target)) close();
+      });
+      document.addEventListener("keydown", function (evt) {
+        if (evt.key === "Escape") close();
       });
     })();
 

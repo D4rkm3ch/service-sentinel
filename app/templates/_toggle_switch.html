@@ -1,7 +1,8 @@
-{% macro toggle_switch(unique_id, checked, save_url, label, onchange_js='', label_id='') %}
-<span class="toggle-with-label">
+{% macro toggle_switch(unique_id, checked, save_url, label, onchange_js='', label_id='', disabled=false) %}
+<span class="toggle-with-label {{ 'dimmed' if disabled else '' }}" id="{{ unique_id }}_row">
   <label class="toggle-switch">
     <input type="checkbox" id="{{ unique_id }}" name="enabled" value="on" {{ 'checked' if checked else '' }}
+           {{ 'disabled' if disabled else '' }}
            hx-post="{{ save_url }}" hx-trigger="change" hx-target="#saved-{{ unique_id }}" hx-swap="innerHTML"
            {% if onchange_js %}onchange="{{ onchange_js }}"{% endif %}>
     <span class="toggle-slider"></span>

@@ -32,7 +32,7 @@
       <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
     </div>
     <div class="stepper-row">
-      <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests (2 recommended on a free/trial key, 4 on a paid plan)</label>
+      <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests (2 free, 4 paid)</label>
       <div class="stepper">
         <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', -1)">&minus;</button>
         <input type="number" inputmode="numeric" class="mono field-input stepper-input"
@@ -47,8 +47,8 @@
 
   <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'hidden' }}" id="gemini-provider-section">
     <h4>Gemini</h4>
-    <p class="meta">Get a key
-(no card required for the free tier) from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</p>
+    <p class="meta">Get a key from
+<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.</p>
     {{ akf.api_key_field('gemini', gemini_key_configured, 'AIza...', '/settings/ai/gemini-key') }}
     <div style="margin-top:10px">
       <select name="gemini_model" class="mono field-input" hx-post="/settings/ai/gemini-model" hx-trigger="change" hx-target="#saved-gemini_model">
@@ -59,7 +59,7 @@
       <span class="saved-indicator-slot" id="saved-gemini_model"></span>
     </div>
     <div class="stepper-row">
-      <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests (1 recommended on the free tier, 4 with billing enabled)</label>
+      <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests (1 free, 4 paid)</label>
       <div class="stepper">
         <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', -1)">&minus;</button>
         <input type="number" inputmode="numeric" class="mono field-input stepper-input"
@@ -76,21 +76,20 @@
     <h4>GitHub <span class="badge badge-lg badge-sev-suggestion">Optional</span></h4>
     <p class="meta">Get a key (a fine-grained token with no permissions — public read only) from
 <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.<br>
-This raises the rate limit used for fetching release notes from 60/hr (unauthenticated) to 5,000/hr.</p>
+This raises the rate limit used for fetching release notes from 60/hr to 5,000/hr.</p>
     {{ akf.api_key_field('github', github_token_configured, 'ghp_...', '/settings/ai/github-token') }}
   </div>
 </section>
 
 <section class="panel">
   <h2 class="settings-heading-lg">Deep Analysis</h2>
-  <p class="meta">Adds an AI-suggested fix (or, for Updates, upgrade guidance) alongside each
-result, not just the problem report. This costs noticeably more tokens, so it's opt-in per
-feature.</p>
+  <p class="meta">Adds an AI-suggested fix or upgrade guidance alongside each result. This costs
+noticeably more tokens.</p>
 
   {% for feature, title, label in [
-    ('logs', 'Log Health', 'Suggest fixes for Log Health findings (uses more tokens)'),
-    ('compose', 'Compose Health', 'Suggest fixes for Compose Health findings (uses more tokens)'),
-    ('updates', 'Updates', 'Suggest upgrade guidance for pending updates (uses more tokens)'),
+    ('logs', 'Log Health', 'Suggest fixes for Log Health findings'),
+    ('compose', 'Compose Health', 'Suggest fixes for Compose Health findings'),
+    ('updates', 'Updates', 'Suggest upgrade guidance for pending updates'),
   ] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
     <h4>{{ title }}</h4>
@@ -110,13 +109,11 @@ feature.</p>
 <section class="panel">
   <h2 class="settings-heading-lg">Cross-Service Analysis</h2>
   <p class="meta">Analyzes whether something in one service could affect others in the same
-compose stack. Not offered for Compose Health, since a compose file's services are already
-grouped together in the same file. This costs noticeably more tokens, so it's opt-in per
-feature.</p>
+compose stack. This costs noticeably more tokens.</p>
 
   {% for feature, title, label in [
-    ('updates', 'Updates', 'Analyze whether an update in one service could affect others in the same compose stack (uses more tokens)'),
-    ('logs', 'Log Health', 'Analyze whether a log issue in one service could be related to others in the same compose stack (uses more tokens)'),
+    ('updates', 'Updates', 'Analyze cross-service impact for pending updates'),
+    ('logs', 'Log Health', 'Analyze cross-service impact for Log Health findings'),
   ] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
     <h4>{{ title }}</h4>
@@ -134,14 +131,11 @@ feature.</p>
 </section>
 
 <section class="panel">
-  <h2 class="settings-heading-lg">Release Notes</h2>
-  <p class="meta">If you've missed several releases since your last check, compile them all into
-one combined summary instead of just the latest.</p>
+  <h2 class="settings-heading-lg">Release Notes Lookback Window</h2>
+  <p class="meta">How far back to look for missed releases, combined into one summary — still
+capped by your last actual check.</p>
 
   <div class="settings-subsection settings-subsection-first">
-    <h4>Lookback Window</h4>
-    <p class="meta">How far back to look for missed releases, at most — still bounded by your
-last actual check either way.</p>
     <select name="release_notes_lookback" class="mono field-input" hx-post="/settings/release-notes-lookback"
             hx-trigger="change" hx-target="#saved-release-notes-lookback">
       <option value="since_check" {{ 'selected' if release_notes_lookback == 'since_check' else '' }}>No limit (since last check)</option>
@@ -195,14 +189,14 @@ last actual check either way.</p>
   <div class="settings-subsection settings-subsection-first">
     {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', 'Enable notifications', "toggleAppriseField(this.checked)") }}
 
-    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated — see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for other services.<br>Discord webhooks are entered as <code>discord://{WebhookID}/{WebhookToken}</code> — the <code>?format=markdown</code> suffix shown below is added automatically.</p>
+    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated — see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for other services.<br>Discord webhooks are entered as <code>discord://{WebhookID}/{WebhookToken}</code> — <code>?format=markdown</code> is appended automatically to enable colored Discord embeds.</p>
     <div class="input-with-suffix {{ '' if notify.enabled else 'dimmed' }}" id="apprise_urls_wrapper">
       <input type="text" name="apprise_urls" id="apprise_urls_field" class="mono"
              placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}
              value="{{ notify.apprise_urls.replace('?format=markdown', '') }}">
       <span class="input-suffix">?format=markdown</span>
     </div>
-    <p class="meta apprise-disclaimer">Click "Send test notification" to save this URL — typing alone doesn't save it, and a failed test won't be saved either.</p>
+    <p class="meta apprise-disclaimer">Only saved after a successful test.</p>
     <div>
       <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
         Send test notification
@@ -214,10 +208,12 @@ last actual check either way.</p>
   {% for feature, title in [('updates', 'Updates'), ('logs', 'Log Health'), ('compose', 'Compose Health')] %}
   <div class="settings-subsection">
     <h4>{{ title }}</h4>
-    {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature, 'Enable notifications') }}
+    {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature,
+                         'Enable notifications', "toggleNotifyErrorsField('" ~ feature ~ "', this.checked)") }}
     {% if feature == 'updates' %}
     <div style="margin-top:8px">
-      {{ ts.toggle_switch('notify_updates_include_errors', notify.updates_include_errors, '/settings/notify/updates-include-errors', "Also notify when a container's registry can't be reached") }}
+      {{ ts.toggle_switch('notify_updates_include_errors', notify.updates_include_errors, '/settings/notify/updates-include-errors',
+                           "Notify when a container's registry can't be reached", disabled=not notify.features['updates'].enabled) }}
     </div>
     <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
     <div>
@@ -225,7 +221,8 @@ last actual check either way.</p>
     </div>
     {% elif feature == 'logs' %}
     <div style="margin-top:8px">
-      {{ ts.toggle_switch('notify_logs_include_errors', notify.logs_include_errors, '/settings/notify/logs-include-errors', "Also notify when a container's logs can't be fetched") }}
+      {{ ts.toggle_switch('notify_logs_include_errors', notify.logs_include_errors, '/settings/notify/logs-include-errors',
+                           "Notify when a container's logs can't be fetched", disabled=not notify.features['logs'].enabled) }}
     </div>
     <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
     <div>
@@ -233,7 +230,8 @@ last actual check either way.</p>
     </div>
     {% else %}
     <div style="margin-top:8px">
-      {{ ts.toggle_switch('notify_compose_include_errors', notify.compose_include_errors, '/settings/notify/compose-include-errors', "Also notify when a compose file can't be checked") }}
+      {{ ts.toggle_switch('notify_compose_include_errors', notify.compose_include_errors, '/settings/notify/compose-include-errors',
+                           "Notify when a compose file can't be checked", disabled=not notify.features['compose'].enabled) }}
     </div>
     <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
     <div>
@@ -442,6 +440,16 @@ function toggleAppriseField(enabled) {
   field.disabled = !enabled;
   const wrapper = document.getElementById('apprise_urls_wrapper');
   if (wrapper) wrapper.classList.toggle('dimmed', !enabled);
+}
+
+// ---- Per-feature "notify on check errors" toggle gating -- only meaningful while that
+// feature's own notifications are enabled at all, so it's dimmed/disabled in lockstep with it. ----
+function toggleNotifyErrorsField(feature, enabled) {
+  const input = document.getElementById('notify_' + feature + '_include_errors');
+  if (!input) return;
+  input.disabled = !enabled;
+  const row = document.getElementById('notify_' + feature + '_include_errors_row');
+  if (row) row.classList.toggle('dimmed', !enabled);
 }
 </script>
 

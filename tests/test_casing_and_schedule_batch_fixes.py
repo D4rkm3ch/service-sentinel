@@ -46,8 +46,10 @@ def test_suggested_fix_and_upgrade_guidance_headings_are_title_cased():
 
 
 def test_settings_lookback_window_heading_is_title_cased():
+    """The standalone "Lookback Window" subheading was folded into the section's own title
+    (see the UI overhaul's settings copy pass) -- "Release Notes Lookback Window" now."""
     text = (ROOT / "app" / "templates" / "settings.html").read_text()
-    assert "<h4>Lookback Window</h4>" in text
+    assert "Release Notes Lookback Window" in text
 
 
 def test_notes_not_found_and_up_to_date_badges_are_title_cased():

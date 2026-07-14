@@ -57,7 +57,7 @@ def test_sidebar_has_a_watermark_element_for_the_dimmed_background_logo():
     assert "sidebar-watermark" in text
     style = STYLE.read_text()
     assert ".sidebar-watermark" in style
-    assert "opacity:" in style[style.index(".sidebar-watermark"):style.index(".sidebar-watermark") + 400]
+    assert "opacity:" in style[style.index(".sidebar-watermark"):style.index(".sidebar-watermark") + 700]
 
 
 # ---------------------------------------------------------------------------
@@ -110,12 +110,25 @@ def test_check_all_button_and_theme_controls_live_in_the_topbar_end_region():
     assert 'id="theme-toggle-btn"' in end_text
 
 
-def test_accent_swatch_is_disabled_with_only_one_color_option():
-    """Structurally present (a real control, not just a stub) but inert -- there's nothing to
-    actually pick between yet (see style.css/base.html's own notes)."""
+def test_accent_picker_offers_several_named_color_options():
+    """Preview only (see base.html's own script comment) -- picking an option doesn't actually
+    change the app's accent color yet, but the picker itself should show real, distinctly-named
+    choices rather than a single disabled placeholder."""
     text = _base_html()
-    swatch = text[text.index('id="accent-swatch-btn"'):text.index('id="accent-swatch-btn"') + 200]
-    assert "disabled" in swatch
+    menu = text[text.index('id="accent-picker-menu"'):text.index("</div>", text.index('id="accent-picker-menu"'))]
+    for name in ("Emerald Green", "Nordic Blue", "Sunset Amber", "Royal Violet", "Crimson Red", "Ocean Teal"):
+        assert name in menu
+    assert menu.count("accent-picker-option") >= 6
+    assert "disabled" not in text[text.index('id="accent-swatch-btn"'):text.index('id="accent-swatch-btn"') + 200]
+
+
+def test_accent_picker_options_are_non_functional_preview_only():
+    """Clicking an option must never call out to the server or persist anything -- it's purely
+    a local visual preview until a real accent-switching feature exists."""
+    text = _base_html()
+    picker_script = text[text.index("Accent color picker"):text.index("Collapsible top table")]
+    assert "fetch(" not in picker_script
+    assert "hx-post" not in picker_script
 
 
 # ---------------------------------------------------------------------------
@@ -166,15 +179,20 @@ def test_style_defines_both_a_dark_and_a_light_theme_block():
         assert token in light_block
 
 
-def test_no_bare_white_or_black_rgba_hover_tints_remain_outside_the_theme_blocks():
-    """Every rgba(255,255,255,...)/rgba(0,0,0,...) hover/background tint must go through a
+def test_no_bare_white_or_black_rgba_background_tints_remain_outside_the_theme_blocks():
+    """Every rgba(255,255,255,...)/rgba(0,0,0,...) hover/background TINT must go through a
     theme-aware variable now -- a literal one anywhere else would look wrong (invisible or
-    inverted) in the theme it wasn't written for."""
+    inverted) in the theme it wasn't written for. Scoped to background/background-color
+    specifically -- a black box-shadow (a drop shadow, e.g. the accent picker's popover) is a
+    deliberate, correct exception: shadows read as "shadow" in both themes without needing to
+    flip to white in light mode, unlike a background tint."""
     style = STYLE.read_text()
     dark_start = style.index(':root[data-theme="dark"]')
     light_end_marker = ':root[data-theme="light"]'
     after_theme_blocks = style[style.index(light_end_marker):]
     after_theme_blocks = after_theme_blocks[after_theme_blocks.index("}") + 1:]
-    assert "rgba(255, 255, 255," not in after_theme_blocks
-    assert "rgba(0, 0, 0," not in after_theme_blocks
+    assert "background: rgba(255, 255, 255," not in after_theme_blocks
+    assert "background: rgba(0, 0, 0," not in after_theme_blocks
+    assert "background-color: rgba(255, 255, 255," not in after_theme_blocks
+    assert "background-color: rgba(0, 0, 0," not in after_theme_blocks
     assert dark_start >= 0  # sanity: the theme blocks were actually found above
