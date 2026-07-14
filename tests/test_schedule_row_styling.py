@@ -6,10 +6,18 @@ label a flex container so its text and control align on the same line as the wee
 
 
 def test_root_themes_native_form_controls_to_the_dark_palette():
+    """color-scheme now lives in the dark theme's own [data-theme="dark"] block (each theme sets
+    its own -- light's is color-scheme: light, see style.css's theme system), rather than a
+    single un-themed :root, since which one applies depends on the active theme. accent-color
+    itself isn't theme-specific (var(--accent) already resolves to whichever theme is active on
+    its own) so it stays on the bare :root."""
     from pathlib import Path
     text = (Path(__file__).resolve().parent.parent / "app" / "static" / "style.css").read_text()
-    root_block = text[text.index(":root {"):text.index(":root {") + text[text.index(":root {"):].index("}")]
-    assert "color-scheme: dark" in root_block
+    dark_start = text.index(':root[data-theme="dark"] {')
+    dark_block = text[dark_start:dark_start + text[dark_start:].index("}")]
+    assert "color-scheme: dark" in dark_block
+    root_start = text.index(":root {")
+    root_block = text[root_start:root_start + text[root_start:].index("}")]
     assert "accent-color: var(--accent)" in root_block
 
 

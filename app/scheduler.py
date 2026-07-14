@@ -3,7 +3,7 @@ import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app import db, persist
+from app import check_state, db, persist
 from app.compose_reviewer import run_compose_check
 from app.config import settings
 from app.log_watcher import run_log_check
@@ -144,3 +144,28 @@ def trigger_log_check_now() -> None:
 
 def trigger_compose_check_now() -> None:
     _scheduler.add_job(run_compose_check, id="manual_compose_check", replace_existing=True)
+
+
+def run_check_all() -> None:
+    """The topbar's "Check All" button (POST /checks/check-all) -- an explicit ask to run
+    Updates, then Logs, then Compose one at a time, each waiting for the previous one to fully
+    finish before the next starts. Same sequential shape as the master schedule's own grouped
+    firing (see _run_chain above), just triggered on demand rather than by a cron trigger, so
+    it reuses _JOBS/_FEATURE_ORDER directly instead of duplicating that "run these one after
+    another" loop.
+
+    Only Check Now's own light, skip-what-isn't-new work -- deliberately never wired to bulk
+    Regenerate AI Response or Reset & re-check, both heavier/token-costlier actions a sitewide
+    "run everything" button should never trigger by accident.
+
+    A Cancel clicked mid-chain (the same sitewide Cancel every other check uses -- see
+    check_state.request_cancel_running_checks) stops the chain rather than continuing on to the
+    next feature: is_cancel_requested(feature) is checked right after that feature's own run
+    function returns, since a cancelled run's own set_finished() call doesn't clear its cancel
+    flag -- only claiming the mutex again (set_running/try_start) does, so this reads as a
+    reliable "was this one just cancelled" signal without needing any new state of its own."""
+    for feature in _FEATURE_ORDER:
+        func, _job_id = _JOBS[feature]
+        func()
+        if check_state.is_cancel_requested(feature):
+            break

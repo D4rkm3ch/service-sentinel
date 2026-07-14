@@ -2,7 +2,7 @@ name: build-and-push
 
 on:
   push:
-    branches: [main, model-providers, concurrency]
+    branches: [main, model-providers, concurrency, uioverhaul]
   workflow_dispatch: {}
 
 permissions:

@@ -71,11 +71,15 @@ def test_dead_dashboard_template_was_removed():
 
 
 def test_collapse_state_no_longer_written_to_or_read_from_localstorage():
+    """Scoped to the collapsible-top-table script specifically, not the whole file -- base.html
+    legitimately uses localStorage elsewhere now (the sidebar collapse state and the light/dark
+    theme, both meant to persist across page loads on purpose, unlike the table)."""
     text = (ROOT / "app" / "templates" / "base.html").read_text()
-    assert "localStorage" not in text
+    collapsible_block = text[text.index("Collapsible top table"):]
+    assert "localStorage" not in collapsible_block
     # The click-to-toggle behavior itself must still be present.
-    assert "collapsible-header" in text
-    assert "scrollHeight" in text
+    assert "collapsible-header" in collapsible_block
+    assert "scrollHeight" in collapsible_block
 
 
 def test_schedule_time_label_renamed_to_at_in_every_mode():

@@ -1,32 +1,120 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Service Sentinel{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="/static/logo-black.svg">
+  <!-- Stamps the real theme onto <html> (from localStorage, if this browser has ever picked one)
+       before the stylesheet below is even requested -- data-theme="dark" above is only the
+       no-JS/first-ever-visit fallback. Blocking and inline on purpose: an externally-sourced
+       script, or one placed after the stylesheet, would let one frame paint in the wrong theme
+       first, a visible flash every single page load rather than a one-time cost. -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("service-sentinel-theme");
+        if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
+      } catch (e) { /* localStorage unavailable (private browsing, etc.) -- stay on the dark default */ }
+    })();
+  </script>
   <link rel="stylesheet" href="/static/style.css?v={{ static_asset_version }}">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js"></script>
 </head>
-<body>
+<body data-sidebar="collapsed">
+  <!-- Icon sprite: every icon used anywhere in the chrome below is a <use href="#icon-*">
+       against one of these -- one definition per icon regardless of how many places reference
+       it, all inheriting color/size from .icon (style.css) via currentColor rather than each
+       needing its own fill/stroke. Hidden (not display:none, which some browsers also hide
+       <use> references against) so it renders nothing on its own. -->
+  <svg style="position:absolute; width:0; height:0; overflow:hidden" aria-hidden="true">
+    <defs>
+      <symbol id="icon-menu" viewBox="0 0 24 24">
+        <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+      </symbol>
+      <symbol id="icon-home" viewBox="0 0 24 24">
+        <path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9"/>
+      </symbol>
+      <symbol id="icon-updates" viewBox="0 0 24 24">
+        <path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.6"/><path d="M4 4v4.6h4.6"/>
+        <path d="M4 13a8 8 0 0 0 13.7 4.7L20 15.4"/><path d="M20 20v-4.6h-4.6"/>
+      </symbol>
+      <symbol id="icon-logs" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3"/><line x1="12" y1="15" x2="17" y2="15"/>
+      </symbol>
+      <symbol id="icon-compose" viewBox="0 0 24 24">
+        <path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 12l9 5 9-5"/><path d="M3 16l9 5 9-5"/>
+      </symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24">
+        <line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2"/>
+        <line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2"/>
+        <line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="18" r="2"/>
+      </symbol>
+      <symbol id="icon-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/>
+        <line x1="4" y1="12" x2="2" y2="12"/><line x1="22" y1="12" x2="20" y2="12"/>
+        <line x1="4.9" y1="4.9" x2="6.3" y2="6.3"/><line x1="17.7" y1="17.7" x2="19.1" y2="19.1"/>
+        <line x1="4.9" y1="19.1" x2="6.3" y2="17.7"/><line x1="17.7" y1="6.3" x2="19.1" y2="4.9"/>
+      </symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24">
+        <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4 7 7 0 0 0 20 14.5Z"/>
+      </symbol>
+    </defs>
+  </svg>
+
   <header class="topbar">
-    <a href="/" class="brand"><img src="/static/logo-white.svg" alt="" class="brand-logo">Service Sentinel</a>
-    <nav class="tabs">
-      <a href="/" class="{{ 'active' if active_tab == 'overview' else '' }}">Overview</a>
-      <a href="/updates" class="{{ 'active' if active_tab == 'updates' else '' }}">Updates</a>
-      <a href="/logs" class="{{ 'active' if active_tab == 'logs' else '' }}">Logs</a>
-      <a href="/compose" class="{{ 'active' if active_tab == 'compose' else '' }}">Compose</a>
-      <a href="/settings" class="{{ 'active' if active_tab == 'settings' else '' }}">Settings</a>
-    </nav>
-  </header>
-  <main>
-    <div id="check-running-banner" class="check-running-banner" style="display:none">
-      <span class="status-badge status-running">
-        <span class="spinner" aria-hidden="true"></span>
-        <span id="check-running-banner-text">Checking…</span>
-      </span>
-      <button type="button" id="check-running-banner-cancel" class="button-danger check-running-banner-cancel">Cancel</button>
+    <div class="topbar-start">
+      <button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <svg class="icon"><use href="#icon-menu"/></svg>
+      </button>
+      <a href="/" class="brand"><img src="/static/logo-white.svg" alt="" class="brand-logo">Service Sentinel</a>
     </div>
+    <div class="topbar-center">
+      <div id="check-running-banner" class="topbar-status" style="display:none">
+        <span class="status-badge status-running">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="check-running-banner-text">Checking…</span>
+        </span>
+        <button type="button" id="check-running-banner-cancel" class="button-danger topbar-status-cancel">Cancel</button>
+      </div>
+    </div>
+    <div class="topbar-end">
+      <button type="button" id="check-all-btn" class="check-all-btn">Check All</button>
+      <!-- Only one accent color exists yet (see style.css's own note) -- disabled rather than
+           wired up to a picker that has nothing to actually pick between, so it doesn't look
+           clickable-but-broken. Still a real, visible control (name + dot) so the eventual
+           multi-color picker has an obvious place to land without another layout change. -->
+      <button type="button" id="accent-swatch-btn" class="icon-button accent-swatch-btn" disabled title="Accent color: Green (only option for now)">
+        <span class="accent-swatch-dot" aria-hidden="true"></span>
+        Green
+      </button>
+      <button type="button" id="theme-toggle-btn" class="icon-button theme-toggle-btn" aria-label="Switch color theme" title="Switch color theme">
+        <svg class="icon icon-sun"><use href="#icon-sun"/></svg>
+        <svg class="icon icon-moon"><use href="#icon-moon"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <nav id="sidebar" class="sidebar" aria-label="Main navigation">
+    <div class="sidebar-watermark" aria-hidden="true"></div>
+    <a href="/" class="sidebar-link {{ 'active' if active_tab == 'overview' else '' }}">
+      <svg class="icon"><use href="#icon-home"/></svg><span class="sidebar-label">Overview</span>
+    </a>
+    <a href="/updates" class="sidebar-link {{ 'active' if active_tab == 'updates' else '' }}">
+      <svg class="icon"><use href="#icon-updates"/></svg><span class="sidebar-label">Updates</span>
+    </a>
+    <a href="/logs" class="sidebar-link {{ 'active' if active_tab == 'logs' else '' }}">
+      <svg class="icon"><use href="#icon-logs"/></svg><span class="sidebar-label">Logs</span>
+    </a>
+    <a href="/compose" class="sidebar-link {{ 'active' if active_tab == 'compose' else '' }}">
+      <svg class="icon"><use href="#icon-compose"/></svg><span class="sidebar-label">Compose</span>
+    </a>
+    <a href="/settings" class="sidebar-link {{ 'active' if active_tab == 'settings' else '' }}">
+      <svg class="icon"><use href="#icon-settings"/></svg><span class="sidebar-label">Settings</span>
+    </a>
+  </nav>
+
+  <main>
     {% block content %}{% endblock %}
   </main>
   <footer class="app-footer">
@@ -65,7 +153,11 @@
     // re-enabling once every running check genuinely finishes.
     (function () {
       var FEATURES = ["updates", "logs", "compose"];
-      var ALL_SELECTOR = FEATURES.map(function (f) { return "." + f + "-action-btn"; }).join(",");
+      // #check-all-btn is included here (not just the three "{feature}-action-btn" classes) so
+      // it dims and re-enables on exactly the same signal as every other check-starting button
+      // -- it kicks off the same per-feature mutexes underneath (see scheduler.run_check_all),
+      // just chained, so there's no separate state to track for it.
+      var ALL_SELECTOR = FEATURES.map(function (f) { return "." + f + "-action-btn"; }).join(",") + ",#check-all-btn";
 
       var banner = document.getElementById("check-running-banner");
       var bannerText = document.getElementById("check-running-banner-text");
@@ -103,6 +195,19 @@
           bannerCancelBtn.disabled = true;
           if (bannerText) bannerText.textContent = "Cancelling…";
           fetch("/checks/cancel", { method: "POST" });
+        });
+      }
+
+      // "Check All" -- Updates, then Logs, then Compose's existing full checks, chained
+      // server-side (see scheduler.run_check_all / POST /checks/check-all). Disabled the
+      // instant it's clicked, same optimistic reasoning as the beforeRequest listener below
+      // (this button isn't an htmx element, so that listener never sees it) -- the poll then
+      // takes over as source of truth for re-enabling once the whole chain finishes.
+      var checkAllBtn = document.getElementById("check-all-btn");
+      if (checkAllBtn) {
+        checkAllBtn.addEventListener("click", function () {
+          applyRunningState(true);
+          fetch("/checks/check-all", { method: "POST" });
         });
       }
 
@@ -149,6 +254,47 @@
 
       poll();
       setInterval(poll, 1000);
+    })();
+
+    // Sidebar collapse/expand -- persisted per-browser (not per-page) via localStorage, read
+    // synchronously here rather than in the head's blocking script like the theme is: unlike a
+    // wrong theme, a sidebar that starts collapsed and snaps to expanded a moment later isn't a
+    // jarring flash (it's a width transition either way once JS runs), so it doesn't need the
+    // same before-first-paint treatment.
+    (function () {
+      var STORAGE_KEY = "service-sentinel-sidebar";
+      var toggleBtn = document.getElementById("sidebar-toggle");
+      if (!toggleBtn) return;
+
+      function apply(state) {
+        document.body.dataset.sidebar = state;
+        toggleBtn.setAttribute("aria-expanded", state === "expanded" ? "true" : "false");
+      }
+
+      var saved = null;
+      try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { /* private browsing, etc. */ }
+      if (saved === "expanded" || saved === "collapsed") apply(saved);
+
+      toggleBtn.addEventListener("click", function () {
+        var next = document.body.dataset.sidebar === "expanded" ? "collapsed" : "expanded";
+        apply(next);
+        try { localStorage.setItem(STORAGE_KEY, next); } catch (e) { /* private browsing, etc. */ }
+      });
+    })();
+
+    // Light/dark theme toggle -- the actual switch on click; the matching read happens in the
+    // blocking <head> script above (same localStorage key), which is what avoids a flash of the
+    // wrong theme on every subsequent page load once a preference has been saved once.
+    (function () {
+      var STORAGE_KEY = "service-sentinel-theme";
+      var toggleBtn = document.getElementById("theme-toggle-btn");
+      if (!toggleBtn) return;
+
+      toggleBtn.addEventListener("click", function () {
+        var next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+        document.documentElement.dataset.theme = next;
+        try { localStorage.setItem(STORAGE_KEY, next); } catch (e) { /* private browsing, etc. */ }
+      });
     })();
 
     // Collapsible top table (Updates/Issues) on the Updates/Logs/Compose main pages -- clicking

@@ -22,6 +22,7 @@ from app.summarizer import summarize_findings_overview
 from app.schedule_spec import DAY_NAMES, describe as describe_schedule
 from app.scheduler import (
     apply_schedules,
+    run_check_all,
     start_scheduler,
     trigger_compose_check_now,
     trigger_log_check_now,
@@ -406,6 +407,18 @@ def checks_status():
                 "cancelling": check_state.is_cancel_requested(feature),
             }
     return {"running": False, "feature": None, "progress_text": "", "cancelling": False}
+
+
+@app.post("/checks/check-all")
+def check_all():
+    """The topbar's "Check All" button -- Updates, then Logs, then Compose's existing full
+    checks, strictly one after another (see scheduler.run_check_all). Fire-and-forget, same
+    shape as POST /checks/cancel: the actual chain runs on a background thread so this response
+    returns immediately, and the topbar's own poll (GET /checks/status, already running once a
+    second) is what reflects progress through each feature as the chain advances -- no separate
+    endpoint or polling loop needed for this button specifically."""
+    threading.Thread(target=run_check_all, daemon=True).start()
+    return {"status": "ok"}
 
 
 @app.get("/updates/partial")
