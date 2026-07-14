@@ -51,7 +51,9 @@ def test_settings_page_shows_title_cased_feature_names_everywhere(client):
     resp = client.get("/settings")
     assert "Runtime health" not in resp.text
     assert "Configuration health" not in resp.text
-    # Spot-check a few of the sections that had it: Deep Analysis, Cross-Service Analysis,
-    # Scheduling, Notifications all repeat the feature name as a subsection heading.
-    assert resp.text.count("Runtime Health") >= 4
-    assert resp.text.count("Configuration Health") >= 4
+    # Deep Analysis and Scheduling still title each subsection "Runtime Health"/"Configuration
+    # Health"; Cross-Service Analysis and Notifications now have their own distinct titles
+    # ("Runtime Analysis"/"Update Analysis", "Runtime Notifications"/etc) -- see
+    # test_settings_copy_pass.py for those.
+    assert resp.text.count("Runtime Health") >= 3
+    assert resp.text.count("Configuration Health") >= 2

@@ -87,9 +87,9 @@ This raises the rate limit used for fetching release notes from 60/hr to 5,000/h
 noticeably more tokens.</p>
 
   {% for feature, title, label in [
+    ('updates', 'Updates Pending', 'Suggest upgrade guidance for pending updates'),
     ('logs', 'Runtime Health', 'Suggest fixes for Runtime Health findings'),
     ('compose', 'Configuration Health', 'Suggest fixes for Configuration Health findings'),
-    ('updates', 'Updates', 'Suggest upgrade guidance for pending updates'),
   ] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
     <h4>{{ title }}</h4>
@@ -112,8 +112,8 @@ noticeably more tokens.</p>
 compose stack. This costs noticeably more tokens.</p>
 
   {% for feature, title, label in [
-    ('updates', 'Updates', 'Analyze cross-service impact for pending updates'),
-    ('logs', 'Runtime Health', 'Analyze cross-service impact for Runtime Health findings'),
+    ('updates', 'Update Analysis', 'Analyze cross-service impact for pending updates'),
+    ('logs', 'Runtime Analysis', 'Analyze cross-service impact for Runtime Health findings'),
   ] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
     <h4>{{ title }}</h4>
@@ -206,7 +206,7 @@ capped by your last actual check</p>
     </div>
   </div>
 
-  {% for feature, title in [('updates', 'Updates'), ('logs', 'Runtime Health'), ('compose', 'Configuration Health')] %}
+  {% for feature, title in [('updates', 'Update Notifications'), ('logs', 'Runtime Notifications'), ('compose', 'Configuration Notifications')] %}
   <div class="settings-subsection">
     <h4>{{ title }}</h4>
     {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature,

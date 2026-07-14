@@ -52,6 +52,22 @@ def test_sidebar_collapse_state_persists_via_its_own_localstorage_key():
     assert "service-sentinel-sidebar" in text
 
 
+def test_sidebar_state_is_restored_by_the_blocking_head_script_not_body():
+    """Regression guard for a real-world report: restoring the sidebar's expanded state from a
+    non-blocking script further down <body> meant a full page navigation painted collapsed
+    first, then snapped open a moment later, every time. Moved to live on <html> (the same
+    element the head's blocking script already restores data-theme/data-accent on) so it's
+    settled before first paint, same as the other two."""
+    text = _base_html()
+    head = text[:text.index("</head>")]
+    assert "service-sentinel-sidebar" in head
+    assert "dataset.sidebar" in head
+    after_head = text[text.index("</head>") + len("</head>"):]
+    body_open = after_head.index("<body")
+    body_tag = after_head[body_open:after_head.index(">", body_open) + 1]
+    assert body_tag == "<body>"
+
+
 def test_sidebar_has_a_watermark_element_for_the_dimmed_background_logo():
     text = _base_html()
     assert "sidebar-watermark" in text
@@ -111,9 +127,9 @@ def test_check_all_button_and_theme_controls_live_in_the_topbar_end_region():
 
 
 def test_accent_picker_offers_several_named_color_options():
-    """Preview only (see base.html's own script comment) -- picking an option doesn't actually
-    change the app's accent color yet, but the picker itself should show real, distinctly-named
-    choices rather than a single disabled placeholder."""
+    """The picker shows real, distinctly-named choices rather than a single disabled
+    placeholder -- all six actually switch the app's accent color (see
+    test_topbar_idle_summary_and_nordic_blue.py's own accent tests)."""
     text = _base_html()
     menu = text[text.index('id="accent-picker-menu"'):text.index("</div>", text.index('id="accent-picker-menu"'))]
     for name in ("Emerald Green", "Nordic Blue", "Sunset Amber", "Royal Violet", "Crimson Red", "Ocean Teal"):
@@ -122,9 +138,9 @@ def test_accent_picker_offers_several_named_color_options():
     assert "disabled" not in text[text.index('id="accent-swatch-btn"'):text.index('id="accent-swatch-btn"') + 200]
 
 
-def test_accent_picker_options_are_non_functional_preview_only():
-    """Clicking an option must never call out to the server or persist anything -- it's purely
-    a local visual preview until a real accent-switching feature exists."""
+def test_accent_picker_options_never_hit_the_network():
+    """Persistence is client-side only (localStorage), same pattern as the theme toggle --
+    clicking an option never calls out to the server."""
     text = _base_html()
     picker_script = text[text.index("Accent color picker"):text.index("Collapsible top table")]
     assert "fetch(" not in picker_script
@@ -151,9 +167,10 @@ def test_check_all_button_posts_to_the_check_all_route_on_click():
 
 def test_html_tag_has_a_hardcoded_dark_default_for_the_no_js_fallback():
     """Nordic Blue is the real app default accent (see style.css's accent family blocks), not
-    just a placeholder, so it's hardcoded here the same way data-theme="dark" is."""
+    just a placeholder, so it's hardcoded here the same way data-theme="dark" is. The sidebar's
+    collapsed default lives on the same tag now too (see the head script's own comment on why)."""
     text = _base_html()
-    assert '<html lang="en" data-theme="dark" data-accent="nordic">' in text
+    assert '<html lang="en" data-theme="dark" data-accent="nordic" data-sidebar="collapsed">' in text
 
 
 def test_head_has_a_blocking_inline_theme_script_before_the_stylesheet_link():

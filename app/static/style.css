@@ -81,13 +81,15 @@
   color-scheme: light;
 }
 
-/* Accent color families -- the topbar's accent picker (base.html) can only actually switch
-   between these two, Nordic Blue (the default) and Emerald Green; the other four options it
-   lists are preview-only stubs with no matching block here (see base.html's own script
-   comment), so picking one of those leaves the real accent on whichever of these two was last
-   actually chosen. Keyed on BOTH [data-theme] and [data-accent] -- higher specificity than the
-   theme-only blocks above, so these win for the four properties they touch whenever they match,
-   and fall back to the theme block's own (Nordic Blue) values otherwise. */
+/* Accent color families -- all six of the topbar's accent picker options (base.html) are real,
+   each with its own dark+light pair below. Keyed on BOTH [data-theme] and [data-accent] --
+   higher specificity than the theme-only blocks above, so these win for the four properties
+   they touch whenever they match, and fall back to the theme block's own (Nordic Blue) values
+   for any [data-accent] value that doesn't match one of the six (shouldn't happen in practice,
+   just a safe default). Nordic Blue and (light-mode) Emerald Green additionally define
+   --accent-gold/--toggle-track-on/--toggle-knob-on for their own toggle-switch treatment (see
+   that block's own comment) -- the other four accents don't, and fall back to the plain
+   var(--accent-dim)/var(--toggle-knob) pair via the toggle rule's own var(..., fallback). */
 :root[data-theme="dark"][data-accent="nordic"] {
   --accent: #5da9e0;
   --accent-dim: #33587a;
@@ -129,21 +131,71 @@
   --toggle-track-on: #e8e4dd;
   --toggle-knob-on: var(--accent);
 }
+:root[data-theme="dark"][data-accent="amber"] {
+  --accent: #d9a441;
+  --accent-dim: #7a5a28;
+  --on-accent: #1f1608;
+  --accent-wash: rgba(217, 164, 65, 0.1);
+}
+:root[data-theme="dark"][data-accent="violet"] {
+  --accent: #9b84d9;
+  --accent-dim: #4f4472;
+  --on-accent: #120f1e;
+  --accent-wash: rgba(155, 132, 217, 0.1);
+}
+:root[data-theme="dark"][data-accent="crimson"] {
+  --accent: #d9705e;
+  --accent-dim: #713a2f;
+  --on-accent: #1c0d09;
+  --accent-wash: rgba(217, 112, 94, 0.1);
+}
+:root[data-theme="dark"][data-accent="teal"] {
+  --accent: #4fb8c9;
+  --accent-dim: #2a616b;
+  --on-accent: #061417;
+  --accent-wash: rgba(79, 184, 201, 0.1);
+}
+:root[data-theme="light"][data-accent="amber"] {
+  --accent: #9c6f1f;
+  --accent-dim: #d4b578;
+  --on-accent: #fbf3e6;
+  --accent-wash: rgba(156, 111, 31, 0.12);
+}
+:root[data-theme="light"][data-accent="violet"] {
+  --accent: #6a54ab;
+  --accent-dim: #bcaee0;
+  --on-accent: #f5f2fb;
+  --accent-wash: rgba(106, 84, 171, 0.12);
+}
+:root[data-theme="light"][data-accent="crimson"] {
+  --accent: #a8412c;
+  --accent-dim: #dba79c;
+  --on-accent: #fcf0ed;
+  --accent-wash: rgba(168, 65, 44, 0.12);
+}
+:root[data-theme="light"][data-accent="teal"] {
+  --accent: #1c7d8c;
+  --accent-dim: #8fc7cf;
+  --on-accent: #eafafc;
+  --accent-wash: rgba(28, 125, 140, 0.12);
+}
 
 * { box-sizing: border-box; }
 
 /* App-shell layout tokens -- not colors, so unlike the palette above these are the same in
    every theme. --sidebar-width switches between the collapsed/expanded values via the
-   [data-sidebar] attribute JS stamps on <body> (see the sidebar rules below), which is what
-   lets body's own padding-left (the thing that actually reserves room next to the fixed
-   sidebar) transition smoothly instead of jumping. */
+   [data-sidebar] attribute the head's blocking script (and the sidebar toggle) stamps on <html>
+   -- same element as data-theme/data-accent, so its initial state is restored before first
+   paint too, not just in-session (see base.html's own comment on that) -- which is what lets
+   body's own padding-left (the thing that actually reserves room next to the fixed sidebar)
+   transition smoothly instead of jumping. */
 :root {
   --topbar-height: 56px;
   --sidebar-width-collapsed: 60px;
   --sidebar-width-expanded: 220px;
   --sidebar-width: var(--sidebar-width-collapsed);
 }
-body[data-sidebar="expanded"] {
+html[data-sidebar="expanded"] {
   --sidebar-width: var(--sidebar-width-expanded);
 }
 
@@ -299,11 +351,10 @@ code {
   position: absolute;
   width: 320px;
   height: 320px;
-  /* Pulled left just enough to show more of the mark than a naive right:0 would crop off, while
-     staying short of -100px (the point at which the image's own left edge would reach the
-     sidebar's left edge, i.e. stop being cut off at all) -- still meant to read as a watermark
-     bleeding off the right edge, not a fully-framed logo. */
-  right: -105px;
+  /* Flush against the rail's own left wall -- the mark's left edge lands exactly at the
+     sidebar's left edge, with .sidebar's own overflow:hidden clipping whatever spills past its
+     right edge (at the expanded width, most of it; at the collapsed width, all but a sliver). */
+  left: 0;
   bottom: -60px;
   background: url("/static/logo-white.svg") no-repeat center / contain;
   opacity: 0.12;
@@ -335,7 +386,7 @@ code {
   opacity: 0;
   transition: opacity 0.12s ease;
 }
-body[data-sidebar="expanded"] .sidebar-label {
+html[data-sidebar="expanded"] .sidebar-label {
   opacity: 1;
 }
 

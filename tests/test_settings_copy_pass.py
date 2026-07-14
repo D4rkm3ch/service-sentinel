@@ -120,3 +120,27 @@ def test_enable_notifications_toggle_wires_up_the_gating_js(client):
     assert "toggleNotifyErrorsField(&#39;logs&#39;" in text
     assert "toggleNotifyErrorsField(&#39;compose&#39;" in text
     assert "function toggleNotifyErrorsField" in text
+
+
+def test_deep_analysis_is_ordered_updates_runtime_configuration_and_updates_renamed(client):
+    """A real-world reorder/rename request: Deep Analysis reads Updates Pending, Runtime Health,
+    Configuration Health top to bottom (Updates used to trail Logs/Compose, titled plainly
+    "Updates")."""
+    text = _settings_text(client)
+    section = text[text.index(">Deep Analysis<"):text.index(">Cross-Service Analysis<")]
+    assert section.index(">Updates Pending<") < section.index(">Runtime Health<") < section.index(">Configuration Health<")
+
+
+def test_cross_service_analysis_rows_are_renamed(client):
+    text = _settings_text(client)
+    section = text[text.index(">Cross-Service Analysis<"):text.index(">Notifications<")]
+    assert ">Update Analysis<" in section
+    assert ">Runtime Analysis<" in section
+
+
+def test_notifications_rows_are_renamed(client):
+    text = _settings_text(client)
+    section = text[text.index(">Notifications<"):]
+    assert ">Update Notifications<" in section
+    assert ">Runtime Notifications<" in section
+    assert ">Configuration Notifications<" in section

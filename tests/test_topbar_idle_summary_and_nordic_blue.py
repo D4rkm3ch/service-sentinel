@@ -1,8 +1,9 @@
 """Two follow-up UI overhaul features: (1) the topbar's idle-state health summary
 (_compact_health_summary / GET /checks/status), which replaces the blank space in the topbar's
-center region with a compact combined status whenever nothing is running, and (2) a real,
-functional Nordic Blue accent (the app's new default), alongside Emerald Green -- the other four
-accent picker options stay preview-only stubs."""
+center region with a compact combined status whenever nothing is running, and (2) real,
+functional accent picker options -- Nordic Blue (the app's default) and Emerald Green first,
+later joined by all four of the remaining preview-only stubs (Sunset Amber, Royal Violet,
+Crimson Red, Ocean Teal)."""
 
 from pathlib import Path
 
@@ -152,7 +153,7 @@ def test_status_dot_has_ok_and_warn_color_variants():
 def test_nordic_blue_is_the_hardcoded_default_accent():
     text = (TEMPLATES / "base.html").read_text()
     assert 'data-accent="nordic"' in text
-    assert '<html lang="en" data-theme="dark" data-accent="nordic">' in text
+    assert '<html lang="en" data-theme="dark" data-accent="nordic" data-sidebar="collapsed">' in text
 
 
 def test_head_script_also_restores_the_saved_accent():
@@ -162,21 +163,18 @@ def test_head_script_also_restores_the_saved_accent():
     assert "dataset.accent" in head
 
 
-def test_nordic_and_emerald_have_real_css_blocks_for_both_themes():
+ALL_ACCENTS = ("nordic", "emerald", "amber", "violet", "crimson", "teal")
+
+
+def test_all_six_accents_have_real_css_blocks_for_both_themes():
     style = STYLE.read_text()
     for theme in ("dark", "light"):
-        for accent in ("nordic", "emerald"):
+        for accent in ALL_ACCENTS:
             selector = f':root[data-theme="{theme}"][data-accent="{accent}"]'
             assert selector in style
 
 
-def test_the_other_four_preview_options_have_no_matching_css_block():
-    style = STYLE.read_text()
-    for accent in ("amber", "violet", "crimson", "teal"):
-        assert f'data-accent="{accent}"' not in style
-
-
-def test_only_nordic_and_emerald_options_carry_a_data_accent_attribute_in_the_picker():
+def test_all_six_options_carry_a_data_accent_attribute_in_the_picker():
     text = (TEMPLATES / "base.html").read_text()
     menu_start = text.index('id="accent-picker-menu"')
     menu_end = text.index("</div>\n      </div>", menu_start)  # closes #accent-picker-menu, then .accent-picker
@@ -185,16 +183,14 @@ def test_only_nordic_and_emerald_options_carry_a_data_accent_attribute_in_the_pi
     options = menu.split("<button")[1:]  # each option's own opening tag through its closing </button>
     assert len(options) == 6
 
-    real = {"nordic": "Nordic Blue", "emerald": "Emerald Green"}
-    preview_only = {"amber": "Sunset Amber", "violet": "Royal Violet", "crimson": "Crimson Red", "teal": "Ocean Teal"}
+    labels = {
+        "nordic": "Nordic Blue", "emerald": "Emerald Green", "amber": "Sunset Amber",
+        "violet": "Royal Violet", "crimson": "Crimson Red", "teal": "Ocean Teal",
+    }
 
-    for accent, label in real.items():
+    for accent, label in labels.items():
         option = next(o for o in options if f'data-label="{label}"' in o)
         assert f'data-accent="{accent}"' in option
-
-    for accent, label in preview_only.items():
-        option = next(o for o in options if f'data-label="{label}"' in o)
-        assert "data-accent=" not in option
 
 
 def test_accent_picker_js_persists_the_real_picks_via_localstorage():
