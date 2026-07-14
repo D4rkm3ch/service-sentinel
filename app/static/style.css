@@ -76,23 +76,23 @@ code {
    Toggled via plain display:none/'' from JS rather than a CSS class, since it's driven by a
    poll rather than any state Jinja knows about at render time.
 
-   Styled as a floating card (same rounded/bordered/bg-panel look as .panel, width-matched to
-   <main>'s own 1260px content column) rather than a full-width strip -- still normal document
-   flow (pushes <main> down when it appears/grows), just visually contained instead of edge-to-
-   edge, with its own top margin so it reads as floating between the topbar and the page below
-   rather than fused to either. */
+   Lives as the first child inside <main> (not a sibling of it) precisely so it inherits the
+   exact same content width as every .panel below it, instead of trying to duplicate <main>'s
+   box model with its own max-width/margin -- that duplication was the bug behind an earlier
+   version reading narrower than the page (a flex item's auto side-margins disable stretch,
+   so it shrank to fit its content instead of filling the column). Same rounded/bordered/
+   bg-panel look as .panel for the same reason: it's visually just another panel, first in
+   document order, that happens to come and go based on a poll rather than page content. */
 .check-running-banner {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 14px;
-  max-width: 1260px;
-  margin: 20px auto 0;
   padding: 14px 24px;
   background: var(--bg-panel);
-  border: 1px solid var(--accent-dim);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  margin-bottom: 20px;
 }
 .check-running-banner-cancel {
   padding: 4px 12px;

@@ -197,10 +197,12 @@ def test_base_html_has_the_banner_markup_and_it_lives_outside_the_content_block(
     assert 'id="check-running-banner"' in text
     assert 'id="check-running-banner-text"' in text
     assert 'id="check-running-banner-cancel"' in text
-    # Right after the topbar, before <main> -- so it's present (even if hidden) on every page,
+    # First thing inside <main> (so it inherits the same content width as every .panel below
+    # it), but before {% block content %} -- so it's present (even if hidden) on every page,
     # not just ones that happen to render a {% block content %} with its own status markup.
     assert text.index('id="check-running-banner"') > text.index('class="topbar"')
-    assert text.index('id="check-running-banner"') < text.index("<main>")
+    assert text.index('id="check-running-banner"') > text.index("<main>")
+    assert text.index('id="check-running-banner"') < text.index("{% block content %}")
 
 
 def test_base_html_banner_polls_the_consolidated_status_endpoint():

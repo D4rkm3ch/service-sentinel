@@ -19,14 +19,14 @@
       <a href="/settings" class="{{ 'active' if active_tab == 'settings' else '' }}">Settings</a>
     </nav>
   </header>
-  <div id="check-running-banner" class="check-running-banner" style="display:none">
-    <span class="status-badge status-running">
-      <span class="spinner" aria-hidden="true"></span>
-      <span id="check-running-banner-text">Checking…</span>
-    </span>
-    <button type="button" id="check-running-banner-cancel" class="button-danger check-running-banner-cancel">Cancel</button>
-  </div>
   <main>
+    <div id="check-running-banner" class="check-running-banner" style="display:none">
+      <span class="status-badge status-running">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="check-running-banner-text">Checking…</span>
+      </span>
+      <button type="button" id="check-running-banner-cancel" class="button-danger check-running-banner-cancel">Cancel</button>
+    </div>
     {% block content %}{% endblock %}
   </main>
   <footer class="app-footer">
