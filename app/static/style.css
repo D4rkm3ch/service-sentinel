@@ -97,7 +97,7 @@
      the dashboard screenshot that inspired this palette, used sparingly (page titles, the
      toggle switch's "on" track) via var(--accent-gold, ...) fallbacks so every other accent
      family is completely unaffected. */
-  --accent-gold: #c9a44c;
+  --accent-gold: #ab8f80;
 }
 :root[data-theme="dark"][data-accent="emerald"] {
   --accent: #5ec9a6;
@@ -110,7 +110,7 @@
   --accent-dim: #8fb4d9;
   --on-accent: #eef4fc;
   --accent-wash: rgba(43, 95, 158, 0.12);
-  --accent-gold: #96741f;
+  --accent-gold: #8a6f60;
 }
 :root[data-theme="light"][data-accent="emerald"] {
   --accent: #1f8f68;
@@ -300,7 +300,7 @@ code {
 }
 :root[data-theme="light"] .sidebar-watermark {
   background-image: url("/static/logo-black.svg");
-  opacity: 0.09;
+  opacity: 0.2;
 }
 
 .sidebar-link {

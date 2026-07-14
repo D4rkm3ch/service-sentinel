@@ -390,39 +390,36 @@ def _compact_health_summary() -> tuple[str, str]:
     """Feeds the topbar's idle-state health summary (GET /checks/status, read only while nothing
     is running) -- combines all three features' own latest-result counts, the exact same source
     _build_card() reads for the Overview cards. Always renders as exactly one of three forms:
-    "No checks run yet" (nothing enabled, or an enabled feature has never completed a check),
-    "All Clear" (every enabled feature is clean), or a per-feature breakdown of open counts
-    joined by " • " (only enabled features are listed). Returns (text, status) where status is
+    "No checks run yet" (the pristine first-boot state -- nothing has ever run or found anything
+    anywhere, checked across ALL features regardless of their enabled toggle, since disabling a
+    feature doesn't erase its history), "All Clear" (every currently-enabled feature has nothing
+    open), or a per-feature breakdown of open counts joined by " • " (only enabled features are
+    listed). Once any data exists anywhere this never falls back to "No checks run yet" again --
+    from then on it's always either clear or a breakdown. Returns (text, status) where status is
     "idle", "ok", or "warn" -- the topbar dot's color class."""
-    any_run = False
-    counts: dict[str, int] = {}
+    raw_counts: dict[str, int] = {}
     for feature in check_state.FEATURES:
-        if not db.get_feature_enabled(feature):
-            continue
-        # Whether a check has ever completed has to come from check_state (set_finished() stamps
-        # this at the end of every real check, found-something-or-not) rather than each
-        # summary's own last_at -- latest_update_summary()'s in particular only reflects the
-        # timestamp of a currently-PENDING update row, so a container with everything up to date
-        # would otherwise read as "never checked" forever, not "all clear".
-        if check_state.get_state(feature).get("last_run_at"):
-            any_run = True
         if feature == "updates":
-            counts[feature] = db.latest_update_summary()["unread"]
+            raw_counts[feature] = db.latest_update_summary()["unread"]
         else:
-            counts[feature] = db.findings_health_summary(feature)["active"]
-    if not counts or not any_run:
+            raw_counts[feature] = db.findings_health_summary(feature)["active"]
+    ever_happened = any(raw_counts.values()) or any(
+        check_state.get_state(feature).get("last_run_at") for feature in check_state.FEATURES
+    )
+    if not ever_happened:
         return "No checks run yet", "idle"
+    counts = {f: c for f, c in raw_counts.items() if db.get_feature_enabled(f)}
     if not any(counts.values()):
         return "All Clear", "ok"
     parts = []
     for feature, count in counts.items():
         plural = "s" if count != 1 else ""
         if feature == "updates":
-            parts.append(f"{count} update{plural} pending")
+            parts.append(f"{count} Update{plural} pending")
         elif feature == "logs":
-            parts.append(f"{count} Log issue{plural}")
+            parts.append(f"{count} Runtime issue{plural}")
         else:
-            parts.append(f"{count} compose finding{plural}")
+            parts.append(f"{count} Configuration issue{plural}")
     return " • ".join(parts), "warn"
 
 
@@ -881,6 +878,15 @@ def _sort_updates_stack_members(members: list[dict], sort: str, direction: str) 
     return sorted(members, key=lambda m: m["container_name"].lower(), reverse=reverse)
 
 
+def _regenerate_overview_in_background(source: str, subject: str, display_name: str, findings, findings_hash: str) -> None:
+    try:
+        summary = summarize_findings_overview(display_name, [dict(f) for f in findings])
+    except Exception:
+        logger.exception("Background findings overview generation failed for %s:%s", source, subject)
+        return
+    db.set_subject_summary(source, subject, findings_hash, summary)
+
+
 def _get_or_build_overview(source: str, subject: str, display_name: str, findings, force: bool = False) -> str | None:
     """Combined AI overview shown above a subject's findings list. Cached by a hash of the
     current finding set so it's only regenerated (costing an API call) when something about
@@ -889,7 +895,16 @@ def _get_or_build_overview(source: str, subject: str, display_name: str, finding
 
     force=True (the service-level and bulk Regenerate AI Response buttons) bypasses the
     content-hash cache and always calls the AI fresh, same "an explicit click always gets a
-    fresh take" semantics as every other Regenerate button in the app."""
+    fresh take" semantics as every other Regenerate button in the app.
+
+    A real-world report: opening a stack/service page could take a very long time -- this used
+    to call the AI provider synchronously right here whenever the hash didn't match the cached
+    one, blocking the page's own GET response on a live API call every time a check had touched
+    this subject's findings since it was last viewed (which is often, since checks run on a
+    schedule). Now a stale-but-present cached overview is served immediately and refreshed in a
+    background thread instead -- the page only ever blocks on the very first view of a subject
+    that has never had an overview generated for it at all, or on an explicit force=True click,
+    both of which the caller already expects to wait on."""
     if len(findings) < 2:
         return None
 
@@ -898,6 +913,14 @@ def _get_or_build_overview(source: str, subject: str, display_name: str, finding
 
     cached = db.get_subject_summary(source, subject)
     if not force and cached and cached["findings_hash"] == findings_hash:
+        return cached["summary_markdown"]
+
+    if not force and cached:
+        threading.Thread(
+            target=_regenerate_overview_in_background,
+            args=(source, subject, display_name, findings, findings_hash),
+            daemon=True,
+        ).start()
         return cached["summary_markdown"]
 
     try:

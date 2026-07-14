@@ -84,11 +84,16 @@ def test_open_issues_are_counted_and_reported_as_warn(client):
     )
     resp = client.get("/checks/status")
     data = resp.json()
-    assert data["summary_text"] == "1 update pending • 0 Log issues • 0 compose findings"
+    assert data["summary_text"] == "1 Update pending • 0 Runtime issues • 0 Configuration issues"
     assert data["summary_status"] == "warn"
 
 
-def test_disabled_features_are_excluded_from_the_count(client):
+def test_disabled_features_are_excluded_from_the_breakdown_but_not_the_idle_gate(client):
+    """Updates disabled -- its own pending update no longer appears in the breakdown -- but it
+    still counts as "something has happened" (see _compact_health_summary's docstring: disabling
+    a feature doesn't erase its history), so this must NOT read as "No checks run yet" just
+    because logs/compose themselves have no history of their own. With no open counts among the
+    still-enabled features, it reads as All Clear instead."""
     db.record_update(
         container_name="needs-update", image_repo="owner/repo", tag="latest",
         old_digest="sha256:a", new_digest="sha256:b", summary_markdown="x",
@@ -98,10 +103,26 @@ def test_disabled_features_are_excluded_from_the_count(client):
     db.set_feature_enabled("updates", False)
     resp = client.get("/checks/status")
     data = resp.json()
-    # Updates disabled (its own pending update no longer counts) -- logs/compose still enabled
-    # but have no history at all, so overall this reads as "no checks run yet" among the
-    # features that are still on.
-    assert data["summary_status"] == "idle"
+    assert data["summary_text"] == "All Clear"
+    assert data["summary_status"] == "ok"
+
+
+def test_real_data_with_every_feature_disabled_never_reports_no_checks_run_yet(client):
+    """Regression guard for a real-world report: with historical updates/findings already
+    present but every feature toggled off (so the breakdown has nothing enabled to list), the
+    summary must not regress to the pristine "No checks run yet" state."""
+    db.record_update(
+        container_name="needs-update-2", image_repo="owner/repo", tag="latest",
+        old_digest="sha256:a", new_digest="sha256:b", summary_markdown="x",
+        source_url=None, error=None, severity="feature", release_notes_raw="x",
+        upgrade_guidance=None,
+    )
+    for feature in ("updates", "logs", "compose"):
+        db.set_feature_enabled(feature, False)
+    resp = client.get("/checks/status")
+    data = resp.json()
+    assert data["summary_text"] == "All Clear"
+    assert data["summary_status"] == "ok"
 
 
 def test_idle_summary_lives_in_the_topbar_center_and_is_hidden_by_default():
