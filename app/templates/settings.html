@@ -18,7 +18,7 @@
     <span class="saved-indicator-slot" id="saved-ai-provider"></span>
   </div>
 
-  <div class="settings-subsection {{ '' if ai_provider == 'anthropic' else 'faded' }}" id="anthropic-provider-section">
+  <div class="settings-subsection {{ '' if ai_provider == 'anthropic' else 'hidden' }}" id="anthropic-provider-section">
     <h4>Anthropic</h4>
     <p class="meta">Get a key from
 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
@@ -45,7 +45,7 @@
     </div>
   </div>
 
-  <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'faded' }}" id="gemini-provider-section">
+  <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'hidden' }}" id="gemini-provider-section">
     <h4>Gemini</h4>
     <p class="meta">Get a key
 (no card required for the free tier) from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</p>
@@ -246,8 +246,8 @@ last actual check either way.</p>
 
 <script>
 function toggleAiProvider(active) {
-  document.getElementById('anthropic-provider-section').classList.toggle('faded', active !== 'anthropic');
-  document.getElementById('gemini-provider-section').classList.toggle('faded', active !== 'gemini');
+  document.getElementById('anthropic-provider-section').classList.toggle('hidden', active !== 'anthropic');
+  document.getElementById('gemini-provider-section').classList.toggle('hidden', active !== 'gemini');
 }
 
 function handleApiKeyButtonClick(provider) {

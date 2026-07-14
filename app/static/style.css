@@ -74,15 +74,25 @@ code {
    page, not just the three main ones, so progress + Cancel are visible no matter where the
    operator is browsing while a check (full, scoped, or a bulk Regenerate AI Response) runs.
    Toggled via plain display:none/'' from JS rather than a CSS class, since it's driven by a
-   poll rather than any state Jinja knows about at render time. */
+   poll rather than any state Jinja knows about at render time.
+
+   Styled as a floating card (same rounded/bordered/bg-panel look as .panel, width-matched to
+   <main>'s own 1260px content column) rather than a full-width strip -- still normal document
+   flow (pushes <main> down when it appears/grows), just visually contained instead of edge-to-
+   edge, with its own top margin so it reads as floating between the topbar and the page below
+   rather than fused to either. */
 .check-running-banner {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 14px;
-  padding: 10px 24px;
+  max-width: 1260px;
+  margin: 20px auto 0;
+  padding: 14px 24px;
   background: var(--bg-panel);
-  border-bottom: 1px solid var(--accent-dim);
+  border: 1px solid var(--accent-dim);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
 }
 .check-running-banner-cancel {
   padding: 4px 12px;
