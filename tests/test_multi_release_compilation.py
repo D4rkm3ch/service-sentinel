@@ -123,6 +123,15 @@ def test_extract_latest_version_returns_none_for_empty_input():
     assert release_notes.extract_latest_version("") is None
 
 
+def test_extract_latest_version_resolves_from_the_single_release_path_too():
+    """Regression guard: a single release found since the last check (not 2+) is the normal,
+    common check-to-check case -- not the multi-release compilation path -- so the version
+    must be resolvable from _fetch_github_release_notes()'s own output too, not just
+    _compile_releases_text()'s."""
+    text, _url = release_notes._wrap_single_release(_release("v2.0.0", "2026-02-01T00:00:00Z", "notes"))
+    assert release_notes.extract_latest_version(text) == "v2.0.0"
+
+
 # ---------------------------------------------------------------------------
 # persist._release_notes_since -- the cutoff computation itself
 # ---------------------------------------------------------------------------

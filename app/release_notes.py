@@ -78,6 +78,24 @@ def test_github_token(token: str) -> tuple[bool, str]:
     return False, "Token accepted, but the rate limit is still unauthenticated-level -- double-check it has no expired/missing scope."
 
 
+def _release_heading(item: dict) -> str:
+    """"## <tag> (<date>)\n<body>" -- the one format both the single-release and compiled
+    multi-release paths write a release's text in, and the one extract_latest_version() below
+    parses back out. Keep any change here in sync with that function."""
+    tag = item.get("tag_name") or item.get("name") or "unknown version"
+    published = (item.get("published_at") or "")[:10]
+    body = (item.get("body") or "(release has no description)").strip()
+    return f"## {tag} ({published})\n{body}"
+
+
+def _wrap_single_release(data: dict) -> tuple[str, str | None]:
+    """Wraps a single release's body in the exact same heading _compile_releases_text() writes
+    for the multi-release path -- a single release found since the last check is actually the
+    normal, common case (not the multi-release one), so without this, extract_latest_version()
+    would never find a heading to match for the vast majority of real updates."""
+    return _release_heading(data), data.get("html_url")
+
+
 def _fetch_github_release_notes(owner_repo: str, tag: str) -> tuple[str | None, str | None]:
     with httpx.Client(timeout=10.0, headers=_github_headers()) as client:
         # Try an exact tag match first (common naming: 'v1.2.3', '1.2.3').
@@ -86,15 +104,13 @@ def _fetch_github_release_notes(owner_repo: str, tag: str) -> tuple[str | None, 
                 f"https://api.github.com/repos/{owner_repo}/releases/tags/{candidate_tag}"
             )
             if resp.status_code == 200:
-                data = resp.json()
-                return data.get("body") or "(release has no description)", data.get("html_url")
+                return _wrap_single_release(resp.json())
 
         # Fall back to the most recent release if we can't match the tag exactly —
         # still useful signal, just less precisely scoped.
         resp = client.get(f"https://api.github.com/repos/{owner_repo}/releases", params={"per_page": 1})
         if resp.status_code == 200 and resp.json():
-            data = resp.json()[0]
-            return data.get("body") or "(release has no description)", data.get("html_url")
+            return _wrap_single_release(resp.json()[0])
 
     return None, None
 
@@ -138,15 +154,8 @@ def _fetch_github_releases_since(owner_repo: str, since: datetime) -> list[dict]
 def _compile_releases_text(releases: list[dict]) -> str:
     """releases is newest-first (see _fetch_github_releases_since) -- reversed here so the
     compiled text reads oldest-to-newest, matching the "catch the operator up in order" framing
-    summarizer.py's prompt uses. This exact "## <tag> (<date>)" heading format is a contract
-    with extract_latest_version() below, not just prompt formatting -- keep them in sync."""
-    parts = []
-    for item in reversed(releases):
-        tag = item.get("tag_name") or item.get("name") or "unknown version"
-        published = (item.get("published_at") or "")[:10]
-        body = (item.get("body") or "(release has no description)").strip()
-        parts.append(f"## {tag} ({published})\n{body}")
-    return "\n\n".join(parts)
+    summarizer.py's prompt uses."""
+    return "\n\n".join(_release_heading(item) for item in reversed(releases))
 
 
 _RELEASE_HEADING_PATTERN = re.compile(r"^## (.+?) \([^)]*\)$", re.MULTILINE)
@@ -154,14 +163,15 @@ _RELEASE_HEADING_PATTERN = re.compile(r"^## (.+?) \([^)]*\)$", re.MULTILINE)
 
 def extract_latest_version(release_notes_raw: str | None) -> str | None:
     """Best-effort "what's the new version" for the Updates Discord digest (see
-    notifications.py) -- pulled straight from the "## <tag> (<date>)" headings
-    _compile_releases_text() above writes (last one is newest, since that text reads
-    oldest-to-newest), rather than asking the model to restate it. Only ever resolves
-    anything for the GitHub-releases path; every other release-notes source (a changelog_url
-    label override, a cached non-GitHub URL, the AI web-search fallback, the Docker Hub
-    last-resort) returns arbitrary text that was never written in this heading format, so this
-    correctly returns None for those rather than guessing at a version number that isn't
-    reliably there -- callers fall back to showing no version rather than a wrong one."""
+    notifications.py) -- pulled straight from the "## <tag> (<date>)" headings _release_heading()
+    above writes, for both the single-release (the normal, common case) and compiled
+    multi-release path alike (last heading is newest, since that text reads oldest-to-newest),
+    rather than asking the model to restate it. Only ever resolves anything for the GitHub-
+    releases path; every other release-notes source (a changelog_url label override, a cached
+    non-GitHub URL, the AI web-search fallback, the Docker Hub last-resort) returns arbitrary
+    text that was never written in this heading format, so this correctly returns None for
+    those rather than guessing at a version number that isn't reliably there -- callers fall
+    back to showing no version rather than a wrong one."""
     if not release_notes_raw:
         return None
     matches = _RELEASE_HEADING_PATTERN.findall(release_notes_raw)

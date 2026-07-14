@@ -10,10 +10,13 @@ from unittest.mock import MagicMock, patch
 from app import release_notes
 
 
-def _github_response(status_code=200, body="Fixed a bug", html_url="https://github.com/owner/repo/releases/tag/v1"):
+def _github_response(status_code=200, body="Fixed a bug", html_url="https://github.com/owner/repo/releases/tag/v1",
+                      tag_name="v1", published_at="2026-01-01T00:00:00Z"):
     resp = MagicMock()
     resp.status_code = status_code
-    resp.json.return_value = {"body": body, "html_url": html_url}
+    resp.json.return_value = {
+        "body": body, "html_url": html_url, "tag_name": tag_name, "published_at": published_at,
+    }
     return resp
 
 
@@ -43,7 +46,7 @@ def test_cached_github_source_is_tried_first_and_skips_guessing():
 
         notes, url = release_notes.get_release_notes("owner/repo", "v1.0.0")
 
-    assert notes == "Fixed a bug"
+    assert notes == "## v1 (2026-01-01)\nFixed a bug"
     mock_guess.assert_not_called()
 
 
@@ -60,7 +63,7 @@ def test_cached_source_that_stops_working_falls_through_to_fresh_discovery():
 
         notes, url = release_notes.get_release_notes("owner/repo", "v1.0.0")
 
-    assert notes == "Fixed a bug"
+    assert notes == "## v1 (2026-01-01)\nFixed a bug"
     mock_set_cache.assert_called_once_with("owner/repo", "github", "owner/new-repo")
 
 
