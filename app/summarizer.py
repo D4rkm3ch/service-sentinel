@@ -373,14 +373,20 @@ oversight, and never invent a specific version number to suggest since you don't
 release data for these images.
 - Recommending network_mode: host as an optimization or convenience. (Still fine to flag it as \
 a security concern on a service that already uses it and doesn't need that level of host access.)
+- Adding an explicit ":rw" to a mount that's already read-write by default. This applies no \
+matter what reasoning you construct for it (clarity, defensive future-proofing, preventing a \
+later accidental edit, etc.) -- the mount's behavior doesn't change, so none of those reasons \
+make it a real finding. If you notice yourself building a case for why explicit ":rw" would \
+help, that's the signal to drop it, not report it.
 
-Only report things with real substance — skip purely stylistic nitpicks, including restating a \
-default that's already in effect (e.g. adding an explicit ":rw" to a volume mount that's already \
-read-write by default) or preferences with no functional difference. If, while working out what \
-to recommend, you find the current configuration already matches what you were about to suggest \
-(so the fix would just restate the current value back at itself), drop the finding entirely — \
-don't report a change with nothing left to change. If the file looks fine, say so by returning an \
-empty array.
+Only report things with real substance — skip purely stylistic nitpicks or preferences with no \
+functional difference. If, while working out what to recommend, you talk yourself out of the \
+concern -- whether because the fix would just restate the current value back at itself, or \
+because your own reasoning concludes no real change is actually warranted (e.g. landing on "no \
+change needed" or downplaying it as "not a critical concern" after laying out the issue) -- drop \
+the finding entirely rather than reporting your own reasoning's dead end. A finding you can't \
+finish making the case for isn't a finding. If the file looks fine, say so by returning an empty \
+array.
 
 Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
 {{"title": "a short, specific title (under 8 words) naming the exact setting, service, or mount \
