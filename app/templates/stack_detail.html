@@ -11,10 +11,6 @@
   <div class="subject-title-row">
     <h1 class="subject-heading" id="stack-name-display">{{ display_name }}</h1>
     <button type="button" class="icon-button" title="Rename this stack" onclick="document.getElementById('stack-rename-form').classList.toggle('hidden')">✎</button>
-    <form method="post" action="/updates/stack/reset-name" style="display:inline" onsubmit="return confirm('Reset to the AI-generated name for this stack?')">
-      <input type="hidden" name="stack_id" value="{{ stack_id }}">
-      <button type="submit" class="icon-button" title="Reset to the AI-generated name">⟲</button>
-    </form>
   </div>
 
   <form id="stack-rename-form" method="post" action="/updates/stack/rename" class="hidden stack-rename-form">

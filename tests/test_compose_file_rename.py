@@ -90,6 +90,10 @@ def test_reset_name_route_clears_the_override_and_redirects_to_the_file_page(cli
 
 
 def test_compose_file_detail_page_shows_the_rename_controls(client):
+    """The reset-to-computed-name button was removed from the UI (it's not necessary alongside
+    plain rename) -- the backend route (see test_reset_name_route_clears_the_override_and_
+    redirects_to_the_file_page below) is untouched, just nothing in the template links to it
+    anymore."""
     path = _compose_file("rename-7.yml", "plex", "tautulli")
     try:
         db.upsert_finding("compose", path, "issue one", "reliability", "warning", "desc")
@@ -98,13 +102,44 @@ def test_compose_file_detail_page_shows_the_rename_controls(client):
         resp = client.get(f"/compose/file?path={path}")
         assert resp.status_code == 200
         assert 'action="/compose/file/rename"' in resp.text
-        assert 'action="/compose/file/reset-name"' in resp.text
+        assert 'action="/compose/file/reset-name"' not in resp.text
         assert "Rename this compose file" in resp.text
     finally:
         Path(path).unlink()
         db.reset_compose_file_name(path)
         with db.get_conn() as conn:
             conn.execute("DELETE FROM findings WHERE source = 'compose' AND subject = ?", (path,))
+
+
+def test_single_finding_compose_page_shows_rename_controls(client):
+    """A compose file with exactly one finding redirects straight to finding_detail.html (see
+    compose_file_detail's own redirect) rather than subject_findings.html -- that page had no
+    rename controls at all until now, compose-only same as the multi-finding page's."""
+    path = _compose_file("rename-9.yml", "plex")
+    try:
+        finding_id, _ = db.upsert_finding("compose", path, "issue one", "reliability", "warning", "desc")
+
+        resp = client.get(f"/findings/{finding_id}")
+        assert resp.status_code == 200
+        assert 'action="/compose/file/rename"' in resp.text
+        assert "Rename this compose file" in resp.text
+    finally:
+        Path(path).unlink()
+        db.reset_compose_file_name(path)
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE source = 'compose' AND subject = ?", (path,))
+
+
+def test_single_finding_logs_page_does_not_show_rename_controls(client):
+    finding_id, _ = db.upsert_finding("logs", "rename-log-subject-single", "issue one", "crash", "warning", "desc")
+    try:
+        resp = client.get(f"/findings/{finding_id}")
+        assert resp.status_code == 200
+        assert 'action="/compose/file/rename"' not in resp.text
+        assert "Rename this compose file" not in resp.text
+    finally:
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE source = 'logs' AND subject = 'rename-log-subject-single'")
 
 
 def test_logs_subject_page_does_not_show_rename_controls(client):

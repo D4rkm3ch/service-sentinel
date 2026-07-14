@@ -93,6 +93,11 @@
   --accent-dim: #33587a;
   --on-accent: #0a1520;
   --accent-wash: rgba(93, 169, 224, 0.1);
+  /* Nordic Blue only -- a muted antique gold pulled from the rope-border/header-text look of
+     the dashboard screenshot that inspired this palette, used sparingly (page titles, the
+     toggle switch's "on" track) via var(--accent-gold, ...) fallbacks so every other accent
+     family is completely unaffected. */
+  --accent-gold: #c9a44c;
 }
 :root[data-theme="dark"][data-accent="emerald"] {
   --accent: #5ec9a6;
@@ -105,6 +110,7 @@
   --accent-dim: #8fb4d9;
   --on-accent: #eef4fc;
   --accent-wash: rgba(43, 95, 158, 0.12);
+  --accent-gold: #96741f;
 }
 :root[data-theme="light"][data-accent="emerald"] {
   --accent: #1f8f68;
@@ -247,7 +253,7 @@ code {
   white-space: nowrap;
 }
 .topbar-status-cancel {
-  padding: 4px 12px;
+  padding: 6px 14px;
   font-size: 12px;
 }
 
@@ -289,12 +295,12 @@ code {
   right: -105px;
   bottom: -60px;
   background: url("/static/logo-white.svg") no-repeat center / contain;
-  opacity: 0.05;
+  opacity: 0.12;
   pointer-events: none;
 }
 :root[data-theme="light"] .sidebar-watermark {
   background-image: url("/static/logo-black.svg");
-  opacity: 0.04;
+  opacity: 0.09;
 }
 
 .sidebar-link {
@@ -339,6 +345,9 @@ h1 {
   font-size: 20px;
   font-weight: 500;
   margin: 0 0 16px;
+  /* Gold under Nordic Blue only (see --accent-gold) -- every other accent falls back to the
+     plain inherited text color, unchanged from before. */
+  color: var(--accent-gold, inherit);
 }
 
 h2 {
@@ -398,7 +407,7 @@ td {
   box-shadow: inset 0 -1px 0 var(--border);
 }
 
-tr.row-unread { background: rgba(94, 201, 166, 0.04); }
+tr.row-unread { background: var(--accent-wash); }
 /* Error rows need to actually stand out -- these are things the operator can't just ignore,
    unlike a routine pending update, hence a visibly stronger tint than row-unread's. */
 tr.row-error { background: rgba(217, 112, 94, 0.09); }
@@ -778,7 +787,7 @@ tr:hover .row-chevron {
   display: inline-block;
   width: 11px;
   height: 11px;
-  border: 2px solid rgba(94, 201, 166, 0.25);
+  border: 2px solid var(--accent-dim);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -955,7 +964,16 @@ tr:hover .row-chevron {
 }
 .collapsible-header.collapsed .collapse-arrow { transform: rotate(-90deg); }
 .collapse-body {
-  overflow: hidden;
+  /* Visible (not hidden) at rest -- overflow:hidden establishes a scroll-container ancestor,
+     which position: sticky's <th> (findings-table headers) sticks relative to instead of the
+     real viewport. That's harmless while genuinely mid-animation (see below), but leaving it on
+     permanently made the sticky header's "stuck" geometry occasionally go stale after an htmx
+     poll swapped the table's rows underneath it (real-world report: a row rendering half
+     off-screen, not reliably reproducible -- exactly the kind of glitch this class of browser
+     bug produces). The toggle script below switches this to hidden only for the duration of an
+     actual expand/collapse transition, where clipping the growing/shrinking content is the
+     whole point, and restores visible the moment a section finishes opening. */
+  overflow: visible;
   transition: max-height 0.3s ease;
 }
 
@@ -1049,11 +1067,11 @@ tr:hover .row-chevron {
   transition: transform 0.15s;
 }
 .toggle-switch input:checked + .toggle-slider {
-  background: var(--accent-dim);
+  background: var(--accent-gold, var(--accent-dim));
 }
 .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(16px);
-  background: #eafaf3;
+  background: var(--toggle-knob);
 }
 .api-key-row {
   display: flex;
@@ -1091,7 +1109,7 @@ tr:hover .row-chevron {
 
 /* Updates' own 4-tier scale */
 .badge-sev-bugfix { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }
-.badge-sev-feature { background: rgba(94, 201, 166, 0.15); color: var(--accent); }
+.badge-sev-feature { background: var(--accent-wash); color: var(--accent); }
 .badge-sev-action_needed { background: rgba(217, 164, 65, 0.15); color: var(--warn); }
 .badge-sev-breaking { background: rgba(217, 112, 94, 0.15); color: var(--error); }
 /* Matches the blue Silence/Unsilence buttons (--info, see .button-silence). */
@@ -1100,7 +1118,7 @@ tr:hover .row-chevron {
    border so "some but not all silenced" reads as visually distinct at a glance, not just by
    its wording. */
 .badge-partially-silenced { background: rgba(91, 147, 217, 0.08); color: var(--info); border: 1px dashed rgba(91, 147, 217, 0.4); }
-.badge-healthy { background: rgba(94, 201, 166, 0.12); color: var(--accent); }
+.badge-healthy { background: var(--accent-wash); color: var(--accent); }
 
 /* Severity segmented buttons — replaces the old dropdown */
 .severity-group-row {
@@ -1181,7 +1199,7 @@ tr:hover .row-chevron {
   margin: 0 0 4px;
   font-size: 20px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--accent-gold, var(--text));
   text-transform: none;
   letter-spacing: normal;
 }

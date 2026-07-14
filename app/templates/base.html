@@ -443,13 +443,19 @@
 
         if (header.classList.contains("collapsed")) {
           header.classList.remove("collapsed");
+          // Clip only for the duration of this grow animation -- see .collapse-body's own
+          // comment on why it sits at overflow:visible the rest of the time (a sticky <th>
+          // glitch after an htmx-driven content swap).
+          body.style.overflow = "hidden";
           body.style.maxHeight = body.scrollHeight + "px";
           body.addEventListener("transitionend", function onEnd(e) {
             if (e.propertyName !== "max-height") return;
             body.style.maxHeight = "none";
+            body.style.overflow = "visible";
             body.removeEventListener("transitionend", onEnd);
           });
         } else {
+          body.style.overflow = "hidden";
           body.style.maxHeight = body.scrollHeight + "px";
           body.offsetHeight; // force reflow so the next line animates from this height, not 0
           header.classList.add("collapsed");

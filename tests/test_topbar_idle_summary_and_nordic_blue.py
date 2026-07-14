@@ -51,11 +51,14 @@ def test_no_checks_run_yet_reports_idle(client):
 
 
 def test_all_features_disabled_reports_idle(client):
+    """Folded into the same "No checks run yet" wording as the never-checked case -- the topbar
+    only ever shows one of exactly three forms (see _compact_health_summary's docstring), not a
+    fourth "disabled" variant."""
     for feature in ("updates", "logs", "compose"):
         db.set_feature_enabled(feature, False)
     resp = client.get("/checks/status")
     data = resp.json()
-    assert data["summary_text"] == "All checks disabled"
+    assert data["summary_text"] == "No checks run yet"
     assert data["summary_status"] == "idle"
 
 
@@ -67,7 +70,7 @@ def test_everything_clean_reports_ok(client):
         check_state.set_finished(feature, {"checked": 1})
     resp = client.get("/checks/status")
     data = resp.json()
-    assert data["summary_text"] == "All clear"
+    assert data["summary_text"] == "All Clear"
     assert data["summary_status"] == "ok"
 
 
@@ -81,7 +84,7 @@ def test_open_issues_are_counted_and_reported_as_warn(client):
     )
     resp = client.get("/checks/status")
     data = resp.json()
-    assert data["summary_text"] == "1 issue found"
+    assert data["summary_text"] == "1 update pending • 0 Log issues • 0 compose findings"
     assert data["summary_status"] == "warn"
 
 

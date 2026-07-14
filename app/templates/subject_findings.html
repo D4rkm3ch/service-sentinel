@@ -15,10 +15,6 @@
     <h1 class="mono subject-heading" id="subject-name-display">{{ display_name }}</h1>
     {% if source == 'compose' %}
     <button type="button" class="icon-button" title="Rename this compose file" onclick="document.getElementById('subject-rename-form').classList.toggle('hidden')">✎</button>
-    <form method="post" action="/compose/file/reset-name" style="display:inline" onsubmit="return confirm('Reset to the name computed from this file’s services?')">
-      <input type="hidden" name="path" value="{{ subject }}">
-      <button type="submit" class="icon-button" title="Reset to the computed name">⟲</button>
-    </form>
     {% endif %}
     {% if top_severity %}
     <span class="badge badge-lg badge-sev-{{ top_severity }}">{{ severity_label(source, top_severity) }}</span>

@@ -201,7 +201,7 @@ capped by your last actual check</p>
       <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
         Test &amp; Save
       </button>
-      <button type="button" class="button-danger" onclick="cancelAppriseEdit()">Cancel</button>
+      <button type="button" class="icon-button" title="Reset to last saved value" onclick="cancelAppriseEdit()">⟲</button>
       <span id="apprise-test-result"></span>
     </div>
   </div>
@@ -443,11 +443,11 @@ function toggleAppriseField(enabled) {
   if (wrapper) wrapper.classList.toggle('dimmed', !enabled);
 }
 
-// ---- Apprise URL Test & Save / Cancel -- same shape as the API key fields' own pair, adapted
-// for a field that's always visible/editable (no lock/unlock, nothing to mask) rather than a
-// secret: Cancel just discards whatever's typed and reverts to the last value that actually
-// passed a test (data-saved-value, kept in sync below whenever a test succeeds -- the route
-// itself only ever persists on a successful test, see POST /settings/notify/apprise-test). ----
+// ---- Apprise URL Test & Save / Reset -- same shape as the API key fields' own Test & Save /
+// Cancel pair, adapted for a field that's always visible/editable (no lock/unlock, nothing to
+// mask) rather than a secret: Reset just discards whatever's typed and reverts to the last value
+// that actually passed a test (data-saved-value, kept in sync below whenever a test succeeds --
+// the route itself only ever persists on a successful test, see POST /settings/notify/apprise-test). ----
 function cancelAppriseEdit() {
   const field = document.getElementById('apprise_urls_field');
   field.value = field.dataset.savedValue || '';

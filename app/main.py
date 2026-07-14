@@ -389,17 +389,16 @@ def cancel_running_check():
 def _compact_health_summary() -> tuple[str, str]:
     """Feeds the topbar's idle-state health summary (GET /checks/status, read only while nothing
     is running) -- combines all three features' own latest-result counts, the exact same source
-    _build_card() reads for the Overview cards, into one line so the topbar is doing something
-    useful at rest instead of sitting blank between checks. Returns (text, status) where status
-    is "idle" (nothing enabled, or nothing has ever run), "ok" (enabled features all clear), or
-    "warn" (at least one open issue/pending update) -- the topbar dot's color class."""
-    total = 0
+    _build_card() reads for the Overview cards. Always renders as exactly one of three forms:
+    "No checks run yet" (nothing enabled, or an enabled feature has never completed a check),
+    "All Clear" (every enabled feature is clean), or a per-feature breakdown of open counts
+    joined by " • " (only enabled features are listed). Returns (text, status) where status is
+    "idle", "ok", or "warn" -- the topbar dot's color class."""
     any_run = False
-    any_enabled = False
+    counts: dict[str, int] = {}
     for feature in check_state.FEATURES:
         if not db.get_feature_enabled(feature):
             continue
-        any_enabled = True
         # Whether a check has ever completed has to come from check_state (set_finished() stamps
         # this at the end of every real check, found-something-or-not) rather than each
         # summary's own last_at -- latest_update_summary()'s in particular only reflects the
@@ -408,17 +407,23 @@ def _compact_health_summary() -> tuple[str, str]:
         if check_state.get_state(feature).get("last_run_at"):
             any_run = True
         if feature == "updates":
-            count = db.latest_update_summary()["unread"]
+            counts[feature] = db.latest_update_summary()["unread"]
         else:
-            count = db.findings_health_summary(feature)["active"]
-        total += count
-    if not any_enabled:
-        return "All checks disabled", "idle"
-    if not any_run:
+            counts[feature] = db.findings_health_summary(feature)["active"]
+    if not counts or not any_run:
         return "No checks run yet", "idle"
-    if total == 0:
-        return "All clear", "ok"
-    return f"{total} issue{'s' if total != 1 else ''} found", "warn"
+    if not any(counts.values()):
+        return "All Clear", "ok"
+    parts = []
+    for feature, count in counts.items():
+        plural = "s" if count != 1 else ""
+        if feature == "updates":
+            parts.append(f"{count} update{plural} pending")
+        elif feature == "logs":
+            parts.append(f"{count} Log issue{plural}")
+        else:
+            parts.append(f"{count} compose finding{plural}")
+    return " • ".join(parts), "warn"
 
 
 @app.get("/checks/status")
