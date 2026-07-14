@@ -34,7 +34,7 @@
     {% with silence_url = '/updates/container/' ~ update.container_name ~ '/silence',
             unsilence_url = '/updates/container/' ~ update.container_name ~ '/unsilence',
             silence_state = 'silenced' if container_silenced else none %}{% include "_silence_toggle.html" %}{% endwith %}
-    <button type="button" class="updates-action-btn"
+    <button type="button" class="updates-action-btn check-now-btn"
             hx-post="/updates/{{ update.id }}/check-now"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Check Now

@@ -46,7 +46,7 @@
             is_unread = unread_count > 0, mark_all = true %}{% include "_read_toggle.html" %}{% endwith %}
     {% with silence_url = base_url ~ '/silence' ~ qs, unsilence_url = base_url ~ '/unsilence' ~ qs %}{% include "_silence_toggle.html" %}{% endwith %}
     {% endif %}
-    <button type="button" class="{{ source }}-action-btn"
+    <button type="button" class="{{ source }}-action-btn check-now-btn"
             hx-post="{{ base_url }}/check-now{{ qs }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Check Now

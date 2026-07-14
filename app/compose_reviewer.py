@@ -29,7 +29,7 @@ def run_compose_check() -> dict:
         files = list_compose_files()
     except Exception:
         logger.exception("Could not list compose files — skipping this compose check")
-        result = {"checked": 0, "reviewed": 0, "findings_found": 0, "errors": 1}
+        result = {"checked": 0, "reviewed": 0, "findings_found": 0, "errors": 1, "rate_limited": 0, "cancelled": False}
         set_finished("compose", result)
         return result
 
@@ -82,11 +82,16 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
 
     done_count = 0
 
+    cancelled = False
+
     # Phase 1: fast sequential pass -- read, hash, compare against what's stored. Pure local
     # I/O, so doing this one at a time costs nothing worth parallelizing; what it produces is
     # the (usually much smaller) subset of files whose content actually changed and need the
     # real, slow, AI review below.
     for path in paths:
+        if check_state.is_cancel_requested("compose"):
+            cancelled = True
+            break
         checked += 1
         path_str = str(path)
         try:
@@ -125,8 +130,20 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     progress_lock = threading.Lock()
 
     def _review_one(item: tuple[str, str, str]) -> None:
-        nonlocal reviewed, findings_found, done_count
+        nonlocal reviewed, findings_found, done_count, cancelled
         path_str, redacted, content_hash = item
+        # Same "queued files stop, a file already being reviewed finishes naturally" semantics
+        # as persist.py's _run_concurrent_phase / log_watcher's _triage_chunk. A skipped file
+        # isn't recorded as an error and doesn't get its hash stamped, so it's picked back up
+        # (reviewed fresh) on the very next check rather than silently treated as "seen."
+        if check_state.is_cancel_requested("compose"):
+            with progress_lock:
+                cancelled = True
+                done_count += 1
+                current = done_count
+            if on_progress:
+                on_progress("checking_compose_files", current, total)
+            return
         try:
             include_fix = db.get_deep_analysis_enabled("compose")
             findings = review_compose_file(path_str, redacted, include_fix=include_fix)
@@ -176,10 +193,13 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     # Phase 2: the actual AI reviews, dispatched concurrently -- with 43 files needing review
     # (a real check that took ~4 minutes sequentially), this is what gets that down to roughly
     # one file's worth of AI latency times (total / concurrency_limit) instead of times total.
+    rate_limited = 0
     if to_review:
+        ai_provider.reset_rate_limited_count()
         max_workers = min(ai_provider.concurrency_limit(), len(to_review))
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             list(pool.map(_review_one, to_review))
+        rate_limited = ai_provider.rate_limited_count()
 
     db.clear_compose_check_errors(checked_ok_paths)
     db.record_compose_check_errors(failed)
@@ -188,7 +208,10 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
 
     notify_findings_digest("compose", new_findings)
 
-    return {"checked": checked, "reviewed": reviewed, "findings_found": findings_found, "errors": len(failed)}
+    return {
+        "checked": checked, "reviewed": reviewed, "findings_found": findings_found, "errors": len(failed),
+        "rate_limited": rate_limited, "cancelled": cancelled,
+    }
 
 
 # ---------------------------------------------------------------------------

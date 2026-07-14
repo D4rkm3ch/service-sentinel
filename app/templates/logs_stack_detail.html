@@ -31,7 +31,7 @@
   <div class="action-row action-row-spaced">
     {% with silence_url = '/logs/stack/silence?stack_id=' ~ (stack_id|urlencode),
             unsilence_url = '/logs/stack/unsilence?stack_id=' ~ (stack_id|urlencode) %}{% include "_silence_toggle.html" %}{% endwith %}
-    <button type="button" class="logs-action-btn"
+    <button type="button" class="logs-action-btn check-now-btn"
             hx-post="/logs/stack/check-now?stack_id={{ stack_id|urlencode }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Check Now

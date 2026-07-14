@@ -77,7 +77,7 @@ def test_base_html_button_poller_covers_all_three_features():
 
 def test_feature_header_check_now_button_carries_the_generic_class():
     text = (TEMPLATES / "_feature_header.html").read_text()
-    assert 'class="{{ feature }}-action-btn"' in text
+    assert 'class="{{ feature }}-action-btn check-now-btn"' in text
 
 
 # ---------------------------------------------------------------------------

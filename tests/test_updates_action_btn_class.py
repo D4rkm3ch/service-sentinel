@@ -13,7 +13,7 @@ TEMPLATES = Path(__file__).resolve().parent.parent / "app" / "templates"
 
 def test_feature_header_check_now_carries_a_per_feature_class():
     text = (TEMPLATES / "_feature_header.html").read_text()
-    assert 'class="{{ feature }}-action-btn"' in text
+    assert 'class="{{ feature }}-action-btn check-now-btn"' in text
     # No feature's Check now button self-disables via a real hx-disabled-elt attribute anymore
     # -- base.html's beforeRequest listener plus its per-feature running-state poll now own the
     # whole disabled lifecycle uniformly for updates/logs/compose alike.

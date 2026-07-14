@@ -60,6 +60,27 @@ def test_summary_shows_errors_when_present():
     assert summary.endswith("• 3 errors")
 
 
+def test_summary_shows_rate_limited_count_when_present():
+    state = {
+        "last_result": {"checked": 10, "updates_found": 0, "errors": 0, "rate_limited": 2},
+        "last_run_at": "2026-07-07T22:26:00+00:00",
+    }
+    with patch("app.check_state.db.get_timezone", return_value="UTC"):
+        summary = check_state.format_summary("updates", state)
+    assert summary.endswith("• 2 rate-limited")
+
+
+def test_summary_omits_rate_limited_clause_when_zero_or_absent():
+    with patch("app.check_state.db.get_timezone", return_value="UTC"):
+        state = {"last_result": {"checked": 10, "updates_found": 0, "errors": 0, "rate_limited": 0},
+                  "last_run_at": "2026-07-07T22:26:00+00:00"}
+        assert "rate-limited" not in check_state.format_summary("updates", state)
+
+        state = {"last_result": {"checked": 10, "updates_found": 0, "errors": 0},
+                  "last_run_at": "2026-07-07T22:26:00+00:00"}
+        assert "rate-limited" not in check_state.format_summary("updates", state)
+
+
 def test_summary_format_for_logs_and_compose():
     with patch("app.check_state.db.get_timezone", return_value="UTC"):
         state = {"last_result": {"checked": 5, "findings_found": 2, "errors": 0}, "last_run_at": "2026-01-01T00:00:00+00:00"}
@@ -73,6 +94,17 @@ def test_summary_falls_back_gracefully_with_no_timestamp():
     state = {"last_result": {"checked": 1, "updates_found": 0, "errors": 0}, "last_run_at": None}
     summary = check_state.format_summary("updates", state)
     assert "unknown time" in summary
+
+
+def test_summary_shows_cancelled_prefix_instead_of_last_checked():
+    state = {
+        "last_result": {"checked": 4, "updates_found": 1, "errors": 0, "cancelled": True},
+        "last_run_at": "2026-07-07T22:26:00+00:00",
+    }
+    with patch("app.check_state.db.get_timezone", return_value="UTC"):
+        summary = check_state.format_summary("updates", state)
+    assert summary.startswith("Cancelled: 22:26, 07 Jul 2026")
+    assert "4 checked" in summary
 
 
 def test_summary_still_handles_no_check_and_disabled_states():

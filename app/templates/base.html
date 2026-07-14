@@ -63,8 +63,60 @@
       var ALL_SELECTOR = FEATURES.map(function (f) { return "." + f + "-action-btn"; }).join(",");
       if (!document.querySelector(ALL_SELECTOR)) return;
 
+      // Check Now buttons only (marked with this extra class in the templates) get Cancel
+      // semantics -- Reset & re-check, Regenerate AI Response, the Silence toggle, etc. keep
+      // the plain disable-while-running behavior below completely unchanged. Any Check Now button
+      // anywhere in the app can cancel whatever check is currently running, not just the one
+      // for its own feature/scope -- the UI already treats "a check is running" as one sitewide
+      // state (this same poll disables every action button sitewide for exactly that reason),
+      // so there's no reliable way for a button to know whether it's "its own" check running
+      // anyway. See main.py's /checks/cancel for the feature-agnostic backend side of this.
+      var CHECK_NOW_SELECTOR = ".check-now-btn";
+
       function applyRunningState(running) {
-        document.querySelectorAll(ALL_SELECTOR).forEach(function (el) { el.disabled = running; });
+        document.querySelectorAll(ALL_SELECTOR).forEach(function (el) {
+          if (el.classList.contains("check-now-btn")) return; // handled by applyCheckNowMode
+          el.disabled = running;
+        });
+      }
+
+      // Flips a Check Now button into a Cancel button (and back) by swapping its label and
+      // hx-post target, then asking htmx to re-read the element's attributes (htmx.process) --
+      // simpler and more robust than trying to intercept/cancel htmx's own click handling,
+      // since htmx binds its request logic once per element and won't otherwise notice an
+      // attribute changed out from under it. Idempotent (checked via data-cancel-mode) so
+      // calling it every poll tick while state hasn't changed is a cheap no-op.
+      function setCheckNowMode(el, cancelMode) {
+        var already = el.getAttribute("data-cancel-mode") === "true";
+        if (cancelMode === already) return;
+        if (cancelMode) {
+          el.setAttribute("data-cancel-mode", "true");
+          el.setAttribute("data-orig-label", el.textContent.trim());
+          el.setAttribute("data-orig-hx-post", el.getAttribute("hx-post") || "");
+          el.setAttribute("data-orig-hx-swap", el.getAttribute("hx-swap") || "");
+          el.textContent = "Cancel";
+          el.setAttribute("hx-post", "/checks/cancel");
+          // /checks/cancel returns a small JSON ack, not an HTML fragment -- hx-swap="none"
+          // means htmx fires the request but never touches this button's hx-target (the
+          // page's own status badge/spinner, which is already being kept live by that page's
+          // own independent poll), so nothing gets clobbered with literal JSON text. The poll
+          // that drives this same mode toggle is what reflects the eventual "not running"
+          // result once the backend actually stops.
+          el.setAttribute("hx-swap", "none");
+        } else {
+          el.setAttribute("data-cancel-mode", "false");
+          el.textContent = el.getAttribute("data-orig-label") || "Check Now";
+          el.setAttribute("hx-post", el.getAttribute("data-orig-hx-post") || "");
+          el.setAttribute("hx-swap", el.getAttribute("data-orig-hx-swap") || "");
+        }
+        el.disabled = false;
+        htmx.process(el);
+      }
+
+      function applyCheckNowMode(anyRunning) {
+        document.querySelectorAll(CHECK_NOW_SELECTOR).forEach(function (el) {
+          setCheckNowMode(el, anyRunning);
+        });
       }
 
       // Stack/service/finding detail pages have no server-rendered status badge of their own
@@ -105,6 +157,7 @@
         var cl = evt.target.classList;
         if (cl && FEATURES.some(function (f) { return cl.contains(f + "-action-btn"); })) {
           applyRunningState(true);
+          applyCheckNowMode(true);
         }
       });
 
@@ -138,6 +191,7 @@
         })).then(function (results) {
           var anyRunning = results.some(function (r) { return r.running; });
           applyRunningState(anyRunning);
+          applyCheckNowMode(anyRunning);
           updateElsewhereIndicator(anyRunning);
           if (anyRunning !== wasAnyRunning) nudgeMainBadge();
           wasAnyRunning = anyRunning;

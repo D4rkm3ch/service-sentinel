@@ -85,6 +85,7 @@ def run_claimed_updates_check() -> None:
     error, a bug in a later stage's code, anything) can never wedge the app the way the
     pre-rebuild version did ("ran all night and was still checking"). A failed check just
     reports itself as failed and lets the next trigger — scheduled or manual — try again."""
+    ai_provider.reset_rate_limited_count()
     try:
         outcome = run_and_persist_check(
             on_progress=lambda stage, done, total: check_state.set_progress("updates", stage, done, total)
@@ -93,10 +94,15 @@ def run_claimed_updates_check() -> None:
             "checked": len(outcome["containers"]),
             "updates_found": sum(1 for c in outcome["containers"] if c["status"] == "update_available"),
             "errors": outcome["errors"],
+            "rate_limited": ai_provider.rate_limited_count(),
+            "cancelled": check_state.is_cancel_requested("updates"),
         }
     except Exception:
         logger.exception("Update check failed unexpectedly")
-        result = {"checked": 0, "updates_found": 0, "errors": 1}
+        result = {
+            "checked": 0, "updates_found": 0, "errors": 1, "rate_limited": ai_provider.rate_limited_count(),
+            "cancelled": check_state.is_cancel_requested("updates"),
+        }
 
     check_state.set_finished("updates", result)
 
@@ -258,9 +264,8 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
 def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[dict], object],
                            on_progress: ProgressFunc | None) -> dict[str, object]:
     """Shared shape for every fan-out phase in the pipeline (release notes fetching, AI
-    summarization) — a thread pool capped by ai_provider.concurrency_limit() (currently just
-    settings.ai_summarize_concurrency for both providers -- see that function's docstring for
-    why Gemini isn't specially capped), progress reported once per completion under a lock
+    summarization) — a thread pool capped by ai_provider.concurrency_limit() (per-provider,
+    UI-editable in Settings -- see that function's docstring), progress reported once per completion under a lock
     (safe from multiple worker threads at once, same approach reconcile.run_check() uses), and
     the stage never announced at all (on_progress is never called with this stage name) if
     there's nothing to do this round — see persist_check_outcome()'s docstring for why a phase
@@ -278,7 +283,11 @@ def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[
 
     def _call_and_report(container: dict):
         nonlocal done_count
-        result = worker(container)
+        # A container already picked up by a free worker thread still gets its real AI call --
+        # only ones still queued behind the concurrency cap skip straight to "not done" once
+        # Cancel has been clicked (see check_state.request_cancel/is_cancel_requested), which is
+        # what "in-flight calls finish naturally, queued ones don't start" means in practice.
+        result = None if check_state.is_cancel_requested("updates") else worker(container)
         if on_progress:
             with progress_lock:
                 done_count += 1

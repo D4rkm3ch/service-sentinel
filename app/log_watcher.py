@@ -69,7 +69,7 @@ def run_log_check() -> dict:
         containers = list_running_containers_for_logs()
     except Exception:
         logger.exception("Could not reach the Docker socket — skipping this log check")
-        result = {"checked": 0, "findings_found": 0, "errors": 1}
+        result = {"checked": 0, "findings_found": 0, "errors": 1, "rate_limited": 0, "cancelled": False}
         set_finished("logs", result)
         return result
 
@@ -140,8 +140,12 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
         # Expected whenever the daemon is unreachable -- each per-container fetch below will
         # surface (and record) its own failure, so a short note beats a full traceback here.
         logger.warning("Could not open a shared Docker client (%s); falling back to per-container connects", exc)
+    cancelled = False
     try:
         for name in container_names:
+            if check_state.is_cancel_requested("logs"):
+                cancelled = True
+                break
             checked += 1
             checkpoint = checkpoints.get(name)
             try:
@@ -172,8 +176,9 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
         notify_logs_check_errors([{"container_name": name, "error": err} for name, err in failed.items()])
 
     if not excerpts_by_container:
-        return {"checked": checked, "findings_found": 0, "errors": len(failed)}
+        return {"checked": checked, "findings_found": 0, "errors": len(failed), "rate_limited": 0, "cancelled": cancelled}
 
+    ai_provider.reset_rate_limited_count()
     chunks = _chunk_excerpts(excerpts_by_container)
     include_fix = db.get_deep_analysis_enabled("logs")
     findings: list[dict] = []
@@ -193,7 +198,19 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     done_count = 0
 
     def _triage_chunk(chunk: dict[str, str]) -> None:
-        nonlocal triage_errors, done_count
+        nonlocal triage_errors, done_count, cancelled
+        # Same "queued work stops, in-flight work finishes" semantics as persist.py's
+        # _run_concurrent_phase -- a chunk a worker thread has already picked up still gets its
+        # real AI call, only ones still waiting behind the concurrency cap skip it. A skipped
+        # chunk isn't counted as an error -- it's simply not attempted, not a failure.
+        if check_state.is_cancel_requested("logs"):
+            with progress_lock:
+                cancelled = True
+                done_count += 1
+                current = done_count
+            if on_progress:
+                on_progress("triage_logs", current, total_chunks)
+            return
         try:
             result = analyze_logs_batch(chunk, include_fix=include_fix)
         except Exception:
@@ -235,7 +252,10 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
 
     notify_findings_digest("logs", new_findings)
 
-    return {"checked": checked, "findings_found": findings_found, "errors": len(failed) + triage_errors}
+    return {
+        "checked": checked, "findings_found": findings_found, "errors": len(failed) + triage_errors,
+        "rate_limited": ai_provider.rate_limited_count(), "cancelled": cancelled,
+    }
 
 
 # ---------------------------------------------------------------------------

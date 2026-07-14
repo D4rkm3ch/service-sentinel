@@ -163,7 +163,7 @@ def test_run_log_check_for_uses_a_fixed_number_of_connections_not_one_per_contai
         result = log_watcher.run_log_check_for(names)
 
     assert connect_calls == [1, 1, 1], f"expected a fixed 3-connection batch, got {len(connect_calls)}"
-    assert result == {"checked": 15, "findings_found": 0, "errors": 0}
+    assert result == {"checked": 15, "findings_found": 0, "errors": 0, "rate_limited": 0, "cancelled": False}
 
 
 def test_run_log_check_for_only_stamps_the_checkpoint_for_containers_that_fetched_successfully():
@@ -1082,7 +1082,7 @@ def test_service_reset_and_recheck_is_a_noop_when_the_mutex_is_already_held(clie
 def test_run_log_check_reports_progress_on_the_logs_feature_channel():
     with patch("app.log_watcher.list_running_containers_for_logs", return_value=[]):
         result = log_watcher.run_log_check()
-    assert result == {"checked": 0, "findings_found": 0, "errors": 0}
+    assert result == {"checked": 0, "findings_found": 0, "errors": 0, "rate_limited": 0, "cancelled": False}
     assert check_state.get_state("logs")["running"] is False
 
 
