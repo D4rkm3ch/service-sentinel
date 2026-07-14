@@ -177,7 +177,9 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
             if is_new:
                 # Discord shows the service name(s) defined in the file, not the raw path --
                 # e.g. "tautulli", not "/compose/tautulli/compose.yaml".
-                file_new_findings.append({"subject": subject_display_name("compose", path_str), "severity": severity})
+                file_new_findings.append({
+                    "subject": subject_display_name("compose", path_str), "severity": severity, "title": title,
+                })
 
         db.set_compose_file_hash(path_str, content_hash)
 

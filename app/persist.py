@@ -570,6 +570,7 @@ def _persist_one(container: dict, existing, release_notes_result, summary_result
     return {
         "container_name": name, "image_repo": image_repo, "tag": tag,
         "update_id": update_id, "severity": severity, "error": error_text,
+        "new_version": release_notes.extract_latest_version(release_notes_raw),
     }
 
 

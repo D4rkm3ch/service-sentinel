@@ -138,7 +138,8 @@ def _fetch_github_releases_since(owner_repo: str, since: datetime) -> list[dict]
 def _compile_releases_text(releases: list[dict]) -> str:
     """releases is newest-first (see _fetch_github_releases_since) -- reversed here so the
     compiled text reads oldest-to-newest, matching the "catch the operator up in order" framing
-    summarizer.py's prompt uses."""
+    summarizer.py's prompt uses. This exact "## <tag> (<date>)" heading format is a contract
+    with extract_latest_version() below, not just prompt formatting -- keep them in sync."""
     parts = []
     for item in reversed(releases):
         tag = item.get("tag_name") or item.get("name") or "unknown version"
@@ -146,6 +147,30 @@ def _compile_releases_text(releases: list[dict]) -> str:
         body = (item.get("body") or "(release has no description)").strip()
         parts.append(f"## {tag} ({published})\n{body}")
     return "\n\n".join(parts)
+
+
+_RELEASE_HEADING_PATTERN = re.compile(r"^## (.+?) \([^)]*\)$", re.MULTILINE)
+
+
+def extract_latest_version(release_notes_raw: str | None) -> str | None:
+    """Best-effort "what's the new version" for the Updates Discord digest (see
+    notifications.py) -- pulled straight from the "## <tag> (<date>)" headings
+    _compile_releases_text() above writes (last one is newest, since that text reads
+    oldest-to-newest), rather than asking the model to restate it. Only ever resolves
+    anything for the GitHub-releases path; every other release-notes source (a changelog_url
+    label override, a cached non-GitHub URL, the AI web-search fallback, the Docker Hub
+    last-resort) returns arbitrary text that was never written in this heading format, so this
+    correctly returns None for those rather than guessing at a version number that isn't
+    reliably there -- callers fall back to showing no version rather than a wrong one."""
+    if not release_notes_raw:
+        return None
+    matches = _RELEASE_HEADING_PATTERN.findall(release_notes_raw)
+    if not matches:
+        return None
+    tag = matches[-1].strip()
+    if not tag or tag.lower() == "unknown version":
+        return None
+    return tag
 
 
 def _resolve_github_notes(owner_repo: str, tag: str, since: datetime | None) -> tuple[str | None, str | None]:

@@ -76,6 +76,30 @@ def test_a_severity_backfill_calls_the_digest_with_the_real_row_id_already_commi
     assert db.get_update(items[0]["update_id"]) is not None
 
 
+def test_digest_item_carries_the_new_version_resolved_from_github_style_release_notes():
+    with patch("app.persist.release_notes.get_release_notes",
+               return_value=("## v2.0.0 (2026-01-01)\nSome real changes.", "https://example.com")), \
+         patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist._summarize_container", return_value=("Summary text.", "feature", None)), \
+         patch("app.persist.notifications.notify_updates_digest") as mock_digest:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    items, _errors = mock_digest.call_args[0]
+    assert items[0]["new_version"] == "v2.0.0"
+
+
+def test_digest_item_has_no_new_version_when_release_notes_are_not_in_the_github_heading_format():
+    with patch("app.persist.release_notes.get_release_notes",
+               return_value=("Just some free-form changelog prose.", "https://example.com")), \
+         patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist._summarize_container", return_value=("Summary text.", "feature", None)), \
+         patch("app.persist.notifications.notify_updates_digest") as mock_digest:
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    items, _errors = mock_digest.call_args[0]
+    assert items[0]["new_version"] is None
+
+
 def test_an_unchanged_repeat_check_never_calls_the_digest_again():
     persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
 

@@ -89,6 +89,19 @@ def _send(title: str, body: str, notify_type: str = NotifyType.INFO) -> None:
         logger.exception("Apprise notification failed")
 
 
+def _format_update_line(item: dict) -> str:
+    """"container" alone, or "container • vX.Y.Z" when persist.py could resolve a new version
+    from the release notes (see release_notes.extract_latest_version) -- most reliably true for
+    the GitHub-releases path, None (so just the bare name) for anything else, including a
+    still-unresolved version. No "old version" shown -- this app tracks image digests, not
+    versions, so there's no reliably known "what it was running before" to pair it with."""
+    line = f"**{item['container_name']}**"
+    version = item.get("new_version")
+    if version:
+        line += f" • v{version.lstrip('vV')}"
+    return line
+
+
 def _send_severity_group(severity: str, group: list[dict]) -> None:
     """Title is just the feature name ("Update Issues") -- the severity + count moves into the
     body's first line instead, since Discord renders an embed title larger/bolder than its body,
@@ -96,10 +109,7 @@ def _send_severity_group(severity: str, group: list[dict]) -> None:
     being the title on its own, without needing two separate Apprise calls."""
     label = UPDATE_SEVERITY_LABELS.get(severity, severity.capitalize())
     count = len(group)
-    sections = [
-        f"**{item['container_name']}**"
-        for item in sorted(group, key=lambda i: i["container_name"].lower())
-    ]
+    sections = [_format_update_line(item) for item in sorted(group, key=lambda i: i["container_name"].lower())]
     body = f"**{label} ({count})**\n\n" + "\n\n".join(sections)
     _send("Update Issues", body, _UPDATE_NOTIFY_TYPE.get(severity, NotifyType.INFO))
 
@@ -123,8 +133,10 @@ def notify_updates_digest(items: list[dict], errors: list[dict]) -> None:
     registry-error opt-in) happens exactly once here rather than once per item, so a big batch
     costs the same handful of Settings reads as a small one.
 
-    items: [{"container_name", "image_repo", "tag", "update_id", "severity"}, ...] -- severity
-    expected non-blank (persist.py only includes rows that actually have one).
+    items: [{"container_name", "image_repo", "tag", "update_id", "severity", "new_version"}, ...]
+    -- severity expected non-blank (persist.py only includes rows that actually have one).
+    new_version may be None (see release_notes.extract_latest_version) -- shown inline next to
+    the container name when resolved, omitted otherwise (see _format_update_line).
     errors: [{"container_name", "image_repo", "tag", "update_id", "error"}, ...]
 
     A still-unknown severity was already filtered out by persist.py before this is even called
@@ -205,7 +217,7 @@ def _send_finding_severity_group(source: str, severity: str, group: list[dict]) 
     count = len(group)
     title = _FINDING_SOURCE_LABELS.get(source, source.capitalize())
     sections = [
-        f"**{item['subject']}**"
+        f"**{item['subject']}** • {item['title']}"
         for item in sorted(group, key=lambda i: i["subject"].lower())
     ]
     body = f"**{label} ({count})**\n\n" + "\n\n".join(sections)
@@ -221,16 +233,19 @@ def notify_findings_digest(source: str, items: list[dict]) -> None:
     whole check run/scope and call this once at the end, the same way persist.py collects a
     whole check's worth of updates before calling notify_updates_digest once.
 
-    items: [{"subject", "severity"}, ...] -- subject is the container name (Logs) or a display
-    name for the compose file (Compose -- see compose_lookup.subject_display_name, callers
-    resolve this before it ever reaches here so the message shows a real service name instead of
-    a raw file path). Recurrences of an already-known finding must never be included -- callers
-    only pass genuinely new findings.
+    items: [{"subject", "severity", "title"}, ...] -- subject is the container name (Logs) or a
+    display name for the compose file (Compose -- see compose_lookup.subject_display_name,
+    callers resolve this before it ever reaches here so the message shows a real service name
+    instead of a raw file path). "title" is the finding's own short headline (e.g. "Missing
+    healthcheck"), shown inline next to the subject so the message says what's wrong without
+    a click -- not to be confused with the Apprise message's own title, see below. Recurrences
+    of an already-known finding must never be included -- callers only pass genuinely new
+    findings.
 
-    The title itself ("Log Issues" vs "Compose Issues") is what tells two features' messages
-    apart in the same channel -- Logs and Compose share the same severity label set (unlike
-    Updates' distinct bugfix/feature/action_needed/breaking labels), so without a distinct title
-    their messages would otherwise be indistinguishable."""
+    The Apprise message's own title ("Log Issues" vs "Compose Issues") is what tells two
+    features' messages apart in the same channel -- Logs and Compose share the same severity
+    label set (unlike Updates' distinct bugfix/feature/action_needed/breaking labels), so
+    without a distinct title their messages would otherwise be indistinguishable."""
     if not items:
         return
     if not db.get_notifications_enabled() or not db.get_feature_notify_enabled(source):

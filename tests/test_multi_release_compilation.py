@@ -94,6 +94,36 @@ def test_summarizer_prompt_instructs_combining_multiple_releases_and_taking_the_
 
 
 # ---------------------------------------------------------------------------
+# release_notes.extract_latest_version -- feeds the Discord digest's "container • vX.Y.Z" line
+# (see notifications._format_update_line)
+# ---------------------------------------------------------------------------
+
+def test_extract_latest_version_takes_the_last_ie_newest_heading():
+    releases = [_release("v3", "2026-03-01T00:00:00Z"), _release("v2", "2026-02-01T00:00:00Z")]
+    text = release_notes._compile_releases_text(releases)
+    assert release_notes.extract_latest_version(text) == "v3"
+
+
+def test_extract_latest_version_returns_none_for_text_with_no_matching_headings():
+    """Everything that isn't the GitHub-releases path (a changelog_url label override, a cached
+    non-GitHub URL, the AI web-search fallback, the Docker Hub last resort) hands back arbitrary
+    text that was never written in the "## <tag> (<date>)" format -- must not guess a version
+    out of it."""
+    assert release_notes.extract_latest_version("Just some free-form changelog prose.") is None
+
+
+def test_extract_latest_version_returns_none_for_a_missing_tag_name_placeholder():
+    releases = [_release(None, "2026-01-01T00:00:00Z")]
+    text = release_notes._compile_releases_text(releases)
+    assert release_notes.extract_latest_version(text) is None
+
+
+def test_extract_latest_version_returns_none_for_empty_input():
+    assert release_notes.extract_latest_version(None) is None
+    assert release_notes.extract_latest_version("") is None
+
+
+# ---------------------------------------------------------------------------
 # persist._release_notes_since -- the cutoff computation itself
 # ---------------------------------------------------------------------------
 

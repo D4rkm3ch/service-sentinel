@@ -248,7 +248,7 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
         )
         findings_found += 1
         if is_new:
-            new_findings.append({"subject": container_name, "severity": severity})
+            new_findings.append({"subject": container_name, "severity": severity, "title": title})
 
     notify_findings_digest("logs", new_findings)
 

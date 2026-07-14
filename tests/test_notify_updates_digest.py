@@ -31,8 +31,11 @@ def _patched(settings):
     )
 
 
-def _item(name="sonarr", severity="breaking", update_id=1, repo="owner/repo", tag="latest"):
-    return {"container_name": name, "image_repo": repo, "tag": tag, "update_id": update_id, "severity": severity}
+def _item(name="sonarr", severity="breaking", update_id=1, repo="owner/repo", tag="latest", new_version=None):
+    return {
+        "container_name": name, "image_repo": repo, "tag": tag, "update_id": update_id,
+        "severity": severity, "new_version": new_version,
+    }
 
 
 def _error(name="qbittorrent", update_id=2, repo="owner/repo", tag="latest", error="Could not reach the registry."):
@@ -72,6 +75,38 @@ def test_a_single_qualifying_item_sends_one_call():
     assert "sonarr" in body
     assert "owner/repo" not in body and "latest" not in body  # just the name, no trailing image:tag
     assert notify_type == NotifyType.FAILURE
+
+
+def test_line_shows_the_new_version_when_resolved():
+    patches = _patched(_settings())
+    with patch("app.notifications._send") as mock_send:
+        with patches[0], patches[1], patches[2], patches[3]:
+            notifications.notify_updates_digest([_item(new_version="v2.0.0", severity="breaking")], [])
+    _, body, _ = mock_send.call_args[0]
+    assert "**sonarr** • v2.0.0" in body
+
+
+def test_line_strips_a_leading_v_from_the_resolved_version_before_re_adding_its_own():
+    """release_notes.extract_latest_version() returns whatever a GitHub tag_name actually is,
+    which is very often already "v"-prefixed (e.g. "v2.0.0") -- must not double up into
+    "vv2.0.0"."""
+    patches = _patched(_settings())
+    with patch("app.notifications._send") as mock_send:
+        with patches[0], patches[1], patches[2], patches[3]:
+            notifications.notify_updates_digest([_item(new_version="V2.0.0", severity="breaking")], [])
+    _, body, _ = mock_send.call_args[0]
+    assert "vv" not in body.lower()
+    assert "**sonarr** • v2.0.0" in body
+
+
+def test_line_omits_the_version_entirely_when_unresolved():
+    patches = _patched(_settings())
+    with patch("app.notifications._send") as mock_send:
+        with patches[0], patches[1], patches[2], patches[3]:
+            notifications.notify_updates_digest([_item(new_version=None, severity="breaking")], [])
+    _, body, _ = mock_send.call_args[0]
+    assert body.strip().endswith("**sonarr**")
+    assert "•" not in body
 
 
 def test_items_below_threshold_are_excluded_and_nothing_sends_if_none_qualify():

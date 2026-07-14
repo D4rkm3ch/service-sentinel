@@ -28,8 +28,8 @@ def _patched(settings):
     )
 
 
-def _item(subject="plex", severity="warning"):
-    return {"subject": subject, "severity": severity}
+def _item(subject="plex", severity="warning", title="Something is wrong"):
+    return {"subject": subject, "severity": severity, "title": title}
 
 
 def test_empty_items_never_call_send():
@@ -120,13 +120,15 @@ def test_multiple_items_of_the_same_severity_share_one_call():
     assert body.index("apple") < body.index("zebra")  # alphabetical within the group
 
 
-def test_body_is_the_severity_line_then_just_names_no_link_no_category():
+def test_body_is_the_severity_line_then_name_and_title_no_link_no_category():
     patches = _patched(_settings())
     with patch("app.notifications._send") as mock_send:
         with patches[0], patches[1], patches[2]:
-            notifications.notify_findings_digest("logs", [_item(subject="plex", severity="warning")])
+            notifications.notify_findings_digest(
+                "logs", [_item(subject="plex", severity="warning", title="Missing healthcheck")]
+            )
     _, body, _ = mock_send.call_args[0]
-    assert body.strip() == "**Warnings (1)**\n\n**plex**"
+    assert body.strip() == "**Warnings (1)**\n\n**plex** • Missing healthcheck"
 
 
 def test_no_emoji_anywhere():

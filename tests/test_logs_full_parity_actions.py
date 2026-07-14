@@ -201,7 +201,9 @@ def test_run_log_check_for_creates_findings_from_a_suspicious_excerpt():
     findings = db.list_findings_for_subject("logs", "triage-a", include_silenced=True)
     assert len(findings) == 1
     assert findings[0]["title"] == "Disk full"
-    mock_notify.assert_called_once_with("logs", [{"subject": "triage-a", "severity": "critical"}])
+    mock_notify.assert_called_once_with(
+        "logs", [{"subject": "triage-a", "severity": "critical", "title": "Disk full"}]
+    )
 
 
 def test_run_claimed_log_item_check_now_releases_the_mutex_on_completion():

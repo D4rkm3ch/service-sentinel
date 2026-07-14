@@ -95,7 +95,9 @@ def test_run_compose_check_for_notifies_with_the_service_name_not_the_raw_path()
             {"title": "Issue", "category": "reliability", "severity": "warning", "description": "d"},
         ]), patch("app.compose_reviewer.notify_findings_digest") as mock_notify:
             compose_reviewer.run_compose_check_for([compose_file])
-        mock_notify.assert_called_once_with("compose", [{"subject": "notify-svc", "severity": "warning"}])
+        mock_notify.assert_called_once_with(
+            "compose", [{"subject": "notify-svc", "severity": "warning", "title": "Issue"}]
+        )
     finally:
         compose_file.unlink()
         with db.get_conn() as conn:
