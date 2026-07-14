@@ -359,6 +359,11 @@ break wherever it appears.
 - Optimization opportunities: redundant or unused environment variables, network \
 misconfiguration.
 
+Before flagging a volume mount's read/write mode in either direction, check its actual current \
+suffix in the file as written (:ro, :rw, or no suffix at all, which defaults to read-write) — \
+never describe a mount as read-write if it already has :ro, and never recommend a change the \
+file has already made.
+
 Do NOT flag any of the following — this homelab operator has explicitly decided none of these \
 are worth reporting, even as a low-severity suggestion:
 - Missing resource limits (CPU/memory limits).
@@ -371,11 +376,17 @@ a security concern on a service that already uses it and doesn't need that level
 
 Only report things with real substance — skip purely stylistic nitpicks, including restating a \
 default that's already in effect (e.g. adding an explicit ":rw" to a volume mount that's already \
-read-write by default) or preferences with no functional difference. If the file looks fine, say \
-so by returning an empty array.
+read-write by default) or preferences with no functional difference. If, while working out what \
+to recommend, you find the current configuration already matches what you were about to suggest \
+(so the fix would just restate the current value back at itself), drop the finding entirely — \
+don't report a change with nothing left to change. If the file looks fine, say so by returning an \
+empty array.
 
 Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
-{{"title": "a short, specific title (under 8 words)", "category": one of "security", \
+{{"title": "a short, specific title (under 8 words) naming the exact setting, service, or mount \
+this finding is actually about -- it must match what the description and fix describe, never a \
+different one (e.g. don't title something \"Docker socket mount\" when the finding is really \
+about an unrelated volume)", "category": one of "security", \
 "reliability", "optimization", "severity": one of "critical", "warning", "suggestion", \
 "description": "1-3 sentences explaining the issue"{fix_field}}}"""
 
