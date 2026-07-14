@@ -68,7 +68,7 @@ def test_updates_own_scale_explanatory_text_is_gone(client):
 
 def test_each_section_shows_the_minimum_level_blurb(client):
     page = client.get("/settings")
-    assert page.text.count("Minimum level to receive a notification.") == 3
+    assert page.text.count("Minimum level to receive a notification") == 3
 
 
 def test_severity_save_route_rejects_master_scope(client):

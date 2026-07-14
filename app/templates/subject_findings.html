@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_sort_header.html" as sh %}
-{% block title %}{{ display_name }} — Service Sentinel{% endblock %}
+{% block title %}{{ display_name }} - Service Sentinel{% endblock %}
 {% block content %}
 
 <div class="back-link-row">
@@ -108,7 +108,7 @@
           {% if f.status == 'silenced' %}
           <span class="badge badge-silenced">Silenced</span>
           {% else %}
-          <span class="meta">—</span>
+          <span class="meta">-</span>
           {% endif %}
         </td>
         <td class="cell-centered">

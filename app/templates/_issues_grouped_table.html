@@ -51,7 +51,7 @@
         {% if issue.stack_name %}
         <a href="/logs/stack?id={{ issue.stack_id|urlencode }}" class="stack-cell" title="{{ issue.stack_name }}" onclick="event.stopPropagation()">{{ issue.stack_name }}</a>
         {% else %}
-        <span class="meta">—</span>
+        <span class="meta">-</span>
         {% endif %}
       </td>
       {% endif %}
@@ -69,7 +69,7 @@
         {% elif issue.active_count %}
         <span class="badge badge-read">Read</span>
         {% else %}
-        <span class="meta">—</span>
+        <span class="meta">-</span>
         {% endif %}
       </td>
       <td><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
@@ -78,6 +78,6 @@
   </tbody>
 </table>
 {% else %}
-<p class="empty">No active issues. {% if show_silenced %}(Including silenced — still nothing.){% endif %}</p>
+<p class="empty">No active issues. {% if show_silenced %}(Including silenced - still nothing.){% endif %}</p>
 {% endif %}
 </div>

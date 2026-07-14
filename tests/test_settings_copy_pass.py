@@ -13,9 +13,11 @@ def _settings_text(client):
 
 
 def test_concurrency_hints_read_identically_apart_from_the_numbers(client):
+    """"recommended:" makes clear these are suggestions, not hard limits -- a real-world report
+    that the bare numbers alone read as confusing/arbitrary without it."""
     text = _settings_text(client)
-    assert "Concurrent AI requests (2 free, 4 paid)" in text
-    assert "Concurrent AI requests (1 free, 4 paid)" in text
+    assert "Concurrent AI requests (recommended: 2 free, 4 paid)" in text
+    assert "Concurrent AI requests (recommended: 1 free, 4 paid)" in text
 
 
 def test_api_key_hints_share_the_same_short_pattern(client):
@@ -54,8 +56,9 @@ def test_apprise_hint_explains_why_format_markdown_is_appended(client):
 
 
 def test_test_notification_hint_is_short(client):
+    """No trailing period -- a single-sentence settings blurb, see the periods-removal pass."""
     text = _settings_text(client)
-    assert "Only saved after a successful test." in text
+    assert "Only saved after a successful test</p>" in text
     assert "typing alone doesn't save it" not in text
 
 

@@ -144,7 +144,8 @@ def test_stack_column_actually_populates_and_sorts(client):
         _seed("lonely-app", severity="bugfix")  # not in any stack
 
         page = client.get("/updates")
-        assert "—" in page.text  # lonely-app's stack cell
+        lonely_row = page.text[page.text.index("lonely-app"):]
+        assert '<span class="meta">-</span>' in lonely_row[:lonely_row.index("</tr>")]  # no real stack
         assert 'class="stack-cell"' in page.text  # sonarr/plex both resolved to a real stack
 
         by_stack = client.get("/updates", params={"sort": "stack", "dir": "asc"})

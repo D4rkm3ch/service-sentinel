@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_sort_header.html" as sh %}
-{% block title %}{{ display_name }} — Service Sentinel{% endblock %}
+{% block title %}{{ display_name }} - Service Sentinel{% endblock %}
 {% block content %}
 
 <div class="back-link-row">
@@ -89,7 +89,7 @@
           {% elif not m.latest_update.error and not m.latest_update.release_notes_raw %}
           <span class="badge badge-sev-bugfix">Notes Not Found</span>
           {% else %}
-          <span class="meta">—</span>
+          <span class="meta">-</span>
           {% endif %}
         </td>
         <td class="read-cell">
@@ -107,9 +107,9 @@
       <tr id="row-{{ m.container_name }}">
         <td class="mono"><span class="truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</span></td>
         <td class="mono"><span class="truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</span></td>
-        <td class="nowrap">—</td>
+        <td class="nowrap">-</td>
         <td class="importance-cell"><span class="badge badge-healthy">Up To Date</span></td>
-        <td class="read-cell"><span class="meta">—</span></td>
+        <td class="read-cell"><span class="meta">-</span></td>
         <td></td>
       </tr>
       {% endif %}

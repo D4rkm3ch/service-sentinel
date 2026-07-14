@@ -1209,7 +1209,7 @@ def test_subject_findings_table_has_a_dedicated_silenced_column(client):
     assert "badge-silenced" not in title_cell
 
     assert body.count("badge-silenced\">Silenced</span>") == 1
-    assert "<span class=\"meta\">—</span>" in body
+    assert "<span class=\"meta\">-</span>" in body
 
 
 def test_subject_findings_table_sorts_by_silenced_column(client):

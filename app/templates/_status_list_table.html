@@ -45,7 +45,7 @@
         {% if item.stack_name %}
         <a href="/logs/stack?id={{ item.stack_id|urlencode }}" class="stack-cell" title="{{ item.stack_name }}" onclick="event.stopPropagation()">{{ item.stack_name }}</a>
         {% else %}
-        <span class="meta">—</span>
+        <span class="meta">-</span>
         {% endif %}
       </td>
       {% endif %}
@@ -65,7 +65,7 @@
         {% elif item.silence_state == 'partially_silenced' %}
         <span class="badge badge-partially-silenced">Partially Silenced</span>
         {% else %}
-        <span class="meta">—</span>
+        <span class="meta">-</span>
         {% endif %}
       </td>
       <td><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>

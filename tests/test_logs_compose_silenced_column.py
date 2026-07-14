@@ -39,7 +39,7 @@ def test_logs_all_containers_table_shows_a_dash_for_a_container_with_no_silenced
     row = section[section.index("silenced-col-logs-healthy"):]
     row = row[:row.index("</tr>")]
     assert "badge-silenced" not in row
-    assert "—" in row
+    assert '<span class="meta">-</span>' in row
 
     _cleanup("logs", "silenced-col-logs-healthy")
 

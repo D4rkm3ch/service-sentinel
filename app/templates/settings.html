@@ -3,7 +3,7 @@
 {% import "_toggle_switch.html" as ts %}
 {% import "_severity_buttons.html" as sb %}
 {% import "_api_key_field.html" as akf %}
-{% block title %}Settings — Service Sentinel{% endblock %}
+{% block title %}Settings - Service Sentinel{% endblock %}
 {% block content %}
 
 <section class="panel">
@@ -21,7 +21,7 @@
   <div class="settings-subsection {{ '' if ai_provider == 'anthropic' else 'hidden' }}" id="anthropic-provider-section">
     <h4>Anthropic</h4>
     <p class="meta">Get a key from
-<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
+<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a></p>
     {{ akf.api_key_field('anthropic', anthropic_key_configured, 'sk-ant-...', '/settings/ai/anthropic-key') }}
     <div style="margin-top:10px">
       <select name="anthropic_model" class="mono field-input" hx-post="/settings/ai/anthropic-model" hx-trigger="change" hx-target="#saved-anthropic_model">
@@ -32,7 +32,7 @@
       <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
     </div>
     <div class="stepper-row">
-      <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests (2 free, 4 paid)</label>
+      <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 2 free, 4 paid)</label>
       <div class="stepper">
         <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', -1)">&minus;</button>
         <input type="number" inputmode="numeric" class="mono field-input stepper-input"
@@ -48,7 +48,7 @@
   <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'hidden' }}" id="gemini-provider-section">
     <h4>Gemini</h4>
     <p class="meta">Get a key from
-<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.</p>
+<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a></p>
     {{ akf.api_key_field('gemini', gemini_key_configured, 'AIza...', '/settings/ai/gemini-key') }}
     <div style="margin-top:10px">
       <select name="gemini_model" class="mono field-input" hx-post="/settings/ai/gemini-model" hx-trigger="change" hx-target="#saved-gemini_model">
@@ -59,7 +59,7 @@
       <span class="saved-indicator-slot" id="saved-gemini_model"></span>
     </div>
     <div class="stepper-row">
-      <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests (1 free, 4 paid)</label>
+      <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 1 free, 4 paid)</label>
       <div class="stepper">
         <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', -1)">&minus;</button>
         <input type="number" inputmode="numeric" class="mono field-input stepper-input"
@@ -74,7 +74,7 @@
 
   <div class="settings-subsection">
     <h4>GitHub <span class="badge badge-lg badge-sev-suggestion">Optional</span></h4>
-    <p class="meta">Get a key (a fine-grained token with no permissions — public read only) from
+    <p class="meta">Get a key (a fine-grained token with no permissions - public read only) from
 <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.<br>
 This raises the rate limit used for fetching release notes from 60/hr to 5,000/hr.</p>
     {{ akf.api_key_field('github', github_token_configured, 'ghp_...', '/settings/ai/github-token') }}
@@ -132,8 +132,8 @@ compose stack. This costs noticeably more tokens.</p>
 
 <section class="panel">
   <h2 class="settings-heading-lg">Release Notes Lookback Window</h2>
-  <p class="meta">How far back to look for missed releases, combined into one summary — still
-capped by your last actual check.</p>
+  <p class="meta">How far back to look for missed releases, combined into one summary - still
+capped by your last actual check</p>
 
   <div class="settings-subsection settings-subsection-first">
     <select name="release_notes_lookback" class="mono field-input" hx-post="/settings/release-notes-lookback"
@@ -166,7 +166,7 @@ capped by your last actual check.</p>
 
   <div class="settings-subsection">
     <h4>General</h4>
-    <p class="meta">Used by any feature below that isn't set to its own custom schedule.</p>
+    <p class="meta">Used by any feature below that isn't set to its own custom schedule</p>
     {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
   </div>
 
@@ -189,14 +189,14 @@ capped by your last actual check.</p>
   <div class="settings-subsection settings-subsection-first">
     {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', 'Enable notifications', "toggleAppriseField(this.checked)") }}
 
-    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated — see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for other services.<br>Discord webhooks are entered as <code>discord://{WebhookID}/{WebhookToken}</code> — <code>?format=markdown</code> is appended automatically to enable colored Discord embeds.</p>
+    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated - see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for other services.<br>Discord webhooks are entered as <code>discord://{WebhookID}/{WebhookToken}</code>.<br><code>?format=markdown</code> is appended automatically to enable colored Discord embeds.</p>
     <div class="input-with-suffix {{ '' if notify.enabled else 'dimmed' }}" id="apprise_urls_wrapper">
       <input type="text" name="apprise_urls" id="apprise_urls_field" class="mono"
              placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}
              value="{{ notify.apprise_urls.replace('?format=markdown', '') }}">
       <span class="input-suffix">?format=markdown</span>
     </div>
-    <p class="meta apprise-disclaimer">Only saved after a successful test.</p>
+    <p class="meta apprise-disclaimer">Only saved after a successful test</p>
     <div>
       <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
         Send test notification
@@ -215,7 +215,7 @@ capped by your last actual check.</p>
       {{ ts.toggle_switch('notify_updates_include_errors', notify.updates_include_errors, '/settings/notify/updates-include-errors',
                            "Notify when a container's registry can't be reached", disabled=not notify.features['updates'].enabled) }}
     </div>
-    <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
+    <p class="meta" style="margin-top:8px">Minimum level to receive a notification</p>
     <div>
       {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
     </div>
@@ -224,7 +224,7 @@ capped by your last actual check.</p>
       {{ ts.toggle_switch('notify_logs_include_errors', notify.logs_include_errors, '/settings/notify/logs-include-errors',
                            "Notify when a container's logs can't be fetched", disabled=not notify.features['logs'].enabled) }}
     </div>
-    <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
+    <p class="meta" style="margin-top:8px">Minimum level to receive a notification</p>
     <div>
       {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
     </div>
@@ -233,7 +233,7 @@ capped by your last actual check.</p>
       {{ ts.toggle_switch('notify_compose_include_errors', notify.compose_include_errors, '/settings/notify/compose-include-errors',
                            "Notify when a compose file can't be checked", disabled=not notify.features['compose'].enabled) }}
     </div>
-    <p class="meta" style="margin-top:8px">Minimum level to receive a notification.</p>
+    <p class="meta" style="margin-top:8px">Minimum level to receive a notification</p>
     <div>
       {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
     </div>
@@ -399,7 +399,7 @@ function handleCrossServiceAnalysisToggle(el, feature) {
 }
 
 // ---- Schedule picker: Hourly/Daily/Weekly/Monthly frequency fields ----
-// Only the fields for the currently-selected frequency are ever enabled — the rest are both
+// Only the fields for the currently-selected frequency are ever enabled - the rest are both
 // hidden and disabled, so a browser form submission only ever includes the active mode's
 // fields even though every mode's markup is always present in the DOM (this is also what lets
 // every mode share plain field names like "{scope}_time" instead of needing per-mode suffixes).

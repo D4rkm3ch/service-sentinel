@@ -99,4 +99,4 @@ def test_fastapi_app_title_and_page_titles_use_new_name(client):
     resp = client.get("/")
     assert "Service Sentinel" in resp.text
     assert "release-radar" not in resp.text
-    assert "<title>Overview — Service Sentinel</title>" in resp.text
+    assert "<title>Overview - Service Sentinel</title>" in resp.text

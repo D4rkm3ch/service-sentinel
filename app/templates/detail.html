@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ update.container_name }} — Service Sentinel{% endblock %}
+{% block title %}{{ update.container_name }} - Service Sentinel{% endblock %}
 {% block content %}
 
 <div class="back-link-row">
@@ -17,7 +17,7 @@
     {% elif not update.error and not update.release_notes_raw %}
     <span class="badge badge-lg badge-sev-bugfix">Notes Not Found</span>
     {% else %}
-    <span class="badge badge-lg">—</span>
+    <span class="badge badge-lg">-</span>
     {% endif %}
     {% with is_unread = update.status == 'unread', show_badge = not update.error %}{% include "_read_badge.html" %}{% endwith %}
     {% with silence_state = 'silenced' if container_silenced else none %}{% include "_silence_badge.html" %}{% endwith %}

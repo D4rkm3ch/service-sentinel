@@ -29,12 +29,12 @@
         {% if c.stack_name %}
         <a href="/updates/stack?id={{ c.stack_id|urlencode }}" class="stack-cell" title="{{ c.stack_name }}">{{ c.stack_name }}</a>
         {% else %}
-        <span class="meta">—</span>
+        <span class="meta">-</span>
         {% endif %}
       </td>
       <td class="mono"><span class="truncate-cell" title="{{ c.image_repo }}:{{ c.tag }}">{{ c.image_repo }}:{{ c.tag }}</span></td>
       <td class="nowrap">{{ c.last_checked_at | local_dt }}</td>
-      <td class="cell-centered">{% if c.silenced %}<span class="badge badge-silenced">Silenced</span>{% else %}<span class="meta">—</span>{% endif %}</td>
+      <td class="cell-centered">{% if c.silenced %}<span class="badge badge-silenced">Silenced</span>{% else %}<span class="meta">-</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>

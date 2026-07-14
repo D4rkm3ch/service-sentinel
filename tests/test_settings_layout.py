@@ -27,7 +27,7 @@ def test_registry_error_toggle_sits_between_enable_notifications_and_severity_bu
     updates_section = page.text[page.text.index("Updates</h4>"):]
     enable_pos = updates_section.index("Enable notifications")
     errors_pos = updates_section.index("can&#39;t be reached")
-    severity_pos = updates_section.index("Minimum level to receive a notification.")
+    severity_pos = updates_section.index("Minimum level to receive a notification")
     assert enable_pos < errors_pos < severity_pos
 
 

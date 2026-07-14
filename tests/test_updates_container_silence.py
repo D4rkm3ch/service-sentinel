@@ -77,7 +77,7 @@ def test_tracked_containers_table_has_a_dedicated_silenced_column(client):
     row = tracked_section[tracked_section.index("silence-test-column"):]
     row = row[:row.index("</tr>")]
     assert "badge-silenced" not in row
-    assert "—" in row
+    assert '<span class="meta">-</span>' in row
 
     db.set_container_silenced("silence-test-column", True)
     resp = client.get("/updates")

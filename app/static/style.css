@@ -44,15 +44,19 @@
      (unlike the pre-existing hardcoded rgba(94,201,166,...) washes elsewhere on badges/rows,
      left alone for now, see their own comment) this one is theme-aware from the start. */
   --accent-wash: rgba(94, 201, 166, 0.1);
+  /* The toggle switch's off-state knob -- same as --text here (a light knob reads fine against
+     the dark track), but light theme's own block below softens this instead of reusing its
+     near-black --text, which read as too bold/heavy a dot against that theme's pale track. */
+  --toggle-knob: #d8dae0;
   color-scheme: dark;
 }
 
 :root[data-theme="light"] {
-  /* Dulled a step from the first pass (page bg was #f3f4f6, panels a stark pure #ffffff) --
-     off-grey instead of off-white on both, still clearly a light theme, just easier on the
-     eyes than a near-white panel sitting on a near-white page. */
-  --bg: #e9eaed;
-  --bg-panel: #f6f7f8;
+  /* Dulled another step from the first pass (page bg was #f3f4f6, panels a stark pure #ffffff,
+     then #e9eaed/#f6f7f8) -- still off-grey, just a bit deeper each round per feedback that it
+     kept reading as too bright. */
+  --bg: #e2e3e6;
+  --bg-panel: #eff0f2;
   --border: #dde1e7;
   --text: #1b1e24;
   --text-dim: #5b6270;
@@ -71,6 +75,7 @@
   --icon-hover-tint: rgba(0, 0, 0, 0.05);
   --code-bg: rgba(0, 0, 0, 0.05);
   --accent-wash: rgba(31, 143, 104, 0.12);
+  --toggle-knob: #9aa1ab;
   color-scheme: light;
 }
 
@@ -186,6 +191,12 @@ code {
   height: 24px;
   width: auto;
 }
+/* Same light/dark swap pattern as the theme toggle's sun/moon icons -- two logo <img>s always
+   in the DOM, only the one matching the current theme shown, so the topbar brand mark doesn't
+   go stark-white-on-white the moment light mode is picked. */
+.brand-logo-light { display: none; }
+:root[data-theme="light"] .brand-logo-dark { display: none; }
+:root[data-theme="light"] .brand-logo-light { display: inline; }
 
 /* Sitewide "a check is running" status -- lives in the topbar's own center region now (see
    .topbar-center above) rather than a separate banner element, so progress + Cancel are
@@ -982,7 +993,7 @@ tr:hover .row-chevron {
   height: 14px;
   left: 3px;
   top: 3px;
-  background: var(--text);
+  background: var(--toggle-knob);
   border-radius: 50%;
   transition: transform 0.15s;
 }

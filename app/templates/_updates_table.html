@@ -34,7 +34,7 @@
         {% if u.stack_name %}
         <a href="/updates/stack?id={{ u.stack_id|urlencode }}" class="stack-cell" title="{{ u.stack_name }}" onclick="event.stopPropagation()">{{ u.stack_name }}</a>
         {% else %}
-        <span class="meta">—</span>
+        <span class="meta">-</span>
         {% endif %}
       </td>
       <td class="mono"><span class="truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}">{{ u.image_repo }}:{{ u.tag }}</span></td>
@@ -45,7 +45,7 @@
         {% elif not u.error and not u.release_notes_raw %}
         <span class="badge badge-sev-bugfix">Notes Not Found</span>
         {% else %}
-        <span class="meta">—</span>
+        <span class="meta">-</span>
         {% endif %}
       </td>
       <td class="read-cell">

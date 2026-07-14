@@ -46,9 +46,15 @@
         <path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 12l9 5 9-5"/><path d="M3 16l9 5 9-5"/>
       </symbol>
       <symbol id="icon-settings" viewBox="0 0 24 24">
-        <line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2"/>
-        <line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2"/>
-        <line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="18" r="2"/>
+        <circle cx="12" cy="12" r="4"/>
+        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1"/>
+        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(45 12 12)"/>
+        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(90 12 12)"/>
+        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(135 12 12)"/>
+        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(180 12 12)"/>
+        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(225 12 12)"/>
+        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(270 12 12)"/>
+        <rect x="10.5" y="5.5" width="3" height="3.5" rx="1" transform="rotate(315 12 12)"/>
       </symbol>
       <symbol id="icon-sun" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/>
@@ -67,7 +73,11 @@
       <button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" aria-label="Toggle navigation" aria-expanded="false">
         <svg class="icon"><use href="#icon-menu"/></svg>
       </button>
-      <a href="/" class="brand"><img src="/static/logo-white.svg" alt="" class="brand-logo">Service Sentinel</a>
+      <a href="/" class="brand">
+        <img src="/static/logo-white.svg" alt="" class="brand-logo brand-logo-dark">
+        <img src="/static/logo-black.svg" alt="" class="brand-logo brand-logo-light">
+        Service Sentinel
+      </a>
     </div>
     <div class="topbar-center">
       <div id="check-running-banner" class="topbar-status" style="display:none">

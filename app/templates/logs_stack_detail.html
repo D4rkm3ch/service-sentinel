@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_sort_header.html" as sh %}
-{% block title %}{{ display_name }} — Service Sentinel{% endblock %}
+{% block title %}{{ display_name }} - Service Sentinel{% endblock %}
 {% block content %}
 
 <div class="back-link-row">
@@ -89,7 +89,7 @@
           {% if m.top_severity %}
           {{ m.active_count }} active{% if m.silenced_count %}, {{ m.silenced_count }} silenced{% endif %}
           {% else %}
-          <span class="meta">—</span>
+          <span class="meta">-</span>
           {% endif %}
         </td>
         <td class="nowrap">{{ m.last_checked_at | local_dt }}</td>
@@ -106,7 +106,7 @@
           {% elif m.active_count %}
           <span class="badge badge-read">Read</span>
           {% else %}
-          <span class="meta">—</span>
+          <span class="meta">-</span>
           {% endif %}
         </td>
         <td><a href="/logs/container/{{ m.container_name }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
