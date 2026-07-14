@@ -371,22 +371,41 @@ def compose_running_state():
 
 @app.post("/checks/cancel")
 def cancel_running_check():
-    """Every Check Now button in the app (main page, stack, item, finding-detail -- see
-    base.html) posts here once it's showing "Cancel" instead of "Check Now", regardless of
-    which feature or scope it belongs to -- the UI already treats "a check is running" as one
-    sitewide state (see base.html's poll()), not three independent ones, so any of them can
-    cancel whatever's actually running. Deliberately feature-agnostic rather than three separate
-    /updates|logs|compose/cancel routes: the button that's visible as "Cancel" doesn't
-    necessarily belong to the feature that's running (e.g. every button dims/flips together),
-    so the caller has no reliable way to know which one to hit.
+    """The sitewide "Cancel" button in base.html's top banner posts here -- feature-agnostic
+    (cancels whichever feature is actually running, see check_state.request_cancel_running_
+    checks) since the banner itself is sitewide and doesn't need to know or care which feature
+    it's watching.
 
     Fire-and-forget: the worker loop notices check_state.is_cancel_requested() between items and
     stops on its own between items (an in-flight AI call finishes naturally, queued ones don't
     start) -- this route doesn't wait for that, and doesn't need to render anything, since the
-    existing running-state poll (already running once a second) is what flips every button and
-    status badge back once the check actually finishes."""
+    banner's own poll (GET /checks/status, already running once a second) is what reflects
+    "cancelling" and then "not running" once the check actually finishes."""
     check_state.request_cancel_running_checks()
     return {"status": "ok"}
+
+
+@app.get("/checks/status")
+def checks_status():
+    """Single sitewide poll target for base.html's top banner -- whichever feature is currently
+    running (if any), its live progress text (same text the main page's own status badge would
+    show), and whether Cancel has already been clicked for it. One combined endpoint rather than
+    three separate /{feature}/running-state calls, since the banner (unlike the plain button-
+    disable poll those back) needs more than just a boolean to render itself.
+
+    Only one feature is ever running at a time in practice (see base.html's own note on why the
+    UI treats "a check is running" as one sitewide state) -- if that were ever violated, this
+    just reports the first one found, same as request_cancel_running_checks() signals all of
+    them regardless."""
+    for feature in check_state.FEATURES:
+        if is_running(feature):
+            return {
+                "running": True,
+                "feature": feature,
+                "progress_text": _progress_text(get_progress(feature)),
+                "cancelling": check_state.is_cancel_requested(feature),
+            }
+    return {"running": False, "feature": None, "progress_text": "", "cancelling": False}
 
 
 @app.get("/updates/partial")

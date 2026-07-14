@@ -13,9 +13,9 @@ TEMPLATES = Path(__file__).resolve().parent.parent / "app" / "templates"
 
 def test_feature_header_check_now_carries_a_per_feature_class():
     text = (TEMPLATES / "_feature_header.html").read_text()
-    assert 'class="{{ feature }}-action-btn check-now-btn"' in text
+    assert 'class="{{ feature }}-action-btn"' in text
     # No feature's Check now button self-disables via a real hx-disabled-elt attribute anymore
-    # -- base.html's beforeRequest listener plus its per-feature running-state poll now own the
+    # -- base.html's beforeRequest listener plus its sitewide /checks/status poll now own the
     # whole disabled lifecycle uniformly for updates/logs/compose alike.
     assert "hx-disabled-elt=" not in text
 
@@ -31,13 +31,13 @@ def test_base_html_polls_every_features_running_state_and_disables_instantly_on_
     "{feature}-action-btn" sitewide -- not just the feature whose check is actually running --
     the instant htmx actually sends a request for any one of them (htmx:beforeRequest -- fires
     only after any hx-confirm was accepted), not rely solely on the once-a-second poll to
-    notice, and it must poll every feature's own running-state endpoint and disable everything
-    if ANY of them report running, not just react to Updates' own."""
+    notice, and the poll itself (GET /checks/status) must report running=true if ANY feature is
+    running, not just react to Updates' own."""
     text = (TEMPLATES / "base.html").read_text()
     assert "htmx:beforeRequest" in text
     assert "applyRunningState(true)" in text
     assert '"updates", "logs", "compose"' in text
-    assert '"/" + feature + "/running-state"' in text
+    assert 'fetch("/checks/status")' in text
 
 
 def test_stack_detail_retry_and_reset_carry_the_class():

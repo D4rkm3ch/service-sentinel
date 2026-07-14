@@ -19,7 +19,7 @@
        running-state poll now cover both the instant disable and the eventual re-enable (and
        also catch a scheduled firing that started the check without this button being clicked
        at all) for every .{{ feature }}-action-btn on the page, this one included. #}
-    <button class="{{ feature }}-action-btn check-now-btn" hx-post="/{{ feature }}/check-now" hx-target="#check-status" hx-swap="innerHTML">
+    <button class="{{ feature }}-action-btn" hx-post="/{{ feature }}/check-now" hx-target="#check-status" hx-swap="innerHTML">
       Check Now
     </button>
     {% if feature == "updates" %}

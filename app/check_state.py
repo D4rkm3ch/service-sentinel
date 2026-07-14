@@ -29,15 +29,13 @@ _progress = {name: {"stage": None, "done": 0, "total": 0} for name in FEATURES}
 # once its poller has read the final "done" state) rather than tied to the fixed FEATURES list.
 _item_state: dict[str, dict] = {}
 
-# Cancellation signal for the "any Check Now button can cancel any running check" feature --
-# every scoped/full check for a given feature shares that feature's one running-mutex (see
+# Cancellation signal for the sitewide top banner's Cancel button (see base.html) -- every
+# scoped/full check for a given feature shares that feature's one running-mutex (see
 # try_start/set_running above), so one Event per feature is enough: setting it asks whichever
 # check currently holds that feature's mutex to stop between items, regardless of whether it
 # started from the main page, a stack, or a single item. Cleared every time a feature's mutex
 # is (re)claimed, so a stale cancel from a previous, already-finished check can never affect
-# the next one. Deliberately NOT wired into Reset & re-check, Regenerate AI Response, Silence,
-# or any other action button -- those keep their existing disable-while-running behavior
-# unchanged; only Check Now buttons become Cancel buttons (see base.html).
+# the next one.
 _cancel_flags = {name: threading.Event() for name in FEATURES}
 
 
@@ -82,13 +80,11 @@ def is_cancel_requested(feature: str) -> bool:
 
 
 def request_cancel_running_checks() -> list[str]:
-    """Cancels whichever feature(s) currently have a check running -- backs the single shared
-    /checks/cancel endpoint every Check Now button posts to, so any of them can cancel whatever
-    check is actually running, regardless of which page or scope started it (the UI already
-    treats "a check is running" as one sitewide state, not three independent ones -- see
-    base.html). Returns the list of features actually signalled, purely for the route's own
-    logging; callers otherwise don't need it since the existing running-state poll is what
-    reflects the eventual result."""
+    """Cancels whichever feature(s) currently have a check running -- backs the sitewide top
+    banner's single Cancel button (see base.html), which doesn't need to know or care which
+    feature it's watching. Returns the list of features actually signalled, purely for the
+    route's own logging; callers otherwise don't need it since the banner's own poll
+    (GET /checks/status) is what reflects the eventual result."""
     cancelled = []
     for feature in FEATURES:
         if is_running(feature):

@@ -19,6 +19,13 @@
       <a href="/settings" class="{{ 'active' if active_tab == 'settings' else '' }}">Settings</a>
     </nav>
   </header>
+  <div id="check-running-banner" class="check-running-banner" style="display:none">
+    <span class="status-badge status-running">
+      <span class="spinner" aria-hidden="true"></span>
+      <span id="check-running-banner-text">Checking…</span>
+    </span>
+    <button type="button" id="check-running-banner-cancel" class="button-danger check-running-banner-cancel">Cancel</button>
+  </div>
   <main>
     {% block content %}{% endblock %}
   </main>
@@ -38,15 +45,13 @@
     // treats them as one combined lock: kicking off a Logs Reset & re-check must disable the
     // Updates page's buttons just as much as Logs' own, since running two checks' worth of
     // background work at once is never something a click should be able to trigger by accident.
-    // Polls three tiny shared endpoints rather than hooking into any one page's own status
-    // display, since Stack/Service/Finding pages don't render that at all. A no-op (never
-    // starts polling) on a page with no such buttons at all, e.g. Settings.
     //
-    // A dimmed button with no explanation looks broken -- the "why" is explained inline in each
-    // page's own status badge instead of a separate sitewide banner (see _status.html/
-    // _status_poll.html's other_running_feature branch), reusing the exact spot and visual
-    // (spinner + short text) the badge already uses for this page's own running check, rather
-    // than adding a second place to look.
+    // The sitewide top banner (#check-running-banner, markup right after the topbar above) is
+    // the single place progress + Cancel live now -- on every page, not just the three main
+    // ones -- driven by the same poll this disabling logic uses (GET /checks/status once a
+    // second). Check Now buttons themselves no longer turn into Cancel buttons and sub-pages no
+    // longer grow an inline "a check is running elsewhere" blurb next to their own buttons; both
+    // of those were replaced by the banner being visible everywhere instead.
     //
     // Disabling is also triggered instantly on htmx:beforeRequest for any of these buttons,
     // not just left to the once-a-second poll -- the POST that kicks off a scoped/full check
@@ -61,103 +66,50 @@
     (function () {
       var FEATURES = ["updates", "logs", "compose"];
       var ALL_SELECTOR = FEATURES.map(function (f) { return "." + f + "-action-btn"; }).join(",");
-      if (!document.querySelector(ALL_SELECTOR)) return;
 
-      // Check Now buttons only (marked with this extra class in the templates) get Cancel
-      // semantics -- Reset & re-check, Regenerate AI Response, the Silence toggle, etc. keep
-      // the plain disable-while-running behavior below completely unchanged. Any Check Now button
-      // anywhere in the app can cancel whatever check is currently running, not just the one
-      // for its own feature/scope -- the UI already treats "a check is running" as one sitewide
-      // state (this same poll disables every action button sitewide for exactly that reason),
-      // so there's no reliable way for a button to know whether it's "its own" check running
-      // anyway. See main.py's /checks/cancel for the feature-agnostic backend side of this.
-      var CHECK_NOW_SELECTOR = ".check-now-btn";
+      var banner = document.getElementById("check-running-banner");
+      var bannerText = document.getElementById("check-running-banner-text");
+      var bannerCancelBtn = document.getElementById("check-running-banner-cancel");
 
       function applyRunningState(running) {
-        document.querySelectorAll(ALL_SELECTOR).forEach(function (el) {
-          if (el.classList.contains("check-now-btn")) return; // handled by applyCheckNowMode
-          el.disabled = running;
-        });
+        document.querySelectorAll(ALL_SELECTOR).forEach(function (el) { el.disabled = running; });
       }
 
-      // Flips a Check Now button into a Cancel button (and back) by swapping its label and
-      // hx-post target, then asking htmx to re-read the element's attributes (htmx.process) --
-      // simpler and more robust than trying to intercept/cancel htmx's own click handling,
-      // since htmx binds its request logic once per element and won't otherwise notice an
-      // attribute changed out from under it. Idempotent (checked via data-cancel-mode) so
-      // calling it every poll tick while state hasn't changed is a cheap no-op.
-      function setCheckNowMode(el, cancelMode) {
-        var already = el.getAttribute("data-cancel-mode") === "true";
-        if (cancelMode === already) return;
-        if (cancelMode) {
-          el.setAttribute("data-cancel-mode", "true");
-          el.setAttribute("data-orig-label", el.textContent.trim());
-          el.setAttribute("data-orig-hx-post", el.getAttribute("hx-post") || "");
-          el.setAttribute("data-orig-hx-swap", el.getAttribute("hx-swap") || "");
-          el.textContent = "Cancel";
-          el.setAttribute("hx-post", "/checks/cancel");
-          // /checks/cancel returns a small JSON ack, not an HTML fragment -- hx-swap="none"
-          // means htmx fires the request but never touches this button's hx-target (the
-          // page's own status badge/spinner, which is already being kept live by that page's
-          // own independent poll), so nothing gets clobbered with literal JSON text. The poll
-          // that drives this same mode toggle is what reflects the eventual "not running"
-          // result once the backend actually stops.
-          el.setAttribute("hx-swap", "none");
-        } else {
-          el.setAttribute("data-cancel-mode", "false");
-          el.textContent = el.getAttribute("data-orig-label") || "Check Now";
-          el.setAttribute("hx-post", el.getAttribute("data-orig-hx-post") || "");
-          el.setAttribute("hx-swap", el.getAttribute("data-orig-hx-swap") || "");
+      // Set the instant a click on the banner's own Cancel button fires, so the banner reads
+      // "Cancelling…" immediately rather than waiting up to 1s for the next poll to notice
+      // check_state.is_cancel_requested() server-side (data.cancelling below) -- cleared once
+      // the poll confirms the check has actually stopped. A page navigated to mid-cancel loses
+      // this local flag, but picks the same state right back up from data.cancelling itself,
+      // which check_state.py keeps set server-side until the check (or the next one) clears it.
+      var cancelRequestedLocally = false;
+
+      function updateBanner(data) {
+        if (!banner) return;
+        if (!data.running) {
+          banner.style.display = "none";
+          cancelRequestedLocally = false;
+          if (bannerCancelBtn) bannerCancelBtn.disabled = false;
+          return;
         }
-        el.disabled = false;
-        htmx.process(el);
+        banner.style.display = "";
+        var cancelling = data.cancelling || cancelRequestedLocally;
+        if (bannerText) bannerText.textContent = cancelling ? "Cancelling…" : (data.progress_text || "Checking…");
+        if (bannerCancelBtn) bannerCancelBtn.disabled = cancelling;
       }
 
-      function applyCheckNowMode(anyRunning) {
-        document.querySelectorAll(CHECK_NOW_SELECTOR).forEach(function (el) {
-          setCheckNowMode(el, anyRunning);
+      if (bannerCancelBtn) {
+        bannerCancelBtn.addEventListener("click", function () {
+          cancelRequestedLocally = true;
+          bannerCancelBtn.disabled = true;
+          if (bannerText) bannerText.textContent = "Cancelling…";
+          fetch("/checks/cancel", { method: "POST" });
         });
-      }
-
-      // Stack/service/finding detail pages have no server-rendered status badge of their own
-      // (unlike the main Updates/Logs/Compose pages -- see _status.html/_status_poll.html) --
-      // just a permanently-present, normally-empty <span id="item-recheck-status"> right after
-      // their action buttons, which htmx only ever fills in with THIS item's own scoped check
-      // (a busy_message, or a running spinner + progress text, or empty again once idle -- see
-      // the shared _item_status.html). Reusing that exact spot for a
-      // "some other check is running elsewhere" blurb -- same running signal already polled
-      // above, same visual (spinner + short text) the main pages use -- means every page with
-      // check buttons gets the explanation, not just the three main ones. Marked with a data
-      // attribute so this never overwrites real htmx-owned content (a busy_message, or that
-      // item's own genuinely running progress): only ever written into an empty span or a span
-      // this same code already wrote into, and htmx's own outerHTML swap on click naturally
-      // clears the marker by replacing the whole element.
-      function updateElsewhereIndicator(anyRunning) {
-        if (document.getElementById("check-status")) return;
-        var target = document.getElementById("item-recheck-status");
-        if (!target) return;
-
-        var isOurs = target.getAttribute("data-elsewhere-indicator") === "true";
-        var isEmpty = target.innerHTML.trim() === "";
-
-        if (anyRunning && (isEmpty || isOurs)) {
-          if (!isOurs) {
-            target.innerHTML = '<span class="status-badge status-running">'
-              + '<span class="spinner" aria-hidden="true"></span>'
-              + '<span>A check is currently running…</span></span>';
-            target.setAttribute("data-elsewhere-indicator", "true");
-          }
-        } else if (isOurs && !anyRunning) {
-          target.innerHTML = "";
-          target.removeAttribute("data-elsewhere-indicator");
-        }
       }
 
       document.body.addEventListener("htmx:beforeRequest", function (evt) {
         var cl = evt.target.classList;
         if (cl && FEATURES.some(function (f) { return cl.contains(f + "-action-btn"); })) {
           applyRunningState(true);
-          applyCheckNowMode(true);
         }
       });
 
@@ -166,16 +118,15 @@
       // idle_poll_delay_ms (3000ms) and only switches to the fast cadence once IT notices
       // something running, on its own schedule -- so on the tick where a check starts or
       // finishes, that badge can lag behind this poll (which already runs every 1s and is what
-      // disables/re-enables buttons instantly and drives every sub-page's elsewhere-indicator).
-      // Nudging its own poller element the moment this faster poll notices EITHER transition
-      // closes that gap everywhere, not just here -- both directions matter: starting (so
-      // "A check is currently running…" shows up promptly) and finishing (a real-world report:
-      // buttons/spinner reset the instant this poll notices running -> false, but the Issues/
-      // Updates table below only refreshes once the badge's OWN poll fires the checkComplete
-      // HX-Trigger -- see _render_status_poll's docstring -- so without this nudge the table
-      // could sit stale for a few seconds after the check visibly looked done). Edge-triggered
-      // (only on an actual transition, not every tick) so it can't stack a second overlapping
-      // poll chain on top of the badge's own once that's already caught up.
+      // disables/re-enables buttons instantly and drives the sitewide banner). Nudging its own
+      // poller element the moment this faster poll notices EITHER transition closes that gap
+      // everywhere, not just here -- both directions matter: starting, and finishing (a real-
+      // world report: buttons/spinner reset the instant this poll notices running -> false, but
+      // the Issues/Updates table below only refreshes once the badge's OWN poll fires the
+      // checkComplete HX-Trigger -- see _render_status_poll's docstring -- so without this nudge
+      // the table could sit stale for a few seconds after the check visibly looked done). Edge-
+      // triggered (only on an actual transition, not every tick) so it can't stack a second
+      // overlapping poll chain on top of the badge's own once that's already caught up.
       var wasAnyRunning = false;
       function nudgeMainBadge() {
         var poller = document.querySelector("#check-status .status-poller");
@@ -186,15 +137,13 @@
       }
 
       function poll() {
-        Promise.all(FEATURES.map(function (feature) {
-          return fetch("/" + feature + "/running-state").then(function (r) { return r.json(); }).catch(function () { return { running: false }; });
-        })).then(function (results) {
-          var anyRunning = results.some(function (r) { return r.running; });
-          applyRunningState(anyRunning);
-          applyCheckNowMode(anyRunning);
-          updateElsewhereIndicator(anyRunning);
-          if (anyRunning !== wasAnyRunning) nudgeMainBadge();
-          wasAnyRunning = anyRunning;
+        fetch("/checks/status").then(function (r) { return r.json(); }).catch(function () {
+          return { running: false, feature: null, progress_text: "", cancelling: false };
+        }).then(function (data) {
+          applyRunningState(data.running);
+          updateBanner(data);
+          if (data.running !== wasAnyRunning) nudgeMainBadge();
+          wasAnyRunning = data.running;
         });
       }
 

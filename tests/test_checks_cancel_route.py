@@ -1,6 +1,6 @@
-"""HTTP-level test for the single, feature-agnostic /checks/cancel endpoint every Check Now
-button (main page, stack, item, finding-detail) posts to once it's showing "Cancel" -- see
-base.html and check_state.request_cancel_running_checks()."""
+"""HTTP-level test for the single, feature-agnostic /checks/cancel endpoint base.html's sitewide
+top banner posts to when its Cancel button is clicked -- see check_state.request_cancel_
+running_checks()."""
 
 from app import check_state, db
 

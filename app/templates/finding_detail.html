@@ -34,7 +34,7 @@
     {% set base_url = '/logs/container/' ~ finding.subject if finding.source == 'logs' else '/compose/file' %}
     {% set qs = '' if finding.source == 'logs' else '?path=' ~ (finding.subject|urlencode) %}
     {% set noun = 'container' if finding.source == 'logs' else 'compose file' %}
-    <button type="button" class="{{ finding.source }}-action-btn check-now-btn"
+    <button type="button" class="{{ finding.source }}-action-btn"
             hx-post="{{ base_url }}/check-now{{ qs }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Check Now

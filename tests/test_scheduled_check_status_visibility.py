@@ -77,7 +77,7 @@ def test_base_html_button_poller_covers_all_three_features():
 
 def test_feature_header_check_now_button_carries_the_generic_class():
     text = (TEMPLATES / "_feature_header.html").read_text()
-    assert 'class="{{ feature }}-action-btn check-now-btn"' in text
+    assert 'class="{{ feature }}-action-btn"' in text
 
 
 # ---------------------------------------------------------------------------
@@ -141,20 +141,11 @@ def test_updates_page_status_poller_carries_prev_badge_running_forward():
 
 # ---------------------------------------------------------------------------
 # Stack/service/finding detail pages -- no server-rendered status badge of their own, just a
-# permanently-present #item-recheck-status span next to their buttons. base.html's existing
-# sitewide poll drives a "some check is running elsewhere" blurb into that same span.
+# permanently-present #item-recheck-status span next to their buttons, still only ever filled in
+# by htmx with that item's own scoped-check result. The sitewide top banner (see below) is what
+# tells the operator a check is running on every page now, including these -- there's no more
+# separate "a check is running elsewhere" text injected next to this span.
 # ---------------------------------------------------------------------------
-
-def test_base_html_drives_the_elsewhere_indicator_from_the_existing_poll():
-    text = (TEMPLATES / "base.html").read_text()
-    assert "function updateElsewhereIndicator" in text
-    assert 'getElementById("item-recheck-status")' in text
-    # Skips pages that already have the real server-rendered badge (the three main pages).
-    assert 'getElementById("check-status")' in text
-    # Never stomps on real htmx-owned content (a busy_message or this item's own progress).
-    assert "data-elsewhere-indicator" in text
-    assert "updateElsewhereIndicator(anyRunning)" in text
-
 
 def test_every_sub_page_has_the_persistent_item_recheck_status_anchor():
     """Regression guard: the client-side indicator only works because this span always exists,
@@ -191,5 +182,60 @@ def test_base_html_nudges_the_main_badge_on_either_running_state_transition():
     # the state stays the same -- the badge's own self-poll is already fast by then, so a
     # second forced ajax call every second on top of it would just stack a redundant,
     # overlapping poll chain.
-    assert "anyRunning !== wasAnyRunning" in text
+    assert "data.running !== wasAnyRunning" in text
     assert "nudgeMainBadge()" in text
+
+
+# ---------------------------------------------------------------------------
+# Sitewide "a check is running" top banner (base.html) -- replaces both the Check Now -> Cancel
+# button flip and the sub-page "a check is running elsewhere" text: one banner, visible on every
+# page, shows live progress and a single Cancel button while any check is running.
+# ---------------------------------------------------------------------------
+
+def test_base_html_has_the_banner_markup_and_it_lives_outside_the_content_block():
+    text = (TEMPLATES / "base.html").read_text()
+    assert 'id="check-running-banner"' in text
+    assert 'id="check-running-banner-text"' in text
+    assert 'id="check-running-banner-cancel"' in text
+    # Right after the topbar, before <main> -- so it's present (even if hidden) on every page,
+    # not just ones that happen to render a {% block content %} with its own status markup.
+    assert text.index('id="check-running-banner"') > text.index('class="topbar"')
+    assert text.index('id="check-running-banner"') < text.index("<main>")
+
+
+def test_base_html_banner_polls_the_consolidated_status_endpoint():
+    text = (TEMPLATES / "base.html").read_text()
+    assert 'fetch("/checks/status")' in text
+    assert "function updateBanner" in text
+    assert 'fetch("/checks/cancel"' in text
+
+
+def test_checks_status_reports_the_running_feature_and_its_progress(client):
+    check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
+    check_state._state["logs"] = {"running": False, "last_result": None, "last_run_at": None}
+    check_state._state["compose"] = {"running": False, "last_result": None, "last_run_at": None}
+    resp = client.get("/checks/status")
+    assert resp.json() == {"running": False, "feature": None, "progress_text": "", "cancelling": False}
+
+    check_state.set_running("logs")
+    check_state.set_progress("logs", "checking_logs", 23, 59)
+    try:
+        resp = client.get("/checks/status")
+        data = resp.json()
+        assert data["running"] is True
+        assert data["feature"] == "logs"
+        assert "23/59" in data["progress_text"]
+        assert data["cancelling"] is False
+
+        check_state.request_cancel("logs")
+        resp = client.get("/checks/status")
+        assert resp.json()["cancelling"] is True
+    finally:
+        check_state.release_running("logs")
+
+
+def test_checks_status_is_idle_when_nothing_is_running(client):
+    for feature in check_state.FEATURES:
+        check_state._state[feature] = {"running": False, "last_result": None, "last_run_at": None}
+    resp = client.get("/checks/status")
+    assert resp.json()["running"] is False

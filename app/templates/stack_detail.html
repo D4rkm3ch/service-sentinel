@@ -26,7 +26,7 @@
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
 
   <div class="action-row action-row-spaced">
-    <button type="button" class="updates-action-btn check-now-btn"
+    <button type="button" class="updates-action-btn"
             hx-post="/updates/stack/check-now?stack_id={{ stack_id|urlencode }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
       Check Now
