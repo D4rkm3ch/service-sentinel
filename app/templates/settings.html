@@ -87,8 +87,8 @@ This raises the rate limit used for fetching release notes from 60/hr to 5,000/h
 noticeably more tokens.</p>
 
   {% for feature, title, label in [
-    ('logs', 'Log Health', 'Suggest fixes for Log Health findings'),
-    ('compose', 'Compose Health', 'Suggest fixes for Compose Health findings'),
+    ('logs', 'Runtime Health', 'Suggest fixes for Runtime Health findings'),
+    ('compose', 'Configuration Health', 'Suggest fixes for Configuration Health findings'),
     ('updates', 'Updates', 'Suggest upgrade guidance for pending updates'),
   ] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
@@ -113,7 +113,7 @@ compose stack. This costs noticeably more tokens.</p>
 
   {% for feature, title, label in [
     ('updates', 'Updates', 'Analyze cross-service impact for pending updates'),
-    ('logs', 'Log Health', 'Analyze cross-service impact for Log Health findings'),
+    ('logs', 'Runtime Health', 'Analyze cross-service impact for Runtime Health findings'),
   ] %}
   <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
     <h4>{{ title }}</h4>
@@ -170,7 +170,7 @@ capped by your last actual check</p>
     {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
   </div>
 
-  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log Health'), ('compose', 'Compose Health')] %}
+  {% for feature, title in [('updates', 'Updates'), ('logs', 'Runtime Health'), ('compose', 'Configuration Health')] %}
   <div class="settings-subsection">
     <h4>{{ title }}</h4>
     {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
@@ -206,7 +206,7 @@ capped by your last actual check</p>
     </div>
   </div>
 
-  {% for feature, title in [('updates', 'Updates'), ('logs', 'Log Health'), ('compose', 'Compose Health')] %}
+  {% for feature, title in [('updates', 'Updates'), ('logs', 'Runtime Health'), ('compose', 'Configuration Health')] %}
   <div class="settings-subsection">
     <h4>{{ title }}</h4>
     {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature,

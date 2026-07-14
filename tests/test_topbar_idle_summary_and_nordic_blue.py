@@ -88,12 +88,12 @@ def test_open_issues_are_counted_and_reported_as_warn(client):
     assert data["summary_status"] == "warn"
 
 
-def test_disabled_features_are_excluded_from_the_breakdown_but_not_the_idle_gate(client):
-    """Updates disabled -- its own pending update no longer appears in the breakdown -- but it
-    still counts as "something has happened" (see _compact_health_summary's docstring: disabling
-    a feature doesn't erase its history), so this must NOT read as "No checks run yet" just
-    because logs/compose themselves have no history of their own. With no open counts among the
-    still-enabled features, it reads as All Clear instead."""
+def test_disabled_features_still_count_toward_the_breakdown(client):
+    """A real-world report: a disabled feature's own real, nonzero count used to be silently
+    excluded from the breakdown, which could read as "All Clear" while an issue sat right there
+    on that disabled feature. The enabled toggle only pauses a feature's own scheduled/automatic
+    checks -- it must never hide an already-found result, so this has to keep reporting the
+    pending update even with Updates disabled."""
     db.record_update(
         container_name="needs-update", image_repo="owner/repo", tag="latest",
         old_digest="sha256:a", new_digest="sha256:b", summary_markdown="x",
@@ -103,14 +103,14 @@ def test_disabled_features_are_excluded_from_the_breakdown_but_not_the_idle_gate
     db.set_feature_enabled("updates", False)
     resp = client.get("/checks/status")
     data = resp.json()
-    assert data["summary_text"] == "All Clear"
-    assert data["summary_status"] == "ok"
+    assert data["summary_text"] == "1 Update pending • 0 Runtime issues • 0 Configuration issues"
+    assert data["summary_status"] == "warn"
 
 
 def test_real_data_with_every_feature_disabled_never_reports_no_checks_run_yet(client):
     """Regression guard for a real-world report: with historical updates/findings already
-    present but every feature toggled off (so the breakdown has nothing enabled to list), the
-    summary must not regress to the pristine "No checks run yet" state."""
+    present but every feature toggled off, the summary must not regress to the pristine "No
+    checks run yet" state -- it still reports the real count."""
     db.record_update(
         container_name="needs-update-2", image_repo="owner/repo", tag="latest",
         old_digest="sha256:a", new_digest="sha256:b", summary_markdown="x",
@@ -121,8 +121,8 @@ def test_real_data_with_every_feature_disabled_never_reports_no_checks_run_yet(c
         db.set_feature_enabled(feature, False)
     resp = client.get("/checks/status")
     data = resp.json()
-    assert data["summary_text"] == "All Clear"
-    assert data["summary_status"] == "ok"
+    assert data["summary_text"] == "1 Update pending • 0 Runtime issues • 0 Configuration issues"
+    assert data["summary_status"] == "warn"
 
 
 def test_idle_summary_lives_in_the_topbar_center_and_is_hidden_by_default():

@@ -1,8 +1,8 @@
 <div class="feature-header collapsible-header" data-collapse-target="{{ feature }}-collapse-body">
   <h1>
     {%- if feature == "updates" -%}Updates Found
-    {%- elif feature == "logs" -%}Log Health
-    {%- elif feature == "compose" -%}Compose Health
+    {%- elif feature == "logs" -%}Runtime Health
+    {%- elif feature == "compose" -%}Configuration Health
     {%- endif -%}
     {%- if feature == "updates" and updates_count is defined %} <span class="heading-count" id="updates-count-badge">({{ updates_count }})</span>
     {%- elif issues is defined %} <span class="heading-count" id="{{ feature }}-issues-count-badge">({{ issues|length }})</span>
@@ -37,26 +37,26 @@
     </form>
     {% elif feature == "logs" %}
     <form method="post" action="/logs/regenerate-all"
-          onsubmit="return confirm('This regenerates every AI-written overview and cross-service analysis blurb currently shown on the Logs pages. Continue?')">
+          onsubmit="return confirm('This regenerates every AI-written overview and cross-service analysis blurb currently shown on the Runtime pages. Continue?')">
       <button type="submit" class="button-warn logs-action-btn" title="Regenerate every AI-written overview/cross-service blurb currently shown">
         Regenerate AI Response
       </button>
     </form>
     <form method="post" action="/logs/reset-and-recheck"
-          onsubmit="return confirm('This wipes all Log Health history and tracking state, then re-checks everything fresh. Continue?')">
+          onsubmit="return confirm('This wipes all Runtime Health history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger logs-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
         Reset &amp; Re-Check
       </button>
     </form>
     {% elif feature == "compose" %}
     <form method="post" action="/compose/regenerate-all"
-          onsubmit="return confirm('This regenerates every AI-written overview currently shown on the Compose pages. Continue?')">
+          onsubmit="return confirm('This regenerates every AI-written overview currently shown on the Configuration pages. Continue?')">
       <button type="submit" class="button-warn compose-action-btn" title="Regenerate every AI-written overview currently shown">
         Regenerate AI Response
       </button>
     </form>
     <form method="post" action="/compose/reset-and-recheck"
-          onsubmit="return confirm('This wipes all Compose Health history and tracking state, then re-checks everything fresh. Continue?')">
+          onsubmit="return confirm('This wipes all Configuration Health history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger compose-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
         Reset &amp; Re-Check
       </button>

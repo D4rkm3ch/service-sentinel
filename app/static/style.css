@@ -94,10 +94,17 @@
   --on-accent: #0a1520;
   --accent-wash: rgba(93, 169, 224, 0.1);
   /* Nordic Blue only -- a muted antique gold pulled from the rope-border/header-text look of
-     the dashboard screenshot that inspired this palette, used sparingly (page titles, the
-     toggle switch's "on" track) via var(--accent-gold, ...) fallbacks so every other accent
-     family is completely unaffected. */
+     the dashboard screenshot that inspired this palette, used sparingly (page titles) via
+     var(--accent-gold, ...) fallbacks so every other accent family is completely unaffected. */
   --accent-gold: #ab8f80;
+  /* Toggle switch "on" state -- a colored track with a plain knob read poorly (washed out,
+     especially in light mode), so the "on" pair inverts that: a neutral track (not accent-
+     colored at all) with a strong, colored knob instead. Only defined where the swap is
+     actually wanted (here, both Nordic blocks, and light-mode Emerald below) -- var(...,
+     fallback) below reverts to the plain var(--accent-dim)/var(--toggle-knob) pair everywhere
+     else, e.g. dark-mode Emerald, which wasn't reported as looking bad. */
+  --toggle-track-on: #3d4148;
+  --toggle-knob-on: var(--accent-gold);
 }
 :root[data-theme="dark"][data-accent="emerald"] {
   --accent: #5ec9a6;
@@ -111,12 +118,16 @@
   --on-accent: #eef4fc;
   --accent-wash: rgba(43, 95, 158, 0.12);
   --accent-gold: #8a6f60;
+  --toggle-track-on: #e8e4dd;
+  --toggle-knob-on: var(--accent-gold);
 }
 :root[data-theme="light"][data-accent="emerald"] {
   --accent: #1f8f68;
   --accent-dim: #7fbfa4;
   --on-accent: #f5fdf9;
   --accent-wash: rgba(31, 143, 104, 0.12);
+  --toggle-track-on: #e8e4dd;
+  --toggle-knob-on: var(--accent);
 }
 
 * { box-sizing: border-box; }
@@ -1067,11 +1078,11 @@ tr:hover .row-chevron {
   transition: transform 0.15s;
 }
 .toggle-switch input:checked + .toggle-slider {
-  background: var(--accent-gold, var(--accent-dim));
+  background: var(--toggle-track-on, var(--accent-dim));
 }
 .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(16px);
-  background: var(--toggle-knob);
+  background: var(--toggle-knob-on, var(--toggle-knob));
 }
 .api-key-row {
   display: flex;

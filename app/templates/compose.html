@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Compose Health - Service Sentinel{% endblock %}
+{% block title %}Configuration Health - Service Sentinel{% endblock %}
 {% block content %}
 
 <section class="panel">
@@ -16,7 +16,7 @@
 </section>
 
 <section class="panel">
-  <h1>Tracked Compose Files <span class="heading-count" id="compose-files-table-count-badge">({{ files|length }})</span></h1>
+  <h1>Tracked Configuration Files <span class="heading-count" id="compose-files-table-count-badge">({{ files|length }})</span></h1>
   {% with items = files, detail_base = "/compose/file", use_query_param = true,
           partial_url = "/compose/partial/files", target_id = "compose-files-table", base_url = "/compose" %}
   {% include "_status_list_table.html" %}

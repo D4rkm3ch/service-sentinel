@@ -207,12 +207,13 @@ _FINDING_NOTIFY_TYPE = {
 }
 # Sent lowest-severity-first, same reasoning as _SEVERITY_SEND_ORDER above.
 _FINDING_SEVERITY_SEND_ORDER = ("suggestion", "warning", "critical")
-_FINDING_SOURCE_LABELS = {"logs": "Log Issues", "compose": "Compose Issues"}
+_FINDING_SOURCE_LABELS = {"logs": "Runtime Issues", "compose": "Configuration Issues"}
 
 
 def _send_finding_severity_group(source: str, severity: str, group: list[dict]) -> None:
-    """Title is just the feature name ("Log Issues"/"Compose Issues") -- same title/body split
-    as Updates' _send_severity_group above, for the same reason (see its docstring)."""
+    """Title is just the feature's display name ("Runtime Issues"/"Configuration Issues") --
+    same title/body split as Updates' _send_severity_group above, for the same reason (see its
+    docstring)."""
     label = FINDING_SEVERITY_LABELS.get(severity, severity.capitalize())
     count = len(group)
     title = _FINDING_SOURCE_LABELS.get(source, source.capitalize())
@@ -242,8 +243,8 @@ def notify_findings_digest(source: str, items: list[dict]) -> None:
     of an already-known finding must never be included -- callers only pass genuinely new
     findings.
 
-    The Apprise message's own title ("Log Issues" vs "Compose Issues") is what tells two
-    features' messages apart in the same channel -- Logs and Compose share the same severity
+    The Apprise message's own title ("Runtime Issues" vs "Configuration Issues") is what tells
+    two features' messages apart in the same channel -- Logs and Compose share the same severity
     label set (unlike Updates' distinct bugfix/feature/action_needed/breaking labels), so
     without a distinct title their messages would otherwise be indistinguishable."""
     if not items:

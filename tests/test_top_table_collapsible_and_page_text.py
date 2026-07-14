@@ -63,8 +63,8 @@ def test_logs_and_compose_no_longer_show_the_redundant_issues_subheading(client)
 
 
 def test_log_health_and_compose_health_headings_are_capitalized(client):
-    assert "Log Health" in client.get("/logs").text
-    assert "Compose Health" in client.get("/compose").text
+    assert "Runtime Health" in client.get("/logs").text
+    assert "Configuration Health" in client.get("/compose").text
 
 
 def test_second_table_headings_renamed_and_capitalized(client):
@@ -73,7 +73,7 @@ def test_second_table_headings_renamed_and_capitalized(client):
     try:
         assert "Tracked Containers" in client.get("/updates").text
         assert "Tracked Containers" in client.get("/logs").text
-        assert "Tracked Compose Files" in client.get("/compose").text
+        assert "Tracked Configuration Files" in client.get("/compose").text
     finally:
         _cleanup_update(_seed)
 

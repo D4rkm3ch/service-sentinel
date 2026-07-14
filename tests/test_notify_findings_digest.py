@@ -60,7 +60,7 @@ def test_a_single_qualifying_item_sends_one_call():
             notifications.notify_findings_digest("logs", [_item(subject="plex", severity="critical")])
     mock_send.assert_called_once()
     title, body, notify_type = mock_send.call_args[0]
-    assert title == "Log Issues"
+    assert title == "Runtime Issues"
     assert body.startswith("**Critical (1)**")
     assert "plex" in body
     assert notify_type == NotifyType.FAILURE
@@ -72,7 +72,7 @@ def test_compose_title_is_its_own_feature_name():
         with patches[0], patches[1], patches[2]:
             notifications.notify_findings_digest("compose", [_item(subject="stack.yml", severity="warning")])
     title, body, _ = mock_send.call_args[0]
-    assert title == "Compose Issues"
+    assert title == "Configuration Issues"
     assert body.startswith("**Warnings (1)**")
     assert "stack.yml" in body
 
@@ -98,7 +98,7 @@ def test_mixed_severities_send_one_call_each_lowest_severity_first():
 
     assert mock_send.call_count == 3
     calls = mock_send.call_args_list
-    assert calls[0][0][0] == "Log Issues" and calls[1][0][0] == "Log Issues" and calls[2][0][0] == "Log Issues"
+    assert calls[0][0][0] == "Runtime Issues" and calls[1][0][0] == "Runtime Issues" and calls[2][0][0] == "Runtime Issues"
     assert "Suggestions" in calls[0][0][1]
     assert "sonarr" in calls[0][0][1]
     assert "Warnings" in calls[1][0][1]
@@ -115,7 +115,7 @@ def test_multiple_items_of_the_same_severity_share_one_call():
             notifications.notify_findings_digest("logs", items)
     mock_send.assert_called_once()
     title, body, _ = mock_send.call_args[0]
-    assert title == "Log Issues"
+    assert title == "Runtime Issues"
     assert body.startswith("**Warnings (2)**")
     assert body.index("apple") < body.index("zebra")  # alphabetical within the group
 

@@ -41,17 +41,17 @@ def test_no_lowercase_log_or_compose_health_survives_anywhere_in_templates_or_ro
 
 def test_overview_cards_show_title_cased_feature_names(client):
     resp = client.get("/")
-    assert "Log Health" in resp.text
-    assert "Compose Health" in resp.text
-    assert "Log health" not in resp.text
-    assert "Compose health" not in resp.text
+    assert "Runtime Health" in resp.text
+    assert "Configuration Health" in resp.text
+    assert "Runtime health" not in resp.text
+    assert "Configuration health" not in resp.text
 
 
 def test_settings_page_shows_title_cased_feature_names_everywhere(client):
     resp = client.get("/settings")
-    assert "Log health" not in resp.text
-    assert "Compose health" not in resp.text
+    assert "Runtime health" not in resp.text
+    assert "Configuration health" not in resp.text
     # Spot-check a few of the sections that had it: Deep Analysis, Cross-Service Analysis,
     # Scheduling, Notifications all repeat the feature name as a subsection heading.
-    assert resp.text.count("Log Health") >= 4
-    assert resp.text.count("Compose Health") >= 4
+    assert resp.text.count("Runtime Health") >= 4
+    assert resp.text.count("Configuration Health") >= 4

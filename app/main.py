@@ -152,7 +152,7 @@ def healthz():
 # Overview
 # ---------------------------------------------------------------------------
 
-_CARD_TITLES = {"updates": "Updates", "logs": "Log Health", "compose": "Compose Health"}
+_CARD_TITLES = {"updates": "Updates", "logs": "Runtime Health", "compose": "Configuration Health"}
 _CARD_TAB_URLS = {"updates": "/updates", "logs": "/logs", "compose": "/compose"}
 
 
@@ -187,8 +187,8 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
 def overview(request: Request):
     cards = [
         _build_card("updates", "Updates", "/updates"),
-        _build_card("logs", "Log Health", "/logs"),
-        _build_card("compose", "Compose Health", "/compose"),
+        _build_card("logs", "Runtime Health", "/logs"),
+        _build_card("compose", "Configuration Health", "/compose"),
     ]
     return templates.TemplateResponse(
         "overview.html", {"request": request, "cards": cards, "active_tab": "overview"}
@@ -391,24 +391,26 @@ def _compact_health_summary() -> tuple[str, str]:
     is running) -- combines all three features' own latest-result counts, the exact same source
     _build_card() reads for the Overview cards. Always renders as exactly one of three forms:
     "No checks run yet" (the pristine first-boot state -- nothing has ever run or found anything
-    anywhere, checked across ALL features regardless of their enabled toggle, since disabling a
-    feature doesn't erase its history), "All Clear" (every currently-enabled feature has nothing
-    open), or a per-feature breakdown of open counts joined by " • " (only enabled features are
-    listed). Once any data exists anywhere this never falls back to "No checks run yet" again --
-    from then on it's always either clear or a breakdown. Returns (text, status) where status is
-    "idle", "ok", or "warn" -- the topbar dot's color class."""
-    raw_counts: dict[str, int] = {}
+    anywhere), "All Clear" (every feature's count is genuinely zero), or a per-feature breakdown
+    of open counts joined by " • ". Counts are never filtered by each feature's own enabled
+    toggle -- that toggle only pauses its scheduled/automatic checks, it doesn't erase or hide
+    already-found results, so a disabled feature's real nonzero count still shows up here (a
+    real-world report: it used to be silently excluded, which could read as "All Clear" while
+    real issues sat right there on a disabled feature). Once any data exists anywhere this never
+    falls back to "No checks run yet" again -- from then on it's always either clear or a
+    breakdown. Returns (text, status) where status is "idle", "ok", or "warn" -- the topbar dot's
+    color class."""
+    counts: dict[str, int] = {}
     for feature in check_state.FEATURES:
         if feature == "updates":
-            raw_counts[feature] = db.latest_update_summary()["unread"]
+            counts[feature] = db.latest_update_summary()["unread"]
         else:
-            raw_counts[feature] = db.findings_health_summary(feature)["active"]
-    ever_happened = any(raw_counts.values()) or any(
+            counts[feature] = db.findings_health_summary(feature)["active"]
+    ever_happened = any(counts.values()) or any(
         check_state.get_state(feature).get("last_run_at") for feature in check_state.FEATURES
     )
     if not ever_happened:
         return "No checks run yet", "idle"
-    counts = {f: c for f, c in raw_counts.items() if db.get_feature_enabled(f)}
     if not any(counts.values()):
         return "All Clear", "ok"
     parts = []
