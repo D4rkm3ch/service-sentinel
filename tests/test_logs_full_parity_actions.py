@@ -145,11 +145,12 @@ def test_set_findings_read_status_for_subject_only_touches_active_findings():
 def test_run_log_check_for_uses_a_fixed_number_of_connections_not_one_per_container():
     """Regression test mirroring test_persist.py's own connection-count guard: checkpoint
     read/write used to be one small sqlite3.connect() per container (get_log_watch_checkpoint /
-    set_log_watch_checkpoint called inside the per-container loop). Batched now -- exactly 4
-    connections (the logs_use_checkpoint toggle read, checkpoint read, checkpoint write,
-    clearing any stale check-error rows for the containers that just succeeded) for the whole
-    pass, regardless of container count. No connection for recording NEW errors here since none
-    occur in this all-clean scenario -- see the sibling test below for that path."""
+    set_log_watch_checkpoint called inside the per-container loop). Batched now -- exactly 5
+    connections (the logs_use_checkpoint toggle read, checkpoint read, the active-findings-by-
+    subject read for the resolution-check feature, checkpoint write, clearing any stale check-
+    error rows for the containers that just succeeded) for the whole pass, regardless of
+    container count. No connection for recording NEW errors here since none occur in this
+    all-clean scenario -- see the sibling test below for that path."""
     names = [f"conn-count-{i}" for i in range(15)]
     original_connect = sqlite3.connect
     connect_calls = []
@@ -162,7 +163,7 @@ def test_run_log_check_for_uses_a_fixed_number_of_connections_not_one_per_contai
          patch("app.db.sqlite3.connect", side_effect=counting_connect):
         result = log_watcher.run_log_check_for(names)
 
-    assert connect_calls == [1, 1, 1, 1], f"expected a fixed 4-connection batch, got {len(connect_calls)}"
+    assert connect_calls == [1, 1, 1, 1, 1], f"expected a fixed 5-connection batch, got {len(connect_calls)}"
     assert result == {"checked": 15, "findings_found": 0, "errors": 0, "rate_limited": 0, "cancelled": False}
 
 
@@ -204,6 +205,58 @@ def test_run_log_check_for_creates_findings_from_a_suspicious_excerpt():
     mock_notify.assert_called_once_with(
         "logs", [{"subject": "triage-a", "severity": "critical", "title": "Disk full"}]
     )
+
+
+def test_run_log_check_for_deletes_a_finding_the_ai_reports_as_resolved():
+    """The core of the AI-driven auto-resolution feature: a subject with an already-active
+    finding gets that finding listed alongside its fresh excerpt, and when analyze_logs_batch
+    reports it resolved (a "resolved_title" element instead of a new finding), the finding is
+    deleted outright rather than kept around in some other status."""
+    db.upsert_finding("logs", "resolve-a", "Connection refused", "error", "critical", "was failing")
+    assert len(db.list_findings_for_subject("logs", "resolve-a")) == 1
+
+    with patch("app.log_watcher.get_container_logs_since", return_value="all clear now"), \
+         patch("app.log_watcher.extract_suspicious_excerpt", return_value=None), \
+         patch("app.log_watcher.analyze_logs_batch", return_value=[
+             {"container": "resolve-a", "resolved_title": "Connection refused"},
+         ]) as mock_analyze:
+        result = log_watcher.run_log_check_for(["resolve-a"])
+
+    assert db.list_findings_for_subject("logs", "resolve-a") == []
+    assert result["findings_found"] == 0
+    # The container had no suspicious excerpt of its own this time, but still had an active
+    # finding -- it must still reach analyze_logs_batch (via log_filter.recent_tail) so the AI
+    # has something to judge resolution against, and the active finding must be passed along.
+    mock_analyze.assert_called_once()
+    (chunk,), kwargs = mock_analyze.call_args
+    assert "resolve-a" in chunk
+    assert kwargs["active_findings_by_container"]["resolve-a"][0]["title"] == "Connection refused"
+
+
+def test_run_log_check_for_includes_active_findings_in_the_analyze_call():
+    db.upsert_finding("logs", "tracked-a", "Connection refused", "error", "critical", "was failing")
+
+    with patch("app.log_watcher.get_container_logs_since", return_value="still quiet"), \
+         patch("app.log_watcher.extract_suspicious_excerpt", return_value=None), \
+         patch("app.log_watcher.analyze_logs_batch", return_value=[]) as mock_analyze:
+        log_watcher.run_log_check_for(["tracked-a"])
+
+    mock_analyze.assert_called_once()
+    _, kwargs = mock_analyze.call_args
+    assert kwargs["active_findings_by_container"]["tracked-a"][0]["title"] == "Connection refused"
+
+
+def test_run_log_check_for_skips_the_ai_call_for_a_clean_container_with_no_history():
+    """A container with no active findings and nothing suspicious in its fetch should never
+    reach analyze_logs_batch at all -- there's no history to compare against and nothing new to
+    report, so it should stay the cheap, common "quiet, no AI call" path."""
+    with patch("app.log_watcher.get_container_logs_since", return_value="all fine here"), \
+         patch("app.log_watcher.extract_suspicious_excerpt", return_value=None), \
+         patch("app.log_watcher.analyze_logs_batch") as mock_analyze:
+        result = log_watcher.run_log_check_for(["clean-a"])
+
+    mock_analyze.assert_not_called()
+    assert result["findings_found"] == 0
 
 
 def test_run_claimed_log_item_check_now_releases_the_mutex_on_completion():
@@ -1112,11 +1165,12 @@ def test_run_log_check_uses_a_fixed_number_of_connections_end_to_end():
          patch("app.db.sqlite3.connect", side_effect=counting_connect):
         result = log_watcher.run_log_check()
 
-    # 3 for run_log_check_for's own batch (checkpoint read/write + error-clear) + 1 for
+    # 4 for run_log_check_for's own batch (use-checkpoint read, checkpoint read, active-
+    # findings-by-subject read, checkpoint write, error-clear -- 5 total) + 1 for
     # get_cross_service_analysis_enabled (the stack-analysis-pass gate) + 1 for set_finished's
     # persisted last_check_result -- a small fixed number regardless of container count, not
     # one connection per container.
-    assert len(connect_calls) <= 6, f"expected a small fixed connection count, got {len(connect_calls)}"
+    assert len(connect_calls) <= 7, f"expected a small fixed connection count, got {len(connect_calls)}"
     assert result["checked"] == 10
 
 

@@ -55,7 +55,7 @@ def test_a_failed_chunk_does_not_lose_findings_from_other_chunks():
     names = [f"c{i}" for i in range(log_watcher._MAX_BATCH_CONTAINERS + 1)]  # forces 2 chunks
     excerpts = {name: "ERROR: boom" for name in names}
 
-    def fake_analyze(chunk, include_fix=False):
+    def fake_analyze(chunk, include_fix=False, active_findings_by_container=None):
         if "c0" in chunk:
             raise RuntimeError("simulated truncated/unparseable response")
         return [{"container": name, "title": "Real issue", "category": "error",
@@ -106,7 +106,7 @@ def test_chunks_are_triaged_concurrently_not_one_after_another():
     names = [f"conc{i}" for i in range(log_watcher._MAX_BATCH_CONTAINERS * 3)]  # forces 3 chunks
     delay = 0.3
 
-    def slow_analyze(chunk, include_fix=False):
+    def slow_analyze(chunk, include_fix=False, active_findings_by_container=None):
         time.sleep(delay)
         return []
 
@@ -135,7 +135,7 @@ def test_cancel_stops_queued_chunks_but_lets_in_flight_ones_finish():
     call_count = 0
     call_lock = threading.Lock()
 
-    def slow_analyze(chunk, include_fix=False):
+    def slow_analyze(chunk, include_fix=False, active_findings_by_container=None):
         nonlocal call_count
         with call_lock:
             call_count += 1

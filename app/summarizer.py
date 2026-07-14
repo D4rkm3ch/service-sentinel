@@ -342,28 +342,57 @@ Respond with ONLY a JSON array and nothing else — no markdown fences, no pream
 one of "error", "reliability", "optimization", "severity": one of "critical", "warning", \
 "suggestion", "description": "1-3 sentences explaining what's happening"{fix_field}}}
 
-If nothing in the provided excerpts represents a real issue, respond with an empty JSON array: []"""
+If nothing in the provided excerpts represents a real issue, respond with an empty JSON array: []
+
+Some containers below also list their own currently tracked open issues, under "Already tracked \
+-- check if still happening". For each one, decide from the log evidence you're given whether \
+it's still occurring or appears to have been resolved (the log now shows normal operation, or \
+the specific failure mode described is no longer present). Only report one as resolved if the \
+evidence actually supports it -- if what you're given is too short, unrelated, or simply doesn't \
+touch on that issue either way, leave it alone and say nothing about it, don't guess. Report a \
+resolved issue as its own element in the same JSON array as your findings above, shaped exactly \
+like this instead: {{"container": "the container name", "resolved_title": "its exact title as \
+given below"}}."""
 
 FIX_INSTRUCTION_LOG = "a concrete, specific suggestion for how to resolve this — commands, " \
     "config changes, or what to check, not generic advice"
 FIX_FIELD_LOG = f', "fix": "{FIX_INSTRUCTION_LOG}"'
 
 
-def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool = False) -> list[dict]:
+def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool = False,
+                        active_findings_by_container: dict[str, list[dict]] | None = None) -> list[dict]:
     """Sends pre-filtered log excerpts (already keyword-matched locally) to Claude for triage.
-    Returns a list of finding dicts, or an empty list if nothing real was found — callers
-    should treat an empty list as a clean, quiet result, not an error.
+    Returns a list of dicts, or an empty list if nothing real was found — callers should treat
+    an empty list as a clean, quiet result, not an error. Each element is either a new finding
+    (has "title"/"category"/"severity"/"description") or, when active_findings_by_container
+    named that container, possibly a resolved-issue marker instead (has "resolved_title") --
+    see the system prompt's own instructions on that below.
 
     include_fix requests an additional "fix" field (Deep Analysis) — left off by default since
     asking the model to actually work out a remediation costs meaningfully more output tokens
     than just naming the problem.
-    """
+
+    active_findings_by_container (db.get_active_findings_by_subject), when given, is a real-
+    world-report-driven feature: a container's already-open findings persist forever otherwise,
+    even once whatever caused them is actually fixed, since nothing else in this app ever
+    re-examines an existing finding once it's been recorded. Listing them alongside the fresh
+    excerpt lets the model judge whether the new evidence shows they've cleared up -- see
+    log_watcher.py, which also makes sure a container with open findings still reaches this call
+    even when its own new fetch had nothing suspicious to report on its own (log_filter.
+    recent_tail), since otherwise there'd be no evidence at all to judge resolution against."""
     if not excerpts_by_container:
         return []
 
+    active_findings_by_container = active_findings_by_container or {}
     sections = []
     for container_name, excerpt in excerpts_by_container.items():
-        sections.append(f"=== Container: {container_name} ===\n{excerpt}")
+        section = f"=== Container: {container_name} ==="
+        tracked = active_findings_by_container.get(container_name)
+        if tracked:
+            tracked_lines = "\n".join(f'- "{f["title"]}": {f["description"]}' for f in tracked)
+            section += f"\nAlready tracked -- check if still happening:\n{tracked_lines}"
+        section += f"\n{excerpt}"
+        sections.append(section)
     user_message = "\n\n".join(sections)
 
     system_prompt = LOG_TRIAGE_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_LOG if include_fix else "")

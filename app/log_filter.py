@@ -13,6 +13,10 @@ SUSPICIOUS_PATTERNS = re.compile(
 
 CONTEXT_LINES = 2
 MAX_EXCERPT_CHARS = 8000
+# Deliberately smaller than MAX_EXCERPT_CHARS -- recent_tail below is just recent-activity
+# evidence for judging whether an already-tracked issue has cleared up, not a full triage
+# excerpt worth spending as many tokens on.
+CLEAN_TAIL_CHARS = 4000
 
 
 def extract_suspicious_excerpt(log_text: str) -> str | None:
@@ -40,3 +44,17 @@ def extract_suspicious_excerpt(log_text: str) -> str | None:
         excerpt = "(truncated — showing the most recent matches)\n" + excerpt
 
     return excerpt
+
+
+def recent_tail(log_text: str) -> str | None:
+    """A bounded tail of the raw (unfiltered) log text -- used only when a container has
+    already-tracked findings but this fetch's own extract_suspicious_excerpt found nothing
+    suspicious (log_watcher.py). Without this, a container that's gone quiet after a fix would
+    give the AI no evidence at all to judge "still happening or resolved?" against, since a
+    clean fetch would otherwise never reach it."""
+    if not log_text:
+        return None
+    tail = log_text[-CLEAN_TAIL_CHARS:]
+    if len(tail) < len(log_text):
+        tail = "(truncated — showing the most recent log output)\n" + tail
+    return tail

@@ -1072,6 +1072,49 @@ def list_findings_for_subject(source: str, subject: str, include_silenced: bool 
         return cur.fetchall()
 
 
+def get_active_findings_by_subject(source: str, subjects: list[str]) -> dict[str, list[dict]]:
+    """Batched -- one connection for the whole list, same discipline as
+    get_log_watch_checkpoints -- rather than one query per subject. Only active (not silenced)
+    findings are included: silencing is an operator's own "I know, ignore it" call, not
+    something the system should be trying to auto-resolve out from under them. Feeds Logs'
+    AI-driven resolution check (log_watcher.run_log_check_for / summarizer.analyze_logs_batch),
+    which gets each subject's currently open findings alongside its newly fetched logs and
+    judges whether any are no longer happening."""
+    if not subjects:
+        return {}
+    with get_conn() as conn:
+        qs = ",".join("?" * len(subjects))
+        cur = conn.execute(
+            f"SELECT subject, id, title, description_markdown FROM findings "
+            f"WHERE source = ? AND status = 'active' AND subject IN ({qs})",
+            [source] + subjects,
+        )
+        result: dict[str, list[dict]] = {}
+        for row in cur.fetchall():
+            result.setdefault(row["subject"], []).append(
+                {"id": row["id"], "title": row["title"], "description": row["description_markdown"]}
+            )
+        return result
+
+
+def resolve_finding(source: str, subject: str, title: str) -> bool:
+    """Deletes an active finding once the AI has judged it resolved (see
+    get_active_findings_by_subject's own docstring) -- fully removed, not just marked, so the
+    subject reads as healthy again the moment its last open finding clears, same as if the issue
+    had simply never recurred. Matches by fingerprint (the same source+subject+title identity
+    upsert_finding already keys on) rather than title alone, so a title that happens to collide
+    with a different subject's finding can never cross-resolve it. Returns whether anything was
+    actually deleted -- a title the AI got slightly wrong, or one already resolved/silenced since
+    the check started, quietly matches nothing rather than erroring."""
+    fingerprint = make_fingerprint(source, subject, title)
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM findings WHERE source = ? AND subject = ? AND fingerprint = ? AND status = 'active'",
+            (source, subject, fingerprint),
+        )
+        return cur.rowcount > 0
+
+
 def list_subjects_with_findings(source: str, include_silenced: bool = False) -> list[dict]:
     """One row per subject (container or compose file) with aggregate counts and the highest
     severity present — used for the grouped 'Issues' list at the top of the Logs/Compose tabs,

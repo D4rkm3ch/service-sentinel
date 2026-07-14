@@ -8,7 +8,7 @@ from app.check_state import set_finished, set_running
 from app.config import settings
 from app.docker_client import get_container_logs_since, list_running_containers_for_logs
 from app.docker_client import open_client as open_docker_client
-from app.log_filter import extract_suspicious_excerpt
+from app.log_filter import extract_suspicious_excerpt, recent_tail
 from app.notifications import notify_findings_digest, notify_logs_check_errors
 from app.summarizer import analyze_logs_batch
 
@@ -91,13 +91,25 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     pull logs since each one's last checkpoint (or the configured lookback window, for a
     container with none, or for every container if db.get_logs_use_checkpoint() is off), keep
     only lines that matched a suspicious keyword locally, and —
-    only for containers that actually had something worth showing — send those excerpts to
-    Claude for triage in bounded-size chunks (see _chunk_excerpts), dispatched concurrently
-    (capped by ai_provider.concurrency_limit()) rather than one after another -- several
-    chunks run in parallel instead of each one waiting for the last to finish. Containers with
-    clean logs never reach the API at all. Shared by the full check (run_log_check, every
-    currently running container) and every scoped Check now / Reset & re-check action (stack-
-    and service-level), which call this directly with just their own subset.
+    only for containers that actually had something worth showing, OR that have an already-
+    open finding needing a resolution check (see below) — send those excerpts to Claude for
+    triage in bounded-size chunks (see _chunk_excerpts), dispatched concurrently (capped by
+    ai_provider.concurrency_limit()) rather than one after another -- several chunks run in
+    parallel instead of each one waiting for the last to finish. A container with clean logs and
+    no open findings never reaches the API at all. Shared by the full check (run_log_check,
+    every currently running container) and every scoped Check now / Reset & re-check action
+    (stack- and service-level), which call this directly with just their own subset.
+
+    A real-world report: nothing else in this app ever re-examines an existing finding once it's
+    recorded, so it stays "active" forever even after whatever caused it is actually fixed --
+    especially visible right after a Reset & re-check, whose fresh fetch (bounded by the
+    lookback window, not a checkpoint) can contain both the old, already-fixed error text and
+    new clean activity in the same chunk. Every container with at least one open finding
+    (db.get_active_findings_by_subject) gets those findings listed alongside its fresh excerpt
+    (or, if this fetch had nothing suspicious of its own, a plain tail of its raw logs instead --
+    see log_filter.recent_tail) so the model can judge whether the evidence shows each one has
+    cleared up. One judged resolved is deleted outright (db.resolve_finding) rather than merely
+    marked, so the subject reads healthy again the moment its last open finding clears.
 
     on_progress (stage, done, total), when given, is called once upfront with (0, total) before
     each phase starts and once per completion after -- both stage="checking_logs" (per
@@ -125,6 +137,11 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     # whatever checkpoint it has.
     checkpoints = db.get_log_watch_checkpoints(container_names)
     use_checkpoint = db.get_logs_use_checkpoint()
+    # A subject with any currently-open finding stays flagged for AI resolution-checking on
+    # every check from here on (not just the one right after a Reset & re-check) until the AI
+    # actually confirms it's cleared up -- see the excerpt-building loop below and
+    # analyze_logs_batch's own docstring.
+    active_findings_by_container = db.get_active_findings_by_subject("logs", container_names)
     checked_ok_names: list[str] = []
     failed: dict[str, str] = {}
     total = len(container_names)
@@ -169,6 +186,13 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
 
             checked_ok_names.append(name)
             excerpt = extract_suspicious_excerpt(log_text) if log_text else None
+            if not excerpt and name in active_findings_by_container:
+                # This container has open findings but nothing suspicious matched locally this
+                # time -- fall back to a plain tail of the raw fetch so the AI still has
+                # something to judge "still happening or resolved?" against (see
+                # log_filter.recent_tail's own docstring for why a clean fetch would otherwise
+                # never reach the AI at all).
+                excerpt = recent_tail(log_text)
             if excerpt:
                 excerpts_by_container[name] = excerpt
             if on_progress:
@@ -220,7 +244,10 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
                 on_progress("triage_logs", current, total_chunks)
             return
         try:
-            result = analyze_logs_batch(chunk, include_fix=include_fix)
+            chunk_active_findings = {
+                name: active_findings_by_container[name] for name in chunk if name in active_findings_by_container
+            }
+            result = analyze_logs_batch(chunk, include_fix=include_fix, active_findings_by_container=chunk_active_findings)
         except Exception:
             logger.exception("Log triage AI call failed for a chunk of %d container(s)", len(chunk))
             result = None
@@ -241,8 +268,14 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     new_findings = []
     for finding in findings:
         container_name = finding.get("container")
+        if not container_name:
+            continue
+        resolved_title = finding.get("resolved_title")
+        if resolved_title:
+            db.resolve_finding("logs", container_name, resolved_title)
+            continue
         title = finding.get("title")
-        if not container_name or not title:
+        if not title:
             continue
         severity = finding.get("severity", "warning")
         _finding_id, is_new = db.upsert_finding(
