@@ -83,88 +83,98 @@
 
 /* Accent color families -- all six of the topbar's accent picker options (base.html) are real,
    each with its own dark+light pair below. Keyed on BOTH [data-theme] and [data-accent] --
-   higher specificity than the theme-only blocks above, so these win for the four properties
-   they touch whenever they match, and fall back to the theme block's own (Nordic Blue) values
-   for any [data-accent] value that doesn't match one of the six (shouldn't happen in practice,
-   just a safe default). Nordic Blue additionally defines --accent-gold, used sparingly for page
-   titles (see that block's own comment) -- every other accent family leaves it undefined and
-   falls back to the plain text color wherever it's referenced. */
+   higher specificity than the theme-only blocks above, so these win for the properties they
+   touch whenever they match, and fall back to the theme block's own (Nordic Blue) values for
+   any [data-accent] value that doesn't match one of the six (shouldn't happen in practice, just
+   a safe default). Each family also defines --title-accent, used sparingly for page titles (see
+   that property's own comment on h1/.settings-heading-lg below) -- a muted tone that pairs with
+   the family's own --accent rather than a plain color, alternating warm/cool the same way Nordic
+   Blue's original antique-gold title did against its cool blue accent. */
 :root[data-theme="dark"][data-accent="nordic"] {
   --accent: #5da9e0;
   --accent-dim: #33587a;
   --on-accent: #0a1520;
   --accent-wash: rgba(93, 169, 224, 0.1);
-  /* Nordic Blue only -- a muted antique gold pulled from the rope-border/header-text look of
-     the dashboard screenshot that inspired this palette, used sparingly (page titles) via
-     var(--accent-gold, ...) fallbacks so every other accent family is completely unaffected. */
-  --accent-gold: #ab8f80;
+  /* A muted antique gold pulled from the rope-border/header-text look of the dashboard
+     screenshot that inspired this palette -- warm, against the family's cool blue accent. */
+  --title-accent: #ab8f80;
 }
 :root[data-theme="dark"][data-accent="emerald"] {
   --accent: #5ec9a6;
   --accent-dim: #3a7a63;
   --on-accent: #0e1210;
   --accent-wash: rgba(94, 201, 166, 0.1);
+  --title-accent: #c98f6b;
 }
 :root[data-theme="light"][data-accent="nordic"] {
   --accent: #2b5f9e;
   --accent-dim: #8fb4d9;
   --on-accent: #eef4fc;
   --accent-wash: rgba(43, 95, 158, 0.12);
-  --accent-gold: #8a6f60;
+  --title-accent: #8a6f60;
 }
 :root[data-theme="light"][data-accent="emerald"] {
   --accent: #1f8f68;
   --accent-dim: #7fbfa4;
   --on-accent: #f5fdf9;
   --accent-wash: rgba(31, 143, 104, 0.12);
+  --title-accent: #96603f;
 }
 :root[data-theme="dark"][data-accent="amber"] {
   --accent: #d9a441;
   --accent-dim: #7a5a28;
   --on-accent: #1f1608;
   --accent-wash: rgba(217, 164, 65, 0.1);
+  --title-accent: #7a93b8;
 }
 :root[data-theme="dark"][data-accent="violet"] {
   --accent: #9b84d9;
   --accent-dim: #4f4472;
   --on-accent: #120f1e;
   --accent-wash: rgba(155, 132, 217, 0.1);
+  --title-accent: #bf8f74;
 }
 :root[data-theme="dark"][data-accent="crimson"] {
   --accent: #d9705e;
   --accent-dim: #713a2f;
   --on-accent: #1c0d09;
   --accent-wash: rgba(217, 112, 94, 0.1);
+  --title-accent: #6fa3ab;
 }
 :root[data-theme="dark"][data-accent="teal"] {
   --accent: #4fb8c9;
   --accent-dim: #2a616b;
   --on-accent: #061417;
   --accent-wash: rgba(79, 184, 201, 0.1);
+  --title-accent: #c9a066;
 }
 :root[data-theme="light"][data-accent="amber"] {
   --accent: #9c6f1f;
   --accent-dim: #d4b578;
   --on-accent: #fbf3e6;
   --accent-wash: rgba(156, 111, 31, 0.12);
+  --title-accent: #4f6a8c;
 }
 :root[data-theme="light"][data-accent="violet"] {
   --accent: #6a54ab;
   --accent-dim: #bcaee0;
   --on-accent: #f5f2fb;
   --accent-wash: rgba(106, 84, 171, 0.12);
+  --title-accent: #8f6046;
 }
 :root[data-theme="light"][data-accent="crimson"] {
   --accent: #a8412c;
   --accent-dim: #dba79c;
   --on-accent: #fcf0ed;
   --accent-wash: rgba(168, 65, 44, 0.12);
+  --title-accent: #3f7580;
 }
 :root[data-theme="light"][data-accent="teal"] {
   --accent: #1c7d8c;
   --accent-dim: #8fc7cf;
   --on-accent: #eafafc;
   --accent-wash: rgba(28, 125, 140, 0.12);
+  --title-accent: #8a6a3a;
 }
 
 * { box-sizing: border-box; }
@@ -406,9 +416,9 @@ h1 {
   font-size: 20px;
   font-weight: 500;
   margin: 0 0 16px;
-  /* Gold under Nordic Blue only (see --accent-gold) -- every other accent falls back to the
-     plain inherited text color, unchanged from before. */
-  color: var(--accent-gold, inherit);
+  /* Each accent family's own muted title tone (see --title-accent above); falls back to the
+     plain inherited text color for an unrecognized [data-accent]. */
+  color: var(--title-accent, inherit);
 }
 
 h2 {
@@ -1263,7 +1273,7 @@ tr:hover .row-chevron {
   margin: 0 0 4px;
   font-size: 20px;
   font-weight: 500;
-  color: var(--accent-gold, var(--text));
+  color: var(--title-accent, var(--text));
   text-transform: none;
   letter-spacing: normal;
 }
