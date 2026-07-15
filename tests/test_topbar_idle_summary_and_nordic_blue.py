@@ -2,10 +2,8 @@
 (_compact_health_summary / GET /checks/status), which replaces the blank space in the topbar's
 center region with a compact combined status whenever nothing is running, and (2) real,
 functional accent picker options -- Nordic Blue (the app's default) and Emerald Green first,
-later joined by Sunset Amber, Royal Violet, Crimson Red, Ocean Teal, and three
-accessibility-motivated accents: Graphite Grey (a genuinely neutral palette), Red-Green Safe
-(deuteranopia/protanopia), and Blue-Yellow Safe (tritanopia) -- see style.css's own blocks for
-the color research behind each."""
+later joined by Sunset Amber, Royal Violet, Crimson Red, Ocean Teal, and Graphite Grey (the
+accessibility-motivated one -- a genuinely neutral palette, see style.css's own block)."""
 
 from pathlib import Path
 
@@ -165,13 +163,10 @@ def test_head_script_also_restores_the_saved_accent():
     assert "dataset.accent" in head
 
 
-ALL_ACCENTS = (
-    "nordic", "emerald", "amber", "violet", "crimson", "teal",
-    "graphite", "cvd-redgreen", "cvd-blueyellow",
-)
+ALL_ACCENTS = ("nordic", "emerald", "amber", "violet", "crimson", "teal", "graphite")
 
 
-def test_all_nine_accents_have_real_css_blocks_for_both_themes():
+def test_all_seven_accents_have_real_css_blocks_for_both_themes():
     style = STYLE.read_text()
     for theme in ("dark", "light"):
         for accent in ALL_ACCENTS:
@@ -179,20 +174,19 @@ def test_all_nine_accents_have_real_css_blocks_for_both_themes():
             assert selector in style
 
 
-def test_all_nine_options_carry_a_data_accent_attribute_in_the_picker():
+def test_all_seven_options_carry_a_data_accent_attribute_in_the_picker():
     text = (TEMPLATES / "base.html").read_text()
     menu_start = text.index('id="accent-picker-menu"')
     menu_end = text.index("</div>\n      </div>", menu_start)  # closes #accent-picker-menu, then .accent-picker
     menu = text[menu_start:menu_end]
 
     options = menu.split("<button")[1:]  # each option's own opening tag through its closing </button>
-    assert len(options) == 9
+    assert len(options) == 7
 
     labels = {
         "nordic": "Nordic Blue", "emerald": "Emerald Green", "amber": "Sunset Amber",
         "violet": "Royal Violet", "crimson": "Crimson Red", "teal": "Ocean Teal",
-        "graphite": "Graphite Grey", "cvd-redgreen": "Red-Green Safe",
-        "cvd-blueyellow": "Blue-Yellow Safe",
+        "graphite": "Graphite Grey",
     }
     assert len(labels) == len(options)
 

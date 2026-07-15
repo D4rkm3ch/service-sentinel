@@ -176,13 +176,13 @@
   --accent-wash: rgba(28, 125, 140, 0.12);
   --title-accent: #8a6a3a;
 }
-/* Graphite Grey -- the first of three accessibility-motivated accents (see the two below).
-   Every color here is a genuinely neutral grey (R/G/B within a couple of points of each other,
-   not just "looks grey") rather than a low-saturation tint of some hue, so it carries zero
-   chromatic information for literally any color vision type, including full achromatopsia --
-   the visual hierarchy (accent vs. title-accent, vs. dim) comes entirely from lightness, the
-   same way this whole family reads to a sighted person. Still meant to look intentional rather
-   than just "off," the way e.g. macOS's own graphite accent option does, not merely functional. */
+/* Graphite Grey -- the one accessibility-motivated accent. Every color here is a genuinely
+   neutral grey (R/G/B within a couple of points of each other, not just "looks grey") rather
+   than a low-saturation tint of some hue, so it carries zero chromatic information for
+   literally any color vision type, including full achromatopsia -- the visual hierarchy (accent
+   vs. title-accent, vs. dim) comes entirely from lightness, the same way this whole family reads
+   to a sighted person. Still meant to look intentional rather than just "off," the way e.g.
+   macOS's own graphite accent option does, not merely functional. */
 :root[data-theme="dark"][data-accent="graphite"] {
   --accent: #b8b8bb;
   --accent-dim: #57575c;
@@ -196,52 +196,6 @@
   --on-accent: #f4f4f5;
   --accent-wash: rgba(74, 74, 78, 0.12);
   --title-accent: #6e6e72;
-}
-/* Red-Green Safe -- for deuteranopia and protanopia, the two red-green deficiencies that
-   together account for ~99% of color vision deficiency. Both leave blue perception essentially
-   untouched (they're L/M-cone anomalies; the S-cone/blue pathway is a separate system), so blue
-   is the single most reliable hue to build an accent around here -- literally why the Okabe-Ito
-   colorblind-safe palette (the standard reference this is drawn from) anchors on blue (#0072B2)
-   and orange (#E69F00) as its two most distinguishable colors under every common CVD type. Paired
-   the same way here: a safe blue for --accent, a safe orange for --title-accent -- not just
-   because it echoes this app's own warm-title/cool-accent pattern elsewhere, but because
-   blue+orange is itself the specific pairing Okabe-Ito recommends for two colors that need to
-   stay distinguishable from each other under red-green deficiency. */
-:root[data-theme="dark"][data-accent="cvd-redgreen"] {
-  --accent: #4a90d9;
-  --accent-dim: #2c5478;
-  --on-accent: #0a1620;
-  --accent-wash: rgba(74, 144, 217, 0.1);
-  --title-accent: #c9995f;
-}
-:root[data-theme="light"][data-accent="cvd-redgreen"] {
-  --accent: #1f5f8f;
-  --accent-dim: #a8cbe3;
-  --on-accent: #eef6fc;
-  --accent-wash: rgba(31, 95, 143, 0.12);
-  --title-accent: #96651f;
-}
-/* Blue-Yellow Safe -- for tritanopia, a rarer deficiency (~0.01% of the population) but one a
-   red-green-safe palette doesn't automatically cover -- it's an S-cone (blue) defect, so it
-   confuses blue with yellow/green and runs on a completely different axis than red-green
-   deficiency does. The safe strategy here is the opposite of the palette above: avoid the
-   blue-yellow axis entirely and anchor on rose/red instead, paired with a true green for
-   --title-accent (not teal or cyan, which lean back toward the blue axis this is meant to
-   avoid) -- both stay clearly distinguishable from each other and from every other hue under
-   tritanopia simulation. */
-:root[data-theme="dark"][data-accent="cvd-blueyellow"] {
-  --accent: #d9668f;
-  --accent-dim: #73304a;
-  --on-accent: #1c0d13;
-  --accent-wash: rgba(217, 102, 143, 0.1);
-  --title-accent: #5f9e78;
-}
-:root[data-theme="light"][data-accent="cvd-blueyellow"] {
-  --accent: #a8395f;
-  --accent-dim: #dba7bb;
-  --on-accent: #fcf0f4;
-  --accent-wash: rgba(168, 57, 95, 0.12);
-  --title-accent: #3f7a54;
 }
 
 * { box-sizing: border-box; }
@@ -1026,8 +980,6 @@ tr:hover .row-chevron {
 .accent-dot-crimson { background: #d9705e; }
 .accent-dot-teal { background: #4fb8c9; }
 .accent-dot-graphite { background: #b8b8bb; }
-.accent-dot-cvd-redgreen { background: #4a90d9; }
-.accent-dot-cvd-blueyellow { background: #d9668f; }
 
 .accent-picker-menu {
   position: absolute;
