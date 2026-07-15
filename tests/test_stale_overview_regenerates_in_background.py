@@ -2,8 +2,16 @@
 _get_or_build_overview() used to call the AI provider synchronously, right inside the GET route,
 whenever a subject's findings hash no longer matched its cached overview (which happens after
 every check that touches that subject, i.e. often). Fixed by serving the stale-but-present cached
-overview immediately and refreshing it in a background thread instead -- the page only still
-blocks on the very first view of a subject that has never had an overview generated at all."""
+overview immediately and refreshing it in a background thread instead.
+
+A second real-world report showed the same hang coming back through the one remaining
+synchronous path: a subject with no cache at all yet (very first view, or any view right after
+Reset & re-check -- which wipes subject_summaries -- since Logs' AI-driven finding resolution
+made Reset & re-check a much more routine action) still blocked inline, and by then a single
+check could be making far more AI calls than before (see log_watcher.run_log_check_for's
+active-findings comparison pass), so this path was getting queued behind an increasingly busy
+provider more and more often. Fixed the same way: no cache also serves None immediately and
+refreshes in the background -- only an explicit force=True click still blocks."""
 
 import time
 from unittest.mock import patch
@@ -41,19 +49,20 @@ def test_stale_cached_overview_is_served_immediately_and_refreshed_in_background
     assert _wait_until(lambda: db.get_subject_summary(source, subject)["summary_markdown"] == "Fresh overview text.")
 
 
-def test_first_ever_view_with_no_cache_still_blocks_and_returns_the_fresh_result():
-    """No prior cache means there's nothing stale to serve while a background refresh catches
-    up -- this one case still calls the AI provider inline, same as before."""
+def test_first_ever_view_with_no_cache_returns_none_immediately_and_generates_in_background():
+    """No prior cache used to still call the AI provider inline -- now it serves None (the
+    template already renders a subject page fine with no overview yet) and generates the first
+    overview in the background, same as the stale-but-present case above."""
     source, subject = "logs", "never-cached-overview-subject"
     findings = [
         {"id": 1, "title": "a", "status": "active"},
         {"id": 2, "title": "b", "status": "active"},
     ]
-    with patch("app.main.summarize_findings_overview", return_value="First ever overview.") as mock_overview:
+    with patch("app.main.summarize_findings_overview", return_value="First ever overview."):
         result = _get_or_build_overview(source, subject, subject, findings)
 
-    mock_overview.assert_called_once()
-    assert result == "First ever overview."
+    assert result is None
+    assert _wait_until(lambda: (db.get_subject_summary(source, subject) or {}).get("summary_markdown") == "First ever overview.")
 
 
 def test_force_still_blocks_even_with_a_cache_present():

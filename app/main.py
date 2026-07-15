@@ -904,9 +904,18 @@ def _get_or_build_overview(source: str, subject: str, display_name: str, finding
     one, blocking the page's own GET response on a live API call every time a check had touched
     this subject's findings since it was last viewed (which is often, since checks run on a
     schedule). Now a stale-but-present cached overview is served immediately and refreshed in a
-    background thread instead -- the page only ever blocks on the very first view of a subject
-    that has never had an overview generated for it at all, or on an explicit force=True click,
-    both of which the caller already expects to wait on."""
+    background thread instead -- the only path that still blocks is an explicit force=True
+    click, which the caller already expects to wait on.
+
+    A second real-world report (once Logs' AI-driven finding resolution -- db.resolve_finding --
+    started routinely wiping cached overviews via Reset & re-check's subject_summaries clear)
+    showed the never-generated-yet case reintroducing the exact same hang: a subject opened for
+    the very first time (or for the first time after a reset) had no cached row at all to serve
+    immediately, so it fell through to the same synchronous call the stale-but-present branch
+    was built to avoid -- and that resolution check runs a lot more Gemini calls per pass than
+    before, so this branch was getting queued behind an increasingly busy provider more often
+    too. Handled the same way now: nothing cached yet also serves None immediately and generates
+    in the background, so no GET route here ever blocks on a live AI call anymore."""
     if len(findings) < 2:
         return None
 
@@ -917,13 +926,13 @@ def _get_or_build_overview(source: str, subject: str, display_name: str, finding
     if not force and cached and cached["findings_hash"] == findings_hash:
         return cached["summary_markdown"]
 
-    if not force and cached:
+    if not force:
         threading.Thread(
             target=_regenerate_overview_in_background,
             args=(source, subject, display_name, findings, findings_hash),
             daemon=True,
         ).start()
-        return cached["summary_markdown"]
+        return cached["summary_markdown"] if cached else None
 
     try:
         summary = summarize_findings_overview(display_name, [dict(f) for f in findings])
