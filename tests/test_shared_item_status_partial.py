@@ -51,8 +51,9 @@ def test_each_scopes_poll_endpoint_rearms_with_its_own_url_while_running():
          "/logs/container/sonarr/status-poll"),
         ("logstack:media", "media", "/logs/stack/status-poll?stack_id=media",
          "/logs/stack/status-poll?stack_id=media"),
-        ("composeitem:/mnt/a.yaml", "/mnt/a.yaml", "/compose/file/status-poll?path=/mnt/a.yaml",
-         "/compose/file/status-poll?path=/mnt/a.yaml"),
+        ("composeitem:/tmp/rr-test-compose/a.yaml", "/tmp/rr-test-compose/a.yaml",
+         "/compose/file/status-poll?path=/tmp/rr-test-compose/a.yaml",
+         "/compose/file/status-poll?path=/tmp/rr-test-compose/a.yaml"),
     ]
     for item_key, label, endpoint, rearm_url in cases:
         _fresh(item_key, label)
@@ -70,8 +71,9 @@ def test_finished_scoped_polls_still_redirect_to_their_own_pages():
         ("stack:media", "/updates/stack/status-poll?stack_id=media", "/updates/stack?id=media"),
         ("logitem:sonarr", "/logs/container/sonarr/status-poll", "/logs/container/sonarr"),
         ("logstack:media", "/logs/stack/status-poll?stack_id=media", "/logs/stack?id=media"),
-        ("composeitem:/mnt/a.yaml", "/compose/file/status-poll?path=/mnt/a.yaml",
-         "/compose/file?path=/mnt/a.yaml"),
+        ("composeitem:/tmp/rr-test-compose/a.yaml",
+         "/compose/file/status-poll?path=/tmp/rr-test-compose/a.yaml",
+         "/compose/file?path=/tmp/rr-test-compose/a.yaml"),
     ]
     for item_key, endpoint, redirect in cases:
         check_state.clear_item(item_key)  # no running item -> the finished branch

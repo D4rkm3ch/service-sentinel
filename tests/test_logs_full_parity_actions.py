@@ -527,17 +527,18 @@ def test_service_page_action_row_appears_for_compose_with_scoped_urls(client):
     """Compose file pages used to have NO action row at all -- a real, confirmed parity gap
     versus Logs, since fixed. Every button now hits the query-string-scoped /compose/file/...
     routes (a compose file's path can contain slashes, so it's ?path=..., not a URL segment)."""
-    db.set_compose_file_hash("service-parity-compose.yml", "hash1")
-    db.upsert_finding("compose", "service-parity-compose.yml", "Missing restart policy", "reliability", "critical", "d1")
-    db.upsert_finding("compose", "service-parity-compose.yml", "No healthcheck", "reliability", "warning", "d2")
+    path = "/tmp/rr-test-compose/service-parity-compose.yml"
+    db.set_compose_file_hash(path, "hash1")
+    db.upsert_finding("compose", path, "Missing restart policy", "reliability", "critical", "d1")
+    db.upsert_finding("compose", path, "No healthcheck", "reliability", "warning", "d2")
 
-    resp = client.get("/compose/file?path=service-parity-compose.yml")
+    resp = client.get(f"/compose/file?path={path}")
     assert "compose-action-btn" in resp.text
-    assert "/compose/file/check-now?path=service-parity-compose.yml" in resp.text
-    assert "/compose/file/regenerate?path=service-parity-compose.yml" in resp.text
-    assert "/compose/file/reset-and-recheck?path=service-parity-compose.yml" in resp.text
-    assert "/compose/file/read?path=service-parity-compose.yml" in resp.text
-    assert "/compose/file/silence?path=service-parity-compose.yml" in resp.text
+    assert f"/compose/file/check-now?path={path}" in resp.text
+    assert f"/compose/file/regenerate?path={path}" in resp.text
+    assert f"/compose/file/reset-and-recheck?path={path}" in resp.text
+    assert f"/compose/file/read?path={path}" in resp.text
+    assert f"/compose/file/silence?path={path}" in resp.text
 
 
 def test_service_check_now_route_works(client):
@@ -1297,21 +1298,22 @@ def test_subject_findings_table_sorts_by_silenced_column(client):
 
 
 def test_compose_file_findings_table_sort_links_preserve_the_path_query_param(client):
-    fid1, _ = db.upsert_finding("compose", "silenced-sort-compose.yml", "Missing restart policy", "reliability", "critical", "d1")
-    db.upsert_finding("compose", "silenced-sort-compose.yml", "No healthcheck", "reliability", "warning", "d2")
+    path = "/tmp/rr-test-compose/silenced-sort-compose.yml"
+    fid1, _ = db.upsert_finding("compose", path, "Missing restart policy", "reliability", "critical", "d1")
+    db.upsert_finding("compose", path, "No healthcheck", "reliability", "warning", "d2")
     db.set_finding_status(fid1, "silenced")
 
     try:
-        resp = client.get("/compose/file?path=silenced-sort-compose.yml")
+        resp = client.get(f"/compose/file?path={path}")
         assert "sort=silenced" in resp.text
-        assert "path=silenced-sort-compose.yml" in resp.text
+        assert f"path={path}" in resp.text
 
-        resp = client.get("/compose/file?path=silenced-sort-compose.yml&sort=silenced&dir=asc")
+        resp = client.get(f"/compose/file?path={path}&sort=silenced&dir=asc")
         body = resp.text[resp.text.index("<tbody>"):]
         assert body.index("Missing restart policy") < body.index("No healthcheck")
     finally:
         with db.get_conn() as conn:
-            conn.execute("DELETE FROM compose_file_state WHERE file_path = 'silenced-sort-compose.yml'")
+            conn.execute("DELETE FROM compose_file_state WHERE file_path = ?", (path,))
 
 
 # ---------------------------------------------------------------------------

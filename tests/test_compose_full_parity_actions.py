@@ -144,10 +144,11 @@ def test_compose_file_reset_and_recheck_wipes_then_rechecks(client):
 
 
 def test_compose_file_check_now_is_a_noop_when_the_mutex_is_already_held(client):
+    path = "/tmp/rr-test-compose/busy-file.yml"
     check_state.set_running("compose")
     try:
         with patch("app.compose_reviewer.run_compose_check_for") as mock_check:
-            resp = client.post("/compose/file/check-now?path=busy-file.yml")
+            resp = client.post(f"/compose/file/check-now?path={path}")
         mock_check.assert_not_called()
         assert resp.status_code == 200
         assert "started elsewhere" in resp.text
@@ -156,11 +157,12 @@ def test_compose_file_check_now_is_a_noop_when_the_mutex_is_already_held(client)
 
 
 def test_compose_file_regenerate_is_a_noop_when_the_mutex_is_already_held(client):
-    db.upsert_finding("compose", "busy-regen.yml", "OOM", "crash", "critical", "desc1")
-    db.upsert_finding("compose", "busy-regen.yml", "Disk full", "resource", "warning", "desc2")
+    path = "/tmp/rr-test-compose/busy-regen.yml"
+    db.upsert_finding("compose", path, "OOM", "crash", "critical", "desc1")
+    db.upsert_finding("compose", path, "Disk full", "resource", "warning", "desc2")
     check_state.set_running("compose")
     try:
-        resp = client.post("/compose/file/regenerate?path=busy-regen.yml")
+        resp = client.post(f"/compose/file/regenerate?path={path}")
         assert resp.status_code == 200
         assert "started elsewhere" in resp.text
     finally:
@@ -168,10 +170,11 @@ def test_compose_file_regenerate_is_a_noop_when_the_mutex_is_already_held(client
 
 
 def test_compose_file_reset_and_recheck_is_a_noop_when_the_mutex_is_already_held(client):
+    path = "/tmp/rr-test-compose/busy-reset.yml"
     check_state.set_running("compose")
     try:
         with patch("app.compose_reviewer.run_compose_check_for") as mock_check:
-            resp = client.post("/compose/file/reset-and-recheck?path=busy-reset.yml")
+            resp = client.post(f"/compose/file/reset-and-recheck?path={path}")
         mock_check.assert_not_called()
         assert resp.status_code == 200
         assert "started elsewhere" in resp.text
@@ -180,17 +183,18 @@ def test_compose_file_reset_and_recheck_is_a_noop_when_the_mutex_is_already_held
 
 
 def test_compose_file_bulk_read_unread_toggle(client):
-    fid1, _ = db.upsert_finding("compose", "bulk-read.yml", "A", "reliability", "warning", "d1")
-    fid2, _ = db.upsert_finding("compose", "bulk-read.yml", "B", "reliability", "critical", "d2")
+    path = "/tmp/rr-test-compose/bulk-read.yml"
+    fid1, _ = db.upsert_finding("compose", path, "A", "reliability", "warning", "d1")
+    fid2, _ = db.upsert_finding("compose", path, "B", "reliability", "critical", "d2")
     db.set_finding_read_status(fid1, "unread")
     db.set_finding_read_status(fid2, "unread")
 
-    resp = client.post("/compose/file/read?path=bulk-read.yml")
+    resp = client.post(f"/compose/file/read?path={path}")
     assert resp.status_code == 200
     assert db.get_finding(fid1)["read_status"] == "read"
     assert db.get_finding(fid2)["read_status"] == "read"
 
-    resp = client.post("/compose/file/unread?path=bulk-read.yml")
+    resp = client.post(f"/compose/file/unread?path={path}")
     assert resp.status_code == 200
     assert db.get_finding(fid1)["read_status"] == "unread"
     assert db.get_finding(fid2)["read_status"] == "unread"
@@ -200,15 +204,16 @@ def test_compose_file_bulk_read_unread_toggle(client):
 
 
 def test_compose_file_bulk_silence_unsilence_toggle(client):
-    fid1, _ = db.upsert_finding("compose", "bulk-silence.yml", "A", "reliability", "warning", "d1")
-    fid2, _ = db.upsert_finding("compose", "bulk-silence.yml", "B", "reliability", "critical", "d2")
+    path = "/tmp/rr-test-compose/bulk-silence.yml"
+    fid1, _ = db.upsert_finding("compose", path, "A", "reliability", "warning", "d1")
+    fid2, _ = db.upsert_finding("compose", path, "B", "reliability", "critical", "d2")
 
-    resp = client.post("/compose/file/silence?path=bulk-silence.yml")
+    resp = client.post(f"/compose/file/silence?path={path}")
     assert resp.status_code == 200
     assert db.get_finding(fid1)["status"] == "silenced"
     assert db.get_finding(fid2)["status"] == "silenced"
 
-    resp = client.post("/compose/file/unsilence?path=bulk-silence.yml")
+    resp = client.post(f"/compose/file/unsilence?path={path}")
     assert resp.status_code == 200
     assert db.get_finding(fid1)["status"] == "active"
     assert db.get_finding(fid2)["status"] == "active"
@@ -218,16 +223,17 @@ def test_compose_file_bulk_silence_unsilence_toggle(client):
 
 
 def test_compose_file_page_has_check_now_and_reset_buttons_scoped_to_its_subject(client):
-    db.upsert_finding("compose", "service-parity-compose.yml", "Missing restart policy", "reliability", "critical", "d1")
-    db.upsert_finding("compose", "service-parity-compose.yml", "No healthcheck", "reliability", "warning", "d2")
+    path = "/tmp/rr-test-compose/service-parity-compose.yml"
+    db.upsert_finding("compose", path, "Missing restart policy", "reliability", "critical", "d1")
+    db.upsert_finding("compose", path, "No healthcheck", "reliability", "warning", "d2")
 
-    resp = client.get("/compose/file?path=service-parity-compose.yml")
+    resp = client.get(f"/compose/file?path={path}")
     assert "compose-action-btn" in resp.text
-    assert "/compose/file/check-now?path=service-parity-compose.yml" in resp.text
-    assert "/compose/file/regenerate?path=service-parity-compose.yml" in resp.text
-    assert "/compose/file/reset-and-recheck?path=service-parity-compose.yml" in resp.text
-    assert "/compose/file/read?path=service-parity-compose.yml" in resp.text
-    assert "/compose/file/silence?path=service-parity-compose.yml" in resp.text
+    assert f"/compose/file/check-now?path={path}" in resp.text
+    assert f"/compose/file/regenerate?path={path}" in resp.text
+    assert f"/compose/file/reset-and-recheck?path={path}" in resp.text
+    assert f"/compose/file/read?path={path}" in resp.text
+    assert f"/compose/file/silence?path={path}" in resp.text
 
 
 def test_compose_finding_page_regenerate_disabled_when_subject_has_only_one_finding(client):

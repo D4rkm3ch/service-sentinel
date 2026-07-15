@@ -156,10 +156,11 @@ def test_subject_findings_page_defaults_to_severity_sort_not_seen(client):
 
 
 def test_compose_subject_findings_page_defaults_to_severity_sort_not_seen(client):
-    fid_warn, _ = db.upsert_finding("compose", "default-sort-subject-test.yml", "Missing restart policy", "reliability", "warning", "d1")
-    fid_crit, _ = db.upsert_finding("compose", "default-sort-subject-test.yml", "Privileged container", "security", "critical", "d2")
+    compose_path = "/tmp/rr-test-compose/default-sort-subject-test.yml"
+    fid_warn, _ = db.upsert_finding("compose", compose_path, "Missing restart policy", "reliability", "warning", "d1")
+    fid_crit, _ = db.upsert_finding("compose", compose_path, "Privileged container", "security", "critical", "d2")
 
-    resp = client.get("/compose/file?path=default-sort-subject-test.yml")
+    resp = client.get(f"/compose/file?path={compose_path}")
     body = resp.text[resp.text.index("<tbody>"):]
     assert body.index("Privileged container") < body.index("Missing restart policy")
 

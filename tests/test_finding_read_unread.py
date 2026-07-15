@@ -46,14 +46,15 @@ def test_mark_as_read_and_unread_toggle_in_place(client):
 
 
 def test_subject_findings_page_shows_a_read_column(client):
-    fid, _ = db.upsert_finding("compose", "/read-unread-test/compose.yml", "col test 1", "reliability", "warning", "desc")
-    fid2, _ = db.upsert_finding("compose", "/read-unread-test/compose.yml", "col test 2", "reliability", "critical", "desc")
+    compose_path = "/tmp/rr-test-compose/read-unread-test/compose.yml"
+    fid, _ = db.upsert_finding("compose", compose_path, "col test 1", "reliability", "warning", "desc")
+    fid2, _ = db.upsert_finding("compose", compose_path, "col test 2", "reliability", "critical", "desc")
     db.set_finding_status(fid, "active")
     db.set_finding_status(fid2, "active")
     db.set_finding_read_status(fid, "unread")
     db.set_finding_read_status(fid2, "read")
 
-    resp = client.get("/compose/file?path=/read-unread-test/compose.yml")
+    resp = client.get(f"/compose/file?path={compose_path}")
     # Read column header is a sortable link (see _sort_header.html), not a bare <th>.
     assert "sort=read" in resp.text
     assert "badge-unread\">Unread</span>" in resp.text

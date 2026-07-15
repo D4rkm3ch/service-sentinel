@@ -21,7 +21,7 @@ def test_logs_container_overview_is_rendered_as_html_not_raw_markdown(client):
 
 def test_compose_file_overview_is_rendered_as_html_not_raw_markdown(client):
     with patch("app.main._get_or_build_overview", return_value="**Bold** finding summary"):
-        resp = client.get("/compose/file", params={"path": "some/compose.yml"})
+        resp = client.get("/compose/file", params={"path": "/tmp/rr-test-compose/some/compose.yml"})
 
     assert resp.status_code == 200
     assert "<strong>Bold</strong>" in resp.text

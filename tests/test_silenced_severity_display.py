@@ -10,7 +10,7 @@ from unittest.mock import patch
 from app import db
 
 _SUBJECT = "silenced-severity-test-container"
-_COMPOSE_PATH = "/silenced-severity-test/compose.yml"
+_COMPOSE_PATH = "/tmp/rr-test-compose/silenced-severity-test/compose.yml"
 
 
 def test_issues_table_shows_real_severity_for_a_fully_silenced_subject(client):

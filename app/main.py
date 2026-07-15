@@ -1559,6 +1559,7 @@ async def rename_compose_file_route(request: Request):
     path = form.get("path", "")
     name = (form.get("name") or "").strip()
     if path and name:
+        path = _validate_compose_path(path)
         db.set_compose_file_name(path, name, "manual")
     return RedirectResponse(url=f"/compose/file?path={quote(path)}", status_code=303)
 
@@ -1568,6 +1569,7 @@ async def reset_compose_file_name_route(request: Request):
     form = await request.form()
     path = form.get("path", "")
     if path:
+        path = _validate_compose_path(path)
         db.reset_compose_file_name(path)
     return RedirectResponse(url=f"/compose/file?path={quote(path)}", status_code=303)
 
@@ -1895,6 +1897,7 @@ def compose_page(request: Request, show_silenced: bool = False,
 
 @app.get("/compose/file")
 def compose_file_detail(request: Request, path: str, sort: str = "severity", dir: str = "asc"):
+    path = _validate_compose_path(path)
     # See logs_container_detail's comment -- always shows every finding for this file.
     findings = db.list_findings_for_subject("compose", path, include_silenced=True)
 
@@ -2284,6 +2287,31 @@ def unsilence_log_subject(request: Request, container_name: str):
 # GET /compose/file?path=... route.
 # ---------------------------------------------------------------------------
 
+def _validate_compose_path(path: str) -> str:
+    """A real-world report: every route below took `path` straight from an unauthenticated
+    request's query string with nothing checking it actually pointed at a file inside
+    COMPOSE_ROOT. compose_reviewer.run_compose_check_for() calls path.read_text() directly, and
+    compose_lookup.get_service_names_for_file() stats/reads it too -- passed through unchecked,
+    a crafted path (../ traversal, or simply an absolute path elsewhere on disk) could make the
+    app read any file the container process can see, and for a real check, send its contents to
+    whichever AI provider is configured. Every route that accepts `path` calls this first now,
+    not just the ones that happen to touch the filesystem today, so a future change to any of
+    them doesn't quietly reopen this.
+
+    Resolving symlinks before the containment check means a symlink planted inside COMPOSE_ROOT
+    that points outside it can't be used to bypass this either. Returns the original, unresolved
+    path string on success (never the resolved one) so it still matches the exact string every
+    existing finding/checkpoint is already keyed on."""
+    try:
+        resolved = Path(path).resolve()
+        root = settings.compose_root.resolve()
+    except (OSError, RuntimeError, ValueError):
+        raise HTTPException(status_code=404, detail="Compose file not found")
+    if not resolved.is_relative_to(root):
+        raise HTTPException(status_code=404, detail="Compose file not found")
+    return path
+
+
 def _compose_item_key(path: str) -> str:
     return f"composeitem:{path}"
 
@@ -2323,6 +2351,7 @@ def _run_claimed_compose_item_regenerate(item_key: str, path: str) -> None:
 
 @app.post("/compose/file/check-now")
 def check_now_compose_item_route(request: Request, path: str):
+    path = _validate_compose_path(path)
     return _launch_scoped_compose_item_check(
         request, path,
         lambda item_key: compose_reviewer.run_claimed_compose_item_check_now(item_key, path),
@@ -2331,6 +2360,7 @@ def check_now_compose_item_route(request: Request, path: str):
 
 @app.post("/compose/file/reset-and-recheck")
 def reset_and_recheck_compose_item_route(request: Request, path: str):
+    path = _validate_compose_path(path)
     return _launch_scoped_compose_item_check(
         request, path,
         lambda item_key: compose_reviewer.run_claimed_compose_item_reset_and_recheck(item_key, path),
@@ -2339,6 +2369,7 @@ def reset_and_recheck_compose_item_route(request: Request, path: str):
 
 @app.post("/compose/file/regenerate")
 def regenerate_compose_item_route(request: Request, path: str):
+    path = _validate_compose_path(path)
     return _launch_scoped_compose_item_check(
         request, path,
         lambda item_key: _run_claimed_compose_item_regenerate(item_key, path),
@@ -2347,6 +2378,7 @@ def regenerate_compose_item_route(request: Request, path: str):
 
 @app.get("/compose/file/status-poll")
 def compose_item_status_poll(request: Request, path: str):
+    path = _validate_compose_path(path)
     return _item_status_poll_response(
         request, _compose_item_key(path), _compose_item_poll_url(path),
         f"/compose/file?path={quote(path)}",
@@ -2355,24 +2387,28 @@ def compose_item_status_poll(request: Request, path: str):
 
 @app.post("/compose/file/read")
 def mark_compose_subject_read(request: Request, path: str):
+    path = _validate_compose_path(path)
     db.set_findings_read_status_for_subject("compose", path, "read")
     return _subject_read_toggle_response(request, "compose", path)
 
 
 @app.post("/compose/file/unread")
 def mark_compose_subject_unread(request: Request, path: str):
+    path = _validate_compose_path(path)
     db.set_findings_read_status_for_subject("compose", path, "unread")
     return _subject_read_toggle_response(request, "compose", path)
 
 
 @app.post("/compose/file/silence")
 def silence_compose_subject(request: Request, path: str):
+    path = _validate_compose_path(path)
     db.silence_all_findings_for_subjects("compose", [path])
     return _subject_silence_toggle_response(request, "compose", path)
 
 
 @app.post("/compose/file/unsilence")
 def unsilence_compose_subject(request: Request, path: str):
+    path = _validate_compose_path(path)
     db.unsilence_all_findings_for_subjects("compose", [path])
     return _subject_silence_toggle_response(request, "compose", path)
 
