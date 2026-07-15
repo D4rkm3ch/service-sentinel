@@ -176,6 +176,28 @@
   --accent-wash: rgba(28, 125, 140, 0.12);
   --title-accent: #8a6a3a;
 }
+/* Graphite Grey -- the one real accessibility-motivated accent so far (see base.html's picker
+   comment on the other two, colorblind-safe-but-not-yet-built placeholders). Every color below
+   is a genuinely neutral grey (R/G/B within a couple of points of each other, not just "looks
+   grey") rather than a low-saturation tint of some hue, so it carries zero chromatic
+   information for literally any color vision type, including full achromatopsia -- the visual
+   hierarchy (accent vs. title-accent, vs. dim) comes entirely from lightness, the same way this
+   whole family reads to a sighted person. Still meant to look intentional rather than just
+   "off," the way e.g. macOS's own graphite accent option does, not merely functional. */
+:root[data-theme="dark"][data-accent="graphite"] {
+  --accent: #b8b8bb;
+  --accent-dim: #57575c;
+  --on-accent: #14161a;
+  --accent-wash: rgba(184, 184, 187, 0.1);
+  --title-accent: #8f8f93;
+}
+:root[data-theme="light"][data-accent="graphite"] {
+  --accent: #4a4a4e;
+  --accent-dim: #b0b0b4;
+  --on-accent: #f4f4f5;
+  --accent-wash: rgba(74, 74, 78, 0.12);
+  --title-accent: #6e6e72;
+}
 
 * { box-sizing: border-box; }
 
@@ -919,10 +941,11 @@ tr:hover .row-chevron {
 :root[data-theme="dark"] .theme-toggle-btn .icon-moon { display: block; }
 :root[data-theme="light"] .theme-toggle-btn .icon-sun { display: block; }
 
-/* Accent color picker -- PREVIEW ONLY for now (see base.html's own script comment): opens a
-   small popover of named color options, but picking one only updates the swatch button and the
-   popover's own checkmark, never the app's real --accent. .accent-picker is just a positioning
-   context (position:relative) for the absolutely-positioned menu below it. */
+/* Accent color picker -- opens a small popover of named color options. .accent-picker is just a
+   positioning context (position:relative) for the absolutely-positioned menu below it. Two
+   options are real disabled <button>s rather than full picker choices -- placeholders for the
+   colorblind-safe palettes research turned up as worth building next (see base.html's own
+   comment on the option markup) but aren't designed yet. */
 .accent-picker {
   position: relative;
 }
@@ -944,15 +967,21 @@ tr:hover .row-chevron {
 
 /* Fixed swatch colors -- deliberately NOT var(--accent) (unlike every other color in this
    file): each one needs to show its OWN color regardless of which accent happens to be active
-   right now, not the current one. Emerald/Nordic's values here are kept in sync with their real
-   [data-accent] blocks above; the other four are still preview-only stubs with no real block to
-   match (see base.html's own script comment) -- their swatch is just what they'd look like. */
+   right now, not the current one. Kept in sync with each accent's own dark [data-accent] block
+   above. The two colorblind-safe swatches (deuteranopia/protanopia-safe and tritanopia-safe --
+   see base.html's own picker comment for the research behind why those two, not one per exact
+   CVD type) are placeholder colors only, since those palettes aren't built yet -- their
+   [data-accent] value is intentionally omitted from the option markup so picking them is a
+   no-op rather than applying an unfinished palette. */
 .accent-dot-emerald { background: #5ec9a6; }
 .accent-dot-nordic { background: #5da9e0; }
 .accent-dot-amber { background: #d9a441; }
 .accent-dot-violet { background: #9b84d9; }
 .accent-dot-crimson { background: #d9705e; }
 .accent-dot-teal { background: #4fb8c9; }
+.accent-dot-graphite { background: #9a9a9e; }
+.accent-dot-cvd-redgreen { background: #6a9fb5; }
+.accent-dot-cvd-blueyellow { background: #c98f6b; }
 
 .accent-picker-menu {
   position: absolute;
@@ -985,12 +1014,26 @@ tr:hover .row-chevron {
 }
 .accent-picker-option:hover { background: var(--hover-tint); }
 /* Checkmark on the active option -- an actual glyph rather than a border/background highlight,
-   so "which one is picked" reads clearly even though (for now) nothing else on the page changes
-   to confirm it. */
+   so "which one is picked" reads clearly on top of the whole app's colors actually switching. */
 .accent-picker-option.active { color: var(--accent); }
 .accent-picker-option.active::after {
   content: "✓";
   margin-left: auto;
+}
+/* Colorblind-safe placeholders (see this section's own top comment) -- real disabled <button>s,
+   not just styled to look inactive, so they're unreachable by click or keyboard alike until an
+   actual palette exists behind them. */
+.accent-picker-option:disabled {
+  color: var(--text-dim);
+  cursor: default;
+  opacity: 0.6;
+}
+.accent-picker-option:disabled:hover { background: transparent; }
+.accent-picker-option-soon {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 /* "Check All" -- Updates, then Logs, then Compose's existing full checks, strictly one after
