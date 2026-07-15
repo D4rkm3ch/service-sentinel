@@ -1490,9 +1490,12 @@ def stack_detail(request: Request, id: str, sort: str = "importance", dir: str =
         analysis_html = render_markdown(emphasized_text)
 
     members = []
+    silenced_total = 0
     for name in member_names:
         container_row = db.get_container_state(name)
         latest_update = db.get_latest_update_for_container(name)
+        if container_row and container_row["silenced"]:
+            silenced_total += 1
         members.append({
             "container_name": name,
             "image_repo": container_row["image_repo"] if container_row else "",
@@ -1507,6 +1510,7 @@ def stack_detail(request: Request, id: str, sort: str = "importance", dir: str =
             "members": _sort_updates_stack_members(members, sort, dir),
             "deep_analysis_enabled": deep_analysis_enabled,
             "analysis_html": analysis_html, "active_tab": "updates",
+            "silence_state": _silence_state(len(member_names) - silenced_total, silenced_total),
             "sort": sort, "dir": dir,
             "sort_base_url": "/updates/stack", "sort_extra_qs": "&id=" + quote(id),
         },
@@ -2022,6 +2026,46 @@ def unsilence_container(request: Request, container_name: str):
         raise HTTPException(status_code=404, detail="Container not found")
     db.set_container_silenced(container_name, False)
     return _container_silence_toggle_response(request, container_name)
+
+
+def _stack_container_silence_toggle_response(request: Request, stack_id: str):
+    """Updates' counterpart to _stack_silence_toggle_response (Logs' own) -- a stack member's
+    silenced state lives on container_state as a persistent flag (see db.set_container_silenced),
+    not derived from active/silenced finding counts the way Logs' stack silence is, so this
+    counts members with the flag set vs not instead. Reuses _silence_state's active/silenced
+    counting shape regardless -- it's the same "some vs all vs none" logic either way, just fed
+    a different pair of counts. One db.all_container_states() call for the whole stack rather
+    than one db.get_container_state() per member, same batching discipline as everywhere else."""
+    member_names = stacks.stack_member_names(stack_id)
+    states_by_name = {row["container_name"]: row for row in db.all_container_states()}
+    silenced_count = sum(1 for name in member_names if states_by_name.get(name) and states_by_name[name]["silenced"])
+    active_count = len(member_names) - silenced_count
+    return _render_silence_toggle(
+        request,
+        silence_url=f"/updates/stack/silence?stack_id={quote(stack_id)}",
+        unsilence_url=f"/updates/stack/unsilence?stack_id={quote(stack_id)}",
+        silence_state=_silence_state(active_count, silenced_count),
+    )
+
+
+@app.post("/updates/stack/silence")
+def silence_update_stack_route(request: Request, stack_id: str = ""):
+    """A real-world report: an EOL container can be silenced on its own detail page, but a
+    whole retired stack of related containers had no single-click way to mute every member at
+    once, unlike Logs' own stack-level silence. Mirrors that route's shape, applied to
+    container_state's persistent silenced flag instead of findings."""
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    db.set_containers_silenced(stacks.stack_member_names(stack_id), True)
+    return _stack_container_silence_toggle_response(request, stack_id)
+
+
+@app.post("/updates/stack/unsilence")
+def unsilence_update_stack_route(request: Request, stack_id: str = ""):
+    if not stack_id:
+        raise HTTPException(status_code=400, detail="stack_id is required")
+    db.set_containers_silenced(stacks.stack_member_names(stack_id), False)
+    return _stack_container_silence_toggle_response(request, stack_id)
 
 
 @app.post("/updates/{update_id}/read")

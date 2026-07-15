@@ -3,6 +3,17 @@ services:
     image: ghcr.io/YOUR_GITHUB_USERNAME/service-sentinel:latest
     container_name: service-sentinel
     restart: unless-stopped
+    # The app itself only ever writes to /data (its own SQLite database) -- confirmed by reading
+    # every file-write call site in app/. read_only locks the rest of the container's filesystem
+    # (including its own source under /app) at the kernel level: even a fully compromised app
+    # process couldn't rewrite its own code, plant a persistence file, or touch anything outside
+    # the two writable paths declared below.
+    read_only: true
+    tmpfs:
+      # Harmless if unused today (the app has no temp-file/upload code path) -- kept as standard
+      # defense-in-depth since libraries in the dependency chain may assume /tmp is writable.
+      # Ephemeral by design: wiped on every restart, never a place anything persists.
+      - /tmp
     ports:
       - "8420:8000"
     environment:
@@ -24,6 +35,17 @@ services:
       - /opt/stacks:/compose:ro
       # Read-write: SQLite database of detected updates and generated notes.
       - service-sentinel-data:/data
+      # Read-write, root-only: entrypoint.sh runs as root before dropping to appuser, and remaps
+      # appuser to PUID/PGID plus (if the socket's group differs) adds it to a matching group so
+      # appuser can reach the docker socket -- both write to /etc/passwd, /etc/group, etc. Under
+      # read_only above, the image's own baked /etc would otherwise be unwritable at every
+      # startup. A named volume here gets Docker's normal "copy the image's existing content in
+      # on first use" behavior, so appuser/root still exist on first boot, and every entrypoint
+      # run after that persists into the same volume exactly like /data already does. This has
+      # no bearing on what the *app process* itself (appuser, the real attack surface) can
+      # write -- /etc stays root-owned and non-writable by appuser either way, same as today.
+      - service-sentinel-etc:/etc
 
 volumes:
   service-sentinel-data:
+  service-sentinel-etc:

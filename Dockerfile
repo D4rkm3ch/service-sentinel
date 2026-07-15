@@ -1,5 +1,10 @@
 FROM python:3.12-slim
 
+# Under docker-compose.example.yml's read_only root filesystem, Python's own .pyc bytecode
+# cache write would silently fail anyway (Python already tolerates an unwritable source tree),
+# but skipping the attempt outright avoids the wasted syscalls on every import, every start.
+ENV PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

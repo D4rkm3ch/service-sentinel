@@ -5,9 +5,11 @@ at once rather than just one, reusing the same claimed-mutex + fan-out pattern a
 check itself (persist.run_claimed_bulk_regenerate)."""
 
 import time
+from pathlib import Path
 from unittest.mock import patch
 
-from app import check_state, db
+from app import check_state, compose_lookup, db, stacks
+from app.config import settings
 
 
 def _seed_pending_update(container_name: str, release_notes_raw: str | None = "Some raw notes"):
@@ -83,6 +85,70 @@ def test_bulk_regenerate_does_not_overwrite_the_last_checked_summary(client):
     assert check_state.get_state("updates").get("last_result") == before
 
     _cleanup("bulk-regen-status")
+
+
+def _compose_file(name, *services):
+    body = "services:\n" + "".join(f"  {s}:\n    image: owner/{s}\n" for s in services)
+    path = Path(settings.compose_root) / name
+    path.write_text(body)
+    return path
+
+
+def _stack_id_for(container_name):
+    return compose_lookup.match_container_to_stack(container_name, compose_lookup.build_stack_index())["stack_id"]
+
+
+def test_bulk_regenerate_also_force_refreshes_every_qualifying_stacks_cross_service_blurb(client):
+    """A real-world audit found the global Regenerate AI Response only touched per-update
+    summaries, unlike Logs' equivalent, which also force-refreshes every qualifying stack's
+    Cross-Service Analysis blurb. This locks in parity: an explicit "regenerate everything"
+    click should mean everything AI-written on the Updates pages."""
+    compose_file = _compose_file("bulk-regen-stack.yml", "bulk-regen-stack-a", "bulk-regen-stack-b")
+    db.set_cross_service_analysis_enabled("updates", True)
+    try:
+        _seed_pending_update("bulk-regen-stack-a")
+        _seed_pending_update("bulk-regen-stack-b")
+        stack_id = _stack_id_for("bulk-regen-stack-a")
+
+        db.set_stack_analysis(stack_id, "stale-hash", "Stale blurb.", source="updates")
+
+        with patch("app.persist.summarize_update", return_value=("## Notes", "bugfix")), \
+             patch("app.stacks.analyze_stack_impact", return_value="Fresh cross-service blurb.") as mocked:
+            resp = client.post("/updates/regenerate-all")
+            assert resp.status_code in (200, 303)
+            _wait_for_updates_check_to_finish()
+
+        mocked.assert_called_once()
+        analysis = db.get_stack_analysis(stack_id, source="updates")
+        assert analysis["analysis_markdown"] == "Fresh cross-service blurb."
+        assert analysis["content_hash"] != "stale-hash"
+    finally:
+        db.set_cross_service_analysis_enabled("updates", False)
+        compose_file.unlink()
+        _cleanup("bulk-regen-stack-a")
+        _cleanup("bulk-regen-stack-b")
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM stack_analyses WHERE stack_id = ?", (stack_id,))
+
+
+def test_bulk_regenerate_does_not_touch_stack_analysis_when_toggle_is_off(client):
+    compose_file = _compose_file("bulk-regen-stack-off.yml", "bulk-regen-off-a", "bulk-regen-off-b")
+    db.set_cross_service_analysis_enabled("updates", False)
+    try:
+        _seed_pending_update("bulk-regen-off-a")
+        _seed_pending_update("bulk-regen-off-b")
+
+        with patch("app.persist.summarize_update", return_value=("## Notes", "bugfix")), \
+             patch("app.stacks.analyze_stack_impact") as mocked:
+            resp = client.post("/updates/regenerate-all")
+            assert resp.status_code in (200, 303)
+            _wait_for_updates_check_to_finish()
+
+        mocked.assert_not_called()
+    finally:
+        compose_file.unlink()
+        _cleanup("bulk-regen-off-a")
+        _cleanup("bulk-regen-off-b")
 
 
 def test_bulk_regenerate_refuses_to_start_while_a_check_is_already_running(client):

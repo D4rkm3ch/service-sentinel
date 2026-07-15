@@ -87,7 +87,14 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     # Phase 1: fast sequential pass -- read, hash, compare against what's stored. Pure local
     # I/O, so doing this one at a time costs nothing worth parallelizing; what it produces is
     # the (usually much smaller) subset of files whose content actually changed and need the
-    # real, slow, AI review below.
+    # real, slow, AI review below. previous_hash lookups come from one batched read upfront
+    # (db.get_compose_file_hashes) rather than one connection per file in this loop -- a
+    # real-world 43-file homelab check meant 43 separate connect/commit cycles here for pure
+    # local I/O with no AI call anywhere nearby to justify it, same "one connection per item"
+    # pattern already fixed for Updates (persist.py) and Logs (db.get/set_log_watch_checkpoints).
+    hashes_by_path = db.get_compose_file_hashes([str(p) for p in paths])
+    hashes_to_stamp: dict[str, str] = {}
+
     for path in paths:
         if check_state.is_cancel_requested("compose"):
             cancelled = True
@@ -105,7 +112,7 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
 
         checked_ok_paths.append(path_str)
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        previous_hash = db.get_compose_file_hash(path_str)
+        previous_hash = hashes_by_path.get(path_str)
         if previous_hash == content_hash:
             done_count += 1
             if on_progress:
@@ -114,7 +121,7 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
 
         redacted = redact_compose_file_text(path)
         if redacted is None:
-            db.set_compose_file_hash(path_str, content_hash)
+            hashes_to_stamp[path_str] = content_hash
             done_count += 1
             if on_progress:
                 on_progress("checking_compose_files", done_count, total)
@@ -123,6 +130,8 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
         # Deferred to the concurrent phase below -- done_count/on_progress fire there instead,
         # once this file's actual review completes, not here.
         to_review.append((path_str, redacted, content_hash))
+
+    db.set_compose_file_hashes(hashes_to_stamp)
 
     reviewed = 0
     findings_found = 0

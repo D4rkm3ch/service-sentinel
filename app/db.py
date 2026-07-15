@@ -709,6 +709,22 @@ def set_container_silenced(container_name: str, silenced: bool) -> None:
         )
 
 
+def set_containers_silenced(container_names: list[str], silenced: bool) -> None:
+    """Bulk counterpart to set_container_silenced -- one connection for the whole list rather
+    than one per container, same discipline as silence_all_findings_for_subjects. Used by
+    Updates' stack-level Silence/Unsilence (see main.py), which used to not exist at all -- only
+    the per-container route did -- so a real-world ask to bulk-mute a whole retired stack had no
+    single-click way to do it."""
+    if not container_names:
+        return
+    with get_conn() as conn:
+        qs = ",".join("?" * len(container_names))
+        conn.execute(
+            f"UPDATE container_state SET silenced = ? WHERE container_name IN ({qs})",
+            (1 if silenced else 0, *container_names),
+        )
+
+
 CONTAINER_SORT_COLUMNS = {
     "container": "container_name COLLATE NOCASE",
     "image": "image_repo COLLATE NOCASE",
@@ -794,6 +810,34 @@ def list_tracked_containers_with_status() -> list[dict]:
             "created_at": r["update_created_at"] or r["last_checked_at"],
         })
     return result
+
+
+def list_containers_for_stack_analysis() -> list[dict]:
+    """The check-outcome-shaped "containers" list stacks.run_stack_analysis_pass() expects
+    (container_name, image_repo, tag, current_digest, latest_digest), built from whatever's
+    currently persisted rather than a fresh reconcile.py outcome -- used by the Updates page's
+    bulk Regenerate AI Response (persist.run_claimed_bulk_regenerate), which has no fresh check
+    outcome of its own to draw from and covers every tracked container at once, so (unlike
+    stacks.members_for_analysis, scoped to one stack) this must be one query for the whole
+    fleet rather than one db.get_container_state()/get_latest_update_for_container() call per
+    container -- see test_persist.py's own connection-count regression tests for why that
+    matters here specifically."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            SELECT
+                cs.container_name AS container_name,
+                cs.image_repo AS image_repo,
+                cs.tag AS tag,
+                cs.last_seen_digest AS current_digest,
+                u.new_digest AS latest_digest
+            FROM container_state cs
+            LEFT JOIN updates u ON u.container_name = cs.container_name
+            ORDER BY cs.container_name COLLATE NOCASE ASC
+            """
+        )
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -1456,6 +1500,23 @@ def get_compose_file_hash(file_path: str) -> str | None:
         return row["content_hash"] if row else None
 
 
+def get_compose_file_hashes(file_paths: list[str]) -> dict[str, str]:
+    """Batched equivalent of get_compose_file_hash -- one connection for the whole list instead
+    of one per file, same "read once into a dict, thread it through" shape as db.get_log_watch_
+    checkpoints. Used by compose_reviewer.run_compose_check_for's fast sequential pass, which
+    otherwise opened one connection per file in that loop even though nothing in that phase
+    needs a fresh read mid-loop -- every path is known upfront."""
+    if not file_paths:
+        return {}
+    with get_conn() as conn:
+        qs = ",".join("?" * len(file_paths))
+        cur = conn.execute(
+            f"SELECT file_path, content_hash FROM compose_file_state WHERE file_path IN ({qs})",
+            file_paths,
+        )
+        return {r["file_path"]: r["content_hash"] for r in cur.fetchall()}
+
+
 def get_compose_file_checkpoint(file_path: str) -> str | None:
     """Compose's equivalent of get_log_watch_checkpoint -- when this file was last actually
     reviewed, for the subject page's "Last checked ..." empty-state line."""
@@ -1476,6 +1537,26 @@ def set_compose_file_hash(file_path: str, content_hash: str) -> None:
             ON CONFLICT(file_path) DO UPDATE SET content_hash = excluded.content_hash, last_reviewed_at = excluded.last_reviewed_at
             """,
             (file_path, content_hash, now),
+        )
+
+
+def set_compose_file_hashes(hashes_by_path: dict[str, str]) -> None:
+    """Batched equivalent of set_compose_file_hash -- one connection for the whole dict instead
+    of one per file. Used for the files stamped during compose_reviewer.run_compose_check_for's
+    fast sequential pass (unreadable-as-redacted files that get skipped without a real AI
+    review); files that go through an actual AI review still stamp their own hash individually
+    right after that review completes (see _review_one), same as Logs' per-finding writes --
+    those happen during genuinely concurrent, network-bound work, not a tight local-I/O loop."""
+    if not hashes_by_path:
+        return
+    now = now_iso()
+    with get_conn() as conn:
+        conn.executemany(
+            """
+            INSERT INTO compose_file_state (file_path, content_hash, last_reviewed_at) VALUES (?, ?, ?)
+            ON CONFLICT(file_path) DO UPDATE SET content_hash = excluded.content_hash, last_reviewed_at = excluded.last_reviewed_at
+            """,
+            [(path, content_hash, now) for path, content_hash in hashes_by_path.items()],
         )
 
 

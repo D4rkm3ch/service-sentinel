@@ -749,6 +749,15 @@ def run_claimed_bulk_regenerate() -> None:
     stage="regenerating" (see main.py's _STAGE_LABELS) so it reads as "Regenerating AI Response
     (N/total)…" while it's running.
 
+    Also force-refreshes every qualifying stack's Cross-Service Analysis blurb (2+ tracked
+    members, toggle on), matching Logs' own bulk Regenerate AI Response
+    (_run_claimed_logs_bulk_regenerate) -- an explicit "regenerate everything" click should mean
+    everything AI-written on the page, not just the per-update summaries, same reasoning as
+    run_claimed_stack_reset_and_recheck's own forced regeneration below. Pulled from
+    db.list_containers_for_stack_analysis() (one query for the whole fleet) rather than
+    stacks.members_for_analysis() per stack, since that helper's own per-stack db calls would
+    reintroduce one-connection-per-container across every stack in the fleet here.
+
     release_running (not set_finished) on completion: this isn't itself a check, so it must
     not overwrite the status badge's "Last checked: ..." summary with a result shape that was
     never meant to describe a regenerate pass."""
@@ -764,6 +773,12 @@ def run_claimed_bulk_regenerate() -> None:
             lambda c: run_and_persist_regenerate_summary(c["container_name"]),
             _on_progress,
         )
+
+        if not check_state.is_cancel_requested("updates"):
+            try:
+                stacks.run_stack_analysis_pass(db.list_containers_for_stack_analysis(), force=True)
+            except Exception:
+                logger.exception("Stack analysis pass failed during bulk Regenerate AI Response")
     except Exception:
         logger.exception("Bulk Regenerate AI Response failed unexpectedly")
     finally:

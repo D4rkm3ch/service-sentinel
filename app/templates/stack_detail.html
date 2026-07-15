@@ -11,6 +11,7 @@
   <div class="subject-title-row">
     <h1 class="subject-heading" id="stack-name-display">{{ display_name }}</h1>
     <button type="button" class="icon-button" title="Rename this stack" onclick="document.getElementById('stack-rename-form').classList.toggle('hidden')">✎</button>
+    {% include "_silence_badge.html" %}
   </div>
 
   <form id="stack-rename-form" method="post" action="/updates/stack/rename" class="hidden stack-rename-form">
@@ -22,6 +23,8 @@
   <p class="meta">{{ members|length }} service{{ 's' if members|length != 1 else '' }} in this stack</p>
 
   <div class="action-row action-row-spaced">
+    {% with silence_url = '/updates/stack/silence?stack_id=' ~ (stack_id|urlencode),
+            unsilence_url = '/updates/stack/unsilence?stack_id=' ~ (stack_id|urlencode) %}{% include "_silence_toggle.html" %}{% endwith %}
     <button type="button" class="updates-action-btn"
             hx-post="/updates/stack/check-now?stack_id={{ stack_id|urlencode }}"
             hx-target="#item-recheck-status" hx-swap="outerHTML">
