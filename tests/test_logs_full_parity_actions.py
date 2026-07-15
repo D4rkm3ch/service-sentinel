@@ -884,6 +884,22 @@ def test_issues_table_silenced_rows_do_not_get_the_green_highlight(client):
     assert "row-unread" not in tr_row
 
 
+def test_issues_table_silenced_rows_get_their_own_quieter_highlight_instead_of_going_blank(client):
+    """A real-world report: toggling "Show silenced" made every row's background just
+    disappear, since the old markup only ever applied a highlight class to active rows and the
+    silenced view shows nothing but rows with zero active findings. Fixed by giving silenced-
+    only rows their own row-silenced class (see style.css) rather than leaving them unstyled."""
+    fid, _ = db.upsert_finding("logs", "highlight-silenced-b", "OOM", "crash", "critical", "desc")
+    db.set_finding_status(fid, "silenced")
+    db.set_log_watch_checkpoint("highlight-silenced-b")
+
+    resp = client.get("/logs?show_silenced=1")
+    section = resp.text[resp.text.index('id="logs-issues-table"'):]
+    tr_start = section.rindex("<tr", 0, section.index("highlight-silenced-b"))
+    tr_row = section[tr_start:section.index("</tr>", tr_start)]
+    assert "row-silenced" in tr_row
+
+
 # ---------------------------------------------------------------------------
 # Check-failure surfacing -- a real-world report: a container whose logs couldn't be fetched
 # was silently invisible everywhere (no error count, no indicator, no way to notice it had

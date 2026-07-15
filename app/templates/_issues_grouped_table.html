@@ -44,7 +44,7 @@
     {% else %}
     {% set href = '/compose/file?path=' ~ (issue.subject|urlencode) %}
     {% endif %}
-    <tr class="{{ 'row-unread' if issue.active_count else '' }} row-clickable" onclick="window.location='{{ href }}'">
+    <tr class="{{ 'row-unread' if issue.active_count else 'row-silenced' }} row-clickable" onclick="window.location='{{ href }}'">
       <td class="mono"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
       {% if show_stack_column %}
       <td>

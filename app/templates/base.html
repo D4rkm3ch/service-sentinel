@@ -106,28 +106,26 @@
     </div>
     <div class="topbar-end">
       <button type="button" id="check-all-btn" class="check-all-btn">Check All</button>
-      <!-- The first seven carry data-accent -- picking any of them switches the app's --accent
-           family and persists it (see style.css's own [data-theme][data-accent] blocks and the
-           script below). Graphite Grey is the first of these built specifically for
-           accessibility (a genuinely neutral palette -- see its own block in style.css -- rather
-           than just another hue), covering anyone with full/severe color vision deficiency or
-           who simply wants zero color dependency.
-
-           The last two options are real disabled <button>s with no data-accent at all, so
-           picking one is a no-op (see the click handler below, which only ever applies/persists
-           an accent when data-accent is present) -- placeholders for the two colorblind-safe
-           palettes research says are worth building next, once designed:
-             - A red-green-safe palette (deuteranopia/protanopia -- the two most common forms,
-               together ~99% of color vision deficiency, and similar enough in effect that one
-               shared palette serves both rather than needing one each).
-             - A blue-yellow-safe palette (tritanopia -- much rarer, but its confusion axis runs
-               opposite to red-green's, so a palette built for one doesn't reliably cover the
-               other).
-           No shapes/icons needed alongside these: this app already labels every color-coded
-           severity/status indicator with adjacent text everywhere it appears (finding badges,
-           the idle topbar summary dot, etc.), so an accent color has never been the sole carrier
-           of meaning here -- these two are purely additional brand-color options, the same
-           non-information-bearing role every existing accent already has. -->
+      <!-- All nine carry data-accent -- picking any of them switches the app's --accent family
+           and persists it (see style.css's own [data-theme][data-accent] blocks and the script
+           below). The last three are the accessibility-motivated accents:
+             - Graphite Grey: a genuinely neutral palette (no color at all, not just a
+               low-saturation tint), for full/severe color vision deficiency or anyone who wants
+               zero color dependency.
+             - Red-Green Safe: for deuteranopia and protanopia, the two red-green deficiencies
+               that together account for ~99% of color vision deficiency -- close enough in
+               effect that one shared palette serves both rather than needing one each. Built
+               around blue/orange, the pairing the Okabe-Ito colorblind-safe reference palette
+               anchors on, since blue perception stays essentially intact under both.
+             - Blue-Yellow Safe: for tritanopia -- much rarer, but its confusion axis runs
+               opposite to red-green's (a blue-vs-yellow/green mixup, not blue-vs-yellow being
+               spared), so a palette built for red-green safety doesn't cover it. Built around
+               rose/green instead, avoiding the blue-yellow axis entirely.
+           No shapes/icons needed alongside any of these: this app already labels every
+           color-coded severity/status indicator with adjacent text everywhere it appears
+           (finding badges, the idle topbar summary dot, etc.), so an accent color has never been
+           the sole carrier of meaning here -- these are purely additional brand-color options,
+           the same non-information-bearing role every existing accent already has. -->
       <div class="accent-picker">
         <button type="button" id="accent-swatch-btn" class="icon-button accent-swatch-btn"
                 aria-haspopup="true" aria-expanded="false" title="Accent color">
@@ -163,15 +161,13 @@
                   data-swatch="accent-dot-graphite" data-label="Graphite Grey" data-accent="graphite">
             <span class="accent-swatch-dot accent-dot-graphite" aria-hidden="true"></span> Graphite Grey
           </button>
-          <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false" disabled
-                  title="Not built yet -- a red-green colorblind-safe palette is planned">
+          <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false"
+                  data-swatch="accent-dot-cvd-redgreen" data-label="Red-Green Safe" data-accent="cvd-redgreen">
             <span class="accent-swatch-dot accent-dot-cvd-redgreen" aria-hidden="true"></span> Red-Green Safe
-            <span class="accent-picker-option-soon">Soon</span>
           </button>
-          <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false" disabled
-                  title="Not built yet -- a blue-yellow colorblind-safe palette is planned">
+          <button type="button" class="accent-picker-option" role="menuitemradio" aria-checked="false"
+                  data-swatch="accent-dot-cvd-blueyellow" data-label="Blue-Yellow Safe" data-accent="cvd-blueyellow">
             <span class="accent-swatch-dot accent-dot-cvd-blueyellow" aria-hidden="true"></span> Blue-Yellow Safe
-            <span class="accent-picker-option-soon">Soon</span>
           </button>
         </div>
       </div>

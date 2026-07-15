@@ -2,10 +2,10 @@
 (_compact_health_summary / GET /checks/status), which replaces the blank space in the topbar's
 center region with a compact combined status whenever nothing is running, and (2) real,
 functional accent picker options -- Nordic Blue (the app's default) and Emerald Green first,
-later joined by Sunset Amber, Royal Violet, Crimson Red, Ocean Teal, and Graphite Grey (the
-first accessibility-motivated one -- a genuinely neutral palette, see style.css's own block).
-Two more options (colorblind-safe red-green and blue-yellow palettes) exist in the picker as
-disabled placeholders -- research turned up what to build, but they aren't designed yet."""
+later joined by Sunset Amber, Royal Violet, Crimson Red, Ocean Teal, and three
+accessibility-motivated accents: Graphite Grey (a genuinely neutral palette), Red-Green Safe
+(deuteranopia/protanopia), and Blue-Yellow Safe (tritanopia) -- see style.css's own blocks for
+the color research behind each."""
 
 from pathlib import Path
 
@@ -165,10 +165,13 @@ def test_head_script_also_restores_the_saved_accent():
     assert "dataset.accent" in head
 
 
-ALL_ACCENTS = ("nordic", "emerald", "amber", "violet", "crimson", "teal", "graphite")
+ALL_ACCENTS = (
+    "nordic", "emerald", "amber", "violet", "crimson", "teal",
+    "graphite", "cvd-redgreen", "cvd-blueyellow",
+)
 
 
-def test_all_seven_accents_have_real_css_blocks_for_both_themes():
+def test_all_nine_accents_have_real_css_blocks_for_both_themes():
     style = STYLE.read_text()
     for theme in ("dark", "light"):
         for accent in ALL_ACCENTS:
@@ -176,38 +179,27 @@ def test_all_seven_accents_have_real_css_blocks_for_both_themes():
             assert selector in style
 
 
-def test_all_seven_real_options_carry_a_data_accent_attribute_in_the_picker():
+def test_all_nine_options_carry_a_data_accent_attribute_in_the_picker():
     text = (TEMPLATES / "base.html").read_text()
     menu_start = text.index('id="accent-picker-menu"')
     menu_end = text.index("</div>\n      </div>", menu_start)  # closes #accent-picker-menu, then .accent-picker
     menu = text[menu_start:menu_end]
 
     options = menu.split("<button")[1:]  # each option's own opening tag through its closing </button>
-    assert len(options) == 9  # 7 real accents + 2 disabled colorblind-safe placeholders
+    assert len(options) == 9
 
     labels = {
         "nordic": "Nordic Blue", "emerald": "Emerald Green", "amber": "Sunset Amber",
         "violet": "Royal Violet", "crimson": "Crimson Red", "teal": "Ocean Teal",
-        "graphite": "Graphite Grey",
+        "graphite": "Graphite Grey", "cvd-redgreen": "Red-Green Safe",
+        "cvd-blueyellow": "Blue-Yellow Safe",
     }
+    assert len(labels) == len(options)
 
     for accent, label in labels.items():
         option = next(o for o in options if f'data-label="{label}"' in o)
         assert f'data-accent="{accent}"' in option
-
-
-def test_the_two_colorblind_safe_placeholders_are_disabled_and_apply_no_accent():
-    text = (TEMPLATES / "base.html").read_text()
-    menu_start = text.index('id="accent-picker-menu"')
-    menu_end = text.index("</div>\n      </div>", menu_start)
-    menu = text[menu_start:menu_end]
-
-    options = menu.split("<button")[1:]
-    placeholders = [o for o in options if "data-accent=" not in o]
-    assert len(placeholders) == 2
-    for option in placeholders:
-        assert "disabled" in option
-        assert "Soon" in option
+        assert "disabled" not in option
 
 
 def test_accent_picker_js_persists_the_real_picks_via_localstorage():

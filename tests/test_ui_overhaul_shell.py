@@ -130,14 +130,15 @@ def test_check_all_button_and_theme_controls_live_in_the_topbar_end_region():
 
 def test_accent_picker_offers_several_named_color_options():
     """The picker shows real, distinctly-named choices rather than a single disabled
-    placeholder -- seven actually switch the app's accent color (see
-    test_topbar_idle_summary_and_nordic_blue.py's own accent tests); two more are disabled
-    colorblind-safe placeholders (same test file)."""
+    placeholder -- all nine actually switch the app's accent color, including the three
+    accessibility-motivated ones (see test_topbar_idle_summary_and_nordic_blue.py's own accent
+    tests)."""
     text = _base_html()
     menu = text[text.index('id="accent-picker-menu"'):text.index("</div>", text.index('id="accent-picker-menu"'))]
-    for name in ("Emerald Green", "Nordic Blue", "Sunset Amber", "Royal Violet", "Crimson Red", "Ocean Teal", "Graphite Grey"):
+    for name in ("Emerald Green", "Nordic Blue", "Sunset Amber", "Royal Violet", "Crimson Red", "Ocean Teal",
+                 "Graphite Grey", "Red-Green Safe", "Blue-Yellow Safe"):
         assert name in menu
-    assert menu.count("accent-picker-option") >= 7
+    assert menu.count("accent-picker-option") >= 9
     assert "disabled" not in text[text.index('id="accent-swatch-btn"'):text.index('id="accent-swatch-btn"') + 200]
 
 
