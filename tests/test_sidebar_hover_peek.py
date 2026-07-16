@@ -1,15 +1,19 @@
-"""Sidebar hover-peek: while collapsed, hovering the rail widens it to the expanded width without
-clicking the toggle. A JS mouseenter/mouseleave version of this was tried first, then removed
-entirely (it felt obtrusive), then reintroduced here as a pure CSS :hover + :has() rule instead of
-JS: a JS-applied class can't survive a full page navigation, so clicking a nav link while peeked
-open used to load the next page already-collapsed and only re-peek once the JS timer re-fired -- a
-jarring snap-shut-then-reopen. :hover instead reflects the browser's real, live cursor position, so
-a same-viewport-position navigation (the normal case for clicking a link you're hovering) keeps
-:hover matching straight through page load with no JS involved at all.
+"""Sidebar hover-peek: while collapsed, hovering the rail after a short delay widens it to the
+expanded width without clicking the toggle. This has gone through three versions: (1) a JS
+mouseenter/mouseleave timer toggling a "sidebar-peeking" class -- removed entirely for feeling
+obtrusive; (2) a pure CSS :hover + :has() rule with no JS at all -- reintroduced after realizing
+the real complaint was that (1) couldn't survive a full page navigation (clicking a nav link while
+peeked open snapped shut then slowly reopened), reasoning that :hover reflects the browser's live
+cursor position and so should carry straight through a same-position navigation; (3) the current
+version -- real-world testing of (2) showed that reasoning didn't hold in practice (a fresh
+document doesn't reliably re-apply :hover to an already-positioned cursor immediately on paint,
+and users also wanted the original open-delay back), so it's back to a JS timer + class, but with
+a sessionStorage handoff read by the same blocking pre-paint <head> script that already restores
+theme/accent/sidebar-collapsed state -- a deterministic restore rather than a bet on browser hover
+timing.
 
-These are just presence/absence assertions on the shipped CSS -- see the Playwright script run
-manually against a live server (not part of this suite) for the actual behavioral verification
-that a continued hover survives navigation and only collapses once the mouse leaves the rail.
+These are presence/absence assertions on the shipped markup/CSS. The actual cross-navigation
+behavior was verified manually with Playwright against a live server (not part of this suite).
 """
 
 from pathlib import Path
@@ -18,37 +22,52 @@ STYLE = Path(__file__).resolve().parent.parent / "app" / "static" / "style.css"
 BASE_HTML = Path(__file__).resolve().parent.parent / "app" / "templates" / "base.html"
 
 
-def test_hover_peek_is_a_pure_css_rule_not_javascript():
+def test_hover_peek_css_targets_the_peeking_class_scoped_to_collapsed():
     style = STYLE.read_text()
-    assert 'html[data-sidebar="collapsed"]:has(.sidebar:hover)' in style
-
-    # No JS mouseenter/mouseleave/timer-driven peeking -- the earlier version of this feature.
-    base = BASE_HTML.read_text()
-    assert "sidebar-peeking" not in base
-    assert "sidebar-peeking" not in style
-    assert "PEEK_DELAY" not in base
-    assert "mouseenter" not in base
-    assert "mouseleave" not in base
-
-
-def test_hover_peek_has_no_opening_transition_delay():
-    """A transition-delay before opening was tried and reverted: a full page navigation always
-    repaints the rail collapsed for a beat before the browser's next hit-test re-applies :hover,
-    so any added delay stacked on top of that and read as a real close rather than a brief
-    pause -- exactly the snap this feature exists to avoid."""
-    style = STYLE.read_text()
-    peek_start = style.index('html[data-sidebar="collapsed"]:has(.sidebar:hover) {')
-    peek_end = style.index("}", peek_start)
-    peek_rule = style[peek_start:peek_end]
-    assert "transition-delay" not in peek_rule
+    assert 'html[data-sidebar="collapsed"].sidebar-peeking {' in style
+    assert 'html[data-sidebar="collapsed"].sidebar-peeking .sidebar-label {' in style
+    # The pure-:hover version tried and reverted for this exact class of bug.
+    assert ":has(.sidebar:hover)" not in style
 
 
 def test_pinned_expanded_state_is_unaffected_by_hover_peek():
-    """The peek rule is scoped to [data-sidebar="collapsed"] only -- a pinned-open sidebar
-    (via the hamburger click-to-toggle, still handled separately in JS) must not have its own
-    width transition altered by hovering it."""
     style = STYLE.read_text()
-    assert 'html[data-sidebar="expanded"]:has(.sidebar:hover)' not in style
+    assert 'html[data-sidebar="expanded"].sidebar-peeking' not in style
+
+
+def test_hover_peek_js_has_an_opening_delay_and_instant_close():
+    base = BASE_HTML.read_text()
+    assert "PEEK_DELAY_MS = 400" in base
+    assert "mouseenter" in base
+    assert "mouseleave" in base
+    assert 'sidebar.addEventListener("mouseleave", cancelPeek)' in base
+
+
+def test_pin_toggle_click_cancels_any_active_peek():
+    base = BASE_HTML.read_text()
+    assert "pinToggleBtn.addEventListener(\"click\", cancelPeek)" in base
+
+
+def test_peek_state_is_handed_off_via_sessionstorage_on_unload():
+    base = BASE_HTML.read_text()
+    peek_iife_start = base.index("Sidebar hover-peek")
+    peek_iife_end = base.index("Light/dark theme toggle")
+    peek_iife = base[peek_iife_start:peek_iife_end]
+    assert "pagehide" in peek_iife
+    assert 'PEEK_STORAGE_KEY = "service-sentinel-sidebar-peek"' in peek_iife
+    assert "sessionStorage.setItem(PEEK_STORAGE_KEY" in peek_iife
+
+
+def test_head_script_restores_the_peeking_class_before_first_paint():
+    """Same before-first-paint treatment as theme/accent/sidebar-collapsed above it -- this is
+    what lets a continued hover survive a full page navigation without a flash, instead of
+    depending on the browser's own (unreliable, per real-world testing) :hover recompute timing
+    after a fresh document loads."""
+    base = BASE_HTML.read_text()
+    head = base[:base.index("</head>")]
+    assert 'sessionStorage.getItem("service-sentinel-sidebar-peek")' in head
+    assert 'document.documentElement.classList.add("sidebar-peeking")' in head
+    assert 'sessionStorage.removeItem("service-sentinel-sidebar-peek")' in head
 
 
 def test_click_to_pin_toggle_and_its_tooltip_are_still_javascript():

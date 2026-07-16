@@ -377,25 +377,22 @@ body[data-tab="overview"] #topbar-idle-summary {
   transition: width 0.18s ease;
 }
 
-/* Hover-peek: while collapsed, hovering anywhere over the rail widens it to the expanded width
-   and reveals labels, without needing to click the toggle -- a plain :hover override of the same
-   --sidebar-width variable .sidebar/body already read (see the app-shell layout tokens above),
-   so the rail and body's padding-left always move together with no separate JS or "peeking"
-   class to keep in sync.
-
-   Deliberately CSS-only rather than the earlier JS mouseenter/mouseleave version, and
-   deliberately with no opening transition-delay (an earlier version of this rule had one, "to
-   avoid firing on incidental mouse pass-through" -- reverted after testing showed it caused
-   the exact problem it was meant to fix: a full page navigation always repaints the rail
-   collapsed for a beat before Chromium's next hit-test re-applies :hover, so any opening delay
-   stacks on top of that and reads as a real close, not just a pause. Instant open keeps that
-   gap as short as the browser's own hit-test latency allows. Closing was always instant --
-   the moment :hover stops matching, the cascade falls straight back to .sidebar/body's own
-   un-delayed base transition above. */
-html[data-sidebar="collapsed"]:has(.sidebar:hover) {
+/* Hover-peek: while collapsed, hovering the rail after a short delay widens it to the expanded
+   width and reveals labels, without needing to click the toggle. Driven by the "sidebar-peeking"
+   class (see base.html) rather than a plain :hover rule -- a pure-:hover version was tried first
+   and real-world testing showed it unreliable: a fresh document doesn't dependably re-apply
+   :hover to an already-positioned cursor the instant it paints, so navigating to a new page while
+   peeked open could still render collapsed for a beat (or longer) before the browser's own hover
+   recompute caught up. The class is instead restored synchronously by the head's blocking script
+   (same before-first-paint treatment as theme/accent/sidebar-collapsed), which reads a
+   sessionStorage flag base.html's own peek IIFE stashes right before the page unloads -- so this
+   is a deterministic same-page-load restore, not a bet on hover timing. Reuses the same
+   --sidebar-width variable .sidebar/body already read, so the rail and body's padding-left always
+   move together with no extra rule needed to keep them in sync. */
+html[data-sidebar="collapsed"].sidebar-peeking {
   --sidebar-width: var(--sidebar-width-expanded);
 }
-html[data-sidebar="collapsed"]:has(.sidebar:hover) .sidebar-label {
+html[data-sidebar="collapsed"].sidebar-peeking .sidebar-label {
   opacity: 1;
 }
 

@@ -17,7 +17,15 @@
        hardcoded HTML attribute until JS ran), but a real-world report: an operator who'd
        expanded the sidebar would see it snap collapsed-then-expanded on every full page
        navigation, since <body data-sidebar="collapsed"> painted first every time. Restoring it
-       here instead, at the same point theme/accent already are, closes that gap the same way. -->
+       here instead, at the same point theme/accent already are, closes that gap the same way.
+
+       The sidebar-peeking class (see the hover-peek IIFE further down, and its matching CSS)
+       gets the exact same treatment via sessionStorage instead of localStorage -- it's a
+       same-tab, this-navigation-only signal, not a lasting preference. Restoring it here rather
+       than waiting for a real mouseenter on the new page is what makes hovering the rail then
+       clicking a nav link stay peeked-open across the navigation instead of snapping shut: a
+       fresh document doesn't reliably re-apply :hover to an already-positioned cursor the
+       instant it paints, so this can't be left to the browser's own hover recompute timing. -->
   <script>
     (function () {
       try {
@@ -28,6 +36,12 @@
         var savedSidebar = localStorage.getItem("service-sentinel-sidebar");
         if (savedSidebar === "expanded" || savedSidebar === "collapsed") document.documentElement.dataset.sidebar = savedSidebar;
       } catch (e) { /* localStorage unavailable (private browsing, etc.) -- stay on the defaults */ }
+      try {
+        if (sessionStorage.getItem("service-sentinel-sidebar-peek") === "1") {
+          document.documentElement.classList.add("sidebar-peeking");
+        }
+        sessionStorage.removeItem("service-sentinel-sidebar-peek");
+      } catch (e) { /* sessionStorage unavailable (private browsing, etc.) -- stay collapsed */ }
     })();
   </script>
   <link rel="stylesheet" href="/static/style.css?v={{ static_asset_version }}">
@@ -351,6 +365,64 @@
         var next = document.documentElement.dataset.sidebar === "expanded" ? "collapsed" : "expanded";
         apply(next);
         try { localStorage.setItem(STORAGE_KEY, next); } catch (e) { /* private browsing, etc. */ }
+      });
+    })();
+
+    // Sidebar hover-peek -- while collapsed, hovering the rail after a short delay slides it
+    // open exactly as if the hamburger had been clicked, via the "sidebar-peeking" class (see
+    // style.css, which overrides --sidebar-width while that class + [data-sidebar="collapsed"]
+    // both apply). A short delay before opening avoids it firing on every incidental mouse
+    // pass-through; closing has no delay at all -- moving the mouse away collapses it back
+    // immediately. A click on the toggle button also cancels any pending/active peek so the two
+    // mechanisms never fight each other.
+    //
+    // Persisting across a full page navigation (clicking a nav link while peeked open) can't
+    // just rely on :hover surviving into the new document -- real-world testing showed a fresh
+    // page doesn't reliably re-apply :hover to an already-positioned cursor the instant it
+    // paints, so an earlier CSS-:hover-only version of this feature still snapped shut on
+    // navigation. Instead, right before the page unloads, this stashes whether the class was
+    // applied in sessionStorage; the head's blocking script (same before-first-paint treatment
+    // as theme/accent/sidebar-collapsed) re-applies the class immediately on the next page if
+    // so, which is what makes it stay open through the navigation with no flash.
+    (function () {
+      var PEEK_DELAY_MS = 400;
+      var PEEK_STORAGE_KEY = "service-sentinel-sidebar-peek";
+      var sidebar = document.getElementById("sidebar");
+      var pinToggleBtn = document.getElementById("sidebar-toggle");
+      if (!sidebar) return;
+
+      var peekTimer = null;
+
+      function setPeeking(on) {
+        document.documentElement.classList.toggle("sidebar-peeking", on);
+      }
+
+      function cancelPeek() {
+        if (peekTimer) {
+          window.clearTimeout(peekTimer);
+          peekTimer = null;
+        }
+        setPeeking(false);
+      }
+
+      sidebar.addEventListener("mouseenter", function () {
+        if (document.documentElement.dataset.sidebar !== "collapsed") return;
+        peekTimer = window.setTimeout(function () {
+          setPeeking(true);
+        }, PEEK_DELAY_MS);
+      });
+
+      sidebar.addEventListener("mouseleave", cancelPeek);
+      if (pinToggleBtn) pinToggleBtn.addEventListener("click", cancelPeek);
+
+      window.addEventListener("pagehide", function () {
+        try {
+          if (document.documentElement.classList.contains("sidebar-peeking")) {
+            sessionStorage.setItem(PEEK_STORAGE_KEY, "1");
+          } else {
+            sessionStorage.removeItem(PEEK_STORAGE_KEY);
+          }
+        } catch (e) { /* private browsing, etc. */ }
       });
     })();
 
