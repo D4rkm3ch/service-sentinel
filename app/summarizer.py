@@ -452,18 +452,34 @@ not inside the compose file itself. Never describe this as missing, undefined, b
 to fail; always assume it resolves correctly wherever it's used.
 - An empty `networks: {{}}` block. Several common stack-management tools (Dockge among them) \
 insert this automatically; it's inert boilerplate, not something to flag or recommend removing.
-- Adding an explicit ":rw" to a mount that's already read-write by default. This applies no \
-matter what reasoning you construct for it (clarity, defensive future-proofing, preventing a \
-later accidental edit, etc.) -- the mount's behavior doesn't change, so none of those reasons \
-make it a real finding.
+- PUID, PGID, GUID, UID, or TZ environment variables as "redundant" or "unnecessary," on the \
+theory that a particular base image (e.g. a Postgres or other non-linuxserver.io image) doesn't \
+respond to them. This is an extremely common self-hosted convention (the linuxserver.io image \
+family in particular) and you cannot reliably know from the compose file alone whether the \
+specific image in use honors them -- getting this wrong means telling the operator to remove \
+something their container actually depends on for correct file ownership. Never flag these as \
+redundant; assume they're intentional.
+- Adding an explicit ":rw" to a mount that already defaults to read-write (no suffix at all). \
+NEVER recommend this, under any framing -- "makes the intent clearer," "defensive future-\
+proofing," "prevents a later accidental edit," "best practice to be explicit" -- none of these \
+change the mount's actual behavior, so none of them make it a real finding. An unsuffixed mount \
+and a ":rw" mount are the identical, already-correct configuration; there is nothing to fix.
 - Recommending read-only for a volume that's a service's OWN config, cache, database-data, or \
 download directory -- the kind of path the service itself writes to in order to function (save \
 settings, write cache files, write its database, save downloaded files). These categories need \
 write access by definition; don't raise it as a security concern and then hedge in the fix that \
 "rw is generally required so no change is recommended" -- if that's the honest conclusion, the \
-finding was never real, so don't start writing it in the first place. Reserve read-only \
-recommendations for volumes the service only ever reads from (source media libraries, other \
-services' data it doesn't own).
+finding was never real, so don't start writing it in the first place.
+- Recommending read-only for a media library mount used by a media *manager* or *processor* \
+service, as opposed to a pure playback server. A manager's whole job is renaming, moving, \
+hardlinking, or deleting files inside that library -- it categorically is not "just reading" \
+regardless of how the mount looks in isolation. Recognize these by service name, container_name, \
+or image (allow for suffixes/variants like "sonarr-4k" or "lscr.io/linuxserver/sonarr"), \
+including but not limited to: Sonarr, Radarr, Lidarr, Readarr, Whisparr, Bazarr, Prowlarr, \
+Tdarr, FileFlows, Cleanuparr, Kapowarr, Audiobookshelf, Huntarr, Janitorr, Unpackerr, \
+qBittorrent, and Qui. Reserve read-only recommendations for a mount you can tell is genuinely \
+playback/reference-only for that specific service (a pure media server's own library mount, or \
+one service reading another's data it doesn't own).
 
 These exclusions are pre-filters, not second thoughts: decide whether a finding belongs in one \
 of these categories BEFORE drafting its title/description/fix, not by writing it out and then \

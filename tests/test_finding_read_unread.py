@@ -28,42 +28,40 @@ def test_viewing_a_finding_auto_marks_it_read(client):
     db.set_finding_status(fid, "silenced")
 
 
-def test_viewing_a_subject_with_multiple_findings_auto_marks_them_all_read(client):
-    """A real-world report: a subject with exactly one finding redirects straight into
-    finding_detail (auto-marked there for free), but a subject with 2+ findings never got the
-    same treatment -- staying unread until each finding was opened individually. Extended the
-    same "viewing it counts as seen it" semantics to the list page itself.
-
-    Uses its own subject (not the shared _SUBJECT) and deletes rather than silences its rows on
-    cleanup -- upsert_finding never revives a silenced finding's status on recurrence (see its
-    own docstring), so silencing here on a title that gets reused every re-run would leave the
-    row permanently silenced on the next run and this test permanently unable to pass."""
-    subject = "read-unread-multi-mark-subject"
-    fid_a, _ = db.upsert_finding("logs", subject, "multi auto-mark a", "crash", "critical", "desc")
-    fid_b, _ = db.upsert_finding("logs", subject, "multi auto-mark b", "crash", "warning", "desc")
+def test_viewing_a_subjects_findings_list_does_not_touch_read_status(client):
+    """A real-world report: marking a finding Unread from its own page, then navigating back to
+    the subject's findings list, silently flipped it back to Read -- an earlier attempt at
+    auto-marking the whole visible list as read on every view (not just the single-item pages)
+    made "Mark as Unread" effectively non-functional the moment you left the finding's own page.
+    Reverted: only viewing an individual finding (or update) auto-marks it; viewing a list of
+    findings must never mutate any of their read state."""
+    subject = "read-unread-list-view-subject"
+    fid_a, _ = db.upsert_finding("logs", subject, "list view a", "crash", "critical", "desc")
+    fid_b, _ = db.upsert_finding("logs", subject, "list view b", "crash", "warning", "desc")
     try:
         db.set_finding_read_status(fid_a, "unread")
-        db.set_finding_read_status(fid_b, "unread")
+        db.set_finding_read_status(fid_b, "read")
 
         resp = client.get(f"/logs/container/{subject}")
         assert resp.status_code == 200
-        assert db.get_finding(fid_a)["read_status"] == "read"
+        assert db.get_finding(fid_a)["read_status"] == "unread"
         assert db.get_finding(fid_b)["read_status"] == "read"
     finally:
         with db.get_conn() as conn:
             conn.execute("DELETE FROM findings WHERE subject = ?", (subject,))
 
 
-def test_viewing_a_subject_list_page_does_not_touch_silenced_findings(client):
-    subject = "read-unread-silenced-mark-subject"
-    fid_a, _ = db.upsert_finding("logs", subject, "silenced auto-mark a", "crash", "critical", "desc")
-    fid_b, _ = db.upsert_finding("logs", subject, "silenced auto-mark b", "crash", "warning", "desc")
+def test_marking_a_finding_unread_survives_a_return_trip_to_the_subject_list(client):
+    subject = "read-unread-survives-subject"
+    fid_a, _ = db.upsert_finding("logs", subject, "survives a", "crash", "critical", "desc")
+    fid_b, _ = db.upsert_finding("logs", subject, "survives b", "crash", "warning", "desc")
     try:
-        db.set_finding_read_status(fid_a, "unread")
-        db.set_finding_status(fid_a, "silenced")
+        client.post(f"/findings/{fid_a}/unread")
+        assert db.get_finding(fid_a)["read_status"] == "unread"
 
-        resp = client.get(f"/logs/container/{subject}")
-        assert resp.status_code == 200
+        # Landing back on the subject's own list page (as a "back" navigation would) must not
+        # silently undo that explicit choice.
+        client.get(f"/logs/container/{subject}")
         assert db.get_finding(fid_a)["read_status"] == "unread"
     finally:
         with db.get_conn() as conn:
@@ -88,17 +86,10 @@ def test_mark_as_read_and_unread_toggle_in_place(client):
 
 
 def test_subject_findings_page_shows_a_read_column(client):
-    """Viewing this page now auto-marks every ACTIVE finding read (see
-    test_viewing_a_subject_with_multiple_findings_auto_marks_them_all_read below) -- so this
-    only exercises the "Unread" badge via a silenced finding, which auto-mark deliberately never
-    touches (see test_viewing_a_subject_list_page_does_not_touch_silenced_findings), while an
-    already-read active finding still proves the "Read" badge renders."""
     compose_path = "/tmp/rr-test-compose/read-unread-test/compose.yml"
     fid, _ = db.upsert_finding("compose", compose_path, "col test 1", "reliability", "warning", "desc")
     fid2, _ = db.upsert_finding("compose", compose_path, "col test 2", "reliability", "critical", "desc")
     db.set_finding_read_status(fid, "unread")
-    db.set_finding_status(fid, "silenced")
-    db.set_finding_status(fid2, "active")
     db.set_finding_read_status(fid2, "read")
 
     resp = client.get(f"/compose/file?path={compose_path}")
@@ -109,25 +100,6 @@ def test_subject_findings_page_shows_a_read_column(client):
 
     db.set_finding_status(fid, "silenced")
     db.set_finding_status(fid2, "silenced")
-
-
-def test_viewing_a_compose_file_with_multiple_findings_auto_marks_them_all_read(client):
-    """Compose counterpart of test_viewing_a_subject_with_multiple_findings_auto_marks_them_all_
-    read above -- same auto-mark, keyed by file path instead of container name."""
-    compose_path = "/tmp/rr-test-compose/read-unread-multi-mark.yml"
-    fid_a, _ = db.upsert_finding("compose", compose_path, "multi auto-mark a", "reliability", "warning", "desc")
-    fid_b, _ = db.upsert_finding("compose", compose_path, "multi auto-mark b", "reliability", "critical", "desc")
-    try:
-        db.set_finding_read_status(fid_a, "unread")
-        db.set_finding_read_status(fid_b, "unread")
-
-        resp = client.get(f"/compose/file?path={compose_path}")
-        assert resp.status_code == 200
-        assert db.get_finding(fid_a)["read_status"] == "read"
-        assert db.get_finding(fid_b)["read_status"] == "read"
-    finally:
-        with db.get_conn() as conn:
-            conn.execute("DELETE FROM findings WHERE subject = ?", (compose_path,))
 
 
 def test_issues_table_shows_an_aggregate_unread_indicator(client):

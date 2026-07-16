@@ -50,3 +50,32 @@ def test_prompt_suppresses_empty_networks_block():
 def test_prompt_still_reinforces_reading_the_actual_mount_suffix():
     assert ":ro" in _RENDERED
     assert "character by character" in _RENDERED
+
+
+def test_prompt_forcefully_suppresses_explicit_rw_recommendations():
+    """A real-world report: the AI still recommended adding an explicit :rw "for clarity"
+    despite an earlier, softer version of this exclusion naming that exact reasoning -- this
+    locks in the strengthened wording so a future edit can't quietly soften it back."""
+    assert "NEVER recommend this, under any framing" in _RENDERED
+    assert "makes the intent clearer" in _RENDERED
+
+
+def test_prompt_suppresses_puid_pgid_as_redundant():
+    for var in ("PUID", "PGID", "GUID", "UID", "TZ"):
+        assert var in _RENDERED
+    assert "linuxserver.io" in _RENDERED
+    assert "Never flag these as redundant" in _RENDERED
+
+
+def test_prompt_teaches_media_managers_need_rw_on_library_mounts():
+    """A real-world report: the AI assumed Sonarr's media mount only needed read access and
+    flagged it as an unnecessary security concern -- Sonarr renames/moves/deletes files in that
+    library as its normal job. Locks in the specific tool list so a future edit doesn't quietly
+    drop it back to the old, wrong "media libraries are read-only" assumption."""
+    assert "media *manager* or *processor*" in _RENDERED
+    for tool in (
+        "Sonarr", "Radarr", "Lidarr", "Readarr", "Whisparr", "Bazarr", "Prowlarr",
+        "Tdarr", "FileFlows", "Cleanuparr", "Kapowarr", "Audiobookshelf", "Huntarr",
+        "Janitorr", "Unpackerr", "qBittorrent", "Qui",
+    ):
+        assert tool in _RENDERED, f"expected {tool!r} in the media-manager suppression list"
