@@ -638,7 +638,11 @@ def generate_stack_name(service_names: list[str]) -> str:
         if answer in service_names:
             return answer
     except Exception:
-        pass
+        # Deliberately non-fatal (the alphabetical fallback below is perfectly serviceable for
+        # picking a representative name), but logged rather than silently swallowed -- this was
+        # the one except-Exception block in the app that dropped the error on the floor
+        # entirely, found by a systematic sweep.
+        logger.warning("Stack name-pick AI call failed -- falling back to alphabetical", exc_info=True)
     return sorted(service_names)[0]
 
 
