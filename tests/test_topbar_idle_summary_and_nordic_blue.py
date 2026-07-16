@@ -77,6 +77,7 @@ def test_everything_clean_reports_ok(client):
 
 def test_open_issues_are_counted_and_reported_as_warn(client):
     check_state.set_finished("updates", {"checked": 1})
+    db.upsert_container_state("needs-update", "owner/repo", "latest", "sha256:b")
     db.record_update(
         container_name="needs-update", image_repo="owner/repo", tag="latest",
         old_digest="sha256:a", new_digest="sha256:b", summary_markdown="x",
@@ -89,12 +90,34 @@ def test_open_issues_are_counted_and_reported_as_warn(client):
     assert data["summary_status"] == "warn"
 
 
+def test_topbar_pending_count_matches_the_updates_page_not_just_unread_rows(client):
+    """A real bug: the topbar said "0 Updates pending" while the Updates page itself showed 24,
+    because this summary counted rows with status='unread' -- once a pending update has been
+    viewed (marked read), it no longer counted here even though it's still genuinely pending and
+    still shows on the Updates page. Now uses the same actionable-and-not-silenced set the
+    Overview hero and the Updates page's own count badge already use."""
+    check_state.set_finished("updates", {"checked": 1})
+    db.upsert_container_state("needs-update-read", "owner/repo", "latest", "sha256:b")
+    update_id = db.record_update(
+        container_name="needs-update-read", image_repo="owner/repo", tag="latest",
+        old_digest="sha256:a", new_digest="sha256:b", summary_markdown="x",
+        source_url=None, error=None, severity="feature", release_notes_raw="x",
+        upgrade_guidance=None,
+    )
+    db.mark_update_status(update_id, "read")
+    resp = client.get("/checks/status")
+    data = resp.json()
+    assert data["summary_text"] == "1 Update pending • 0 Runtime issues • 0 Configuration issues"
+    assert data["summary_status"] == "warn"
+
+
 def test_disabled_features_still_count_toward_the_breakdown(client):
     """A real-world report: a disabled feature's own real, nonzero count used to be silently
     excluded from the breakdown, which could read as "All Clear" while an issue sat right there
     on that disabled feature. The enabled toggle only pauses a feature's own scheduled/automatic
     checks -- it must never hide an already-found result, so this has to keep reporting the
     pending update even with Updates disabled."""
+    db.upsert_container_state("needs-update", "owner/repo", "latest", "sha256:b")
     db.record_update(
         container_name="needs-update", image_repo="owner/repo", tag="latest",
         old_digest="sha256:a", new_digest="sha256:b", summary_markdown="x",
@@ -112,6 +135,7 @@ def test_real_data_with_every_feature_disabled_never_reports_no_checks_run_yet(c
     """Regression guard for a real-world report: with historical updates/findings already
     present but every feature toggled off, the summary must not regress to the pristine "No
     checks run yet" state -- it still reports the real count."""
+    db.upsert_container_state("needs-update-2", "owner/repo", "latest", "sha256:b")
     db.record_update(
         container_name="needs-update-2", image_repo="owner/repo", tag="latest",
         old_digest="sha256:a", new_digest="sha256:b", summary_markdown="x",

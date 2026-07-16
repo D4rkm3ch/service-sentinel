@@ -49,10 +49,13 @@ def test_release_notes_section_is_renamed_and_intro_merged():
     assert "If you've missed several releases" not in text
 
 
-def test_apprise_hint_explains_why_format_markdown_is_appended(client):
+def test_apprise_hint_no_longer_singles_out_discord(client):
+    """The Discord-specific ?format=markdown explanation (and the auto-append behavior it
+    described) was removed per a real-world report that it read as hamstringing every other
+    Apprise-supported service -- see test_apprise_url_normalization.py."""
     text = _settings_text(client)
-    assert "enable colored Discord embeds" in text
-    assert "shown below is added automatically" not in text
+    assert "enable colored Discord embeds" not in text
+    assert "Discord webhooks are entered as" not in text
 
 
 def test_apprise_url_uses_the_test_and_save_cancel_button_pair_not_a_hint_paragraph(client):
@@ -63,7 +66,7 @@ def test_apprise_url_uses_the_test_and_save_cancel_button_pair_not_a_hint_paragr
     assert "Only saved after a successful test" not in text
     assert "typing alone doesn't save it" not in text
     assert "Send test notification" not in text
-    apprise_section = text[text.index('id="apprise_urls_wrapper"'):]
+    apprise_section = text[text.index('id="apprise_urls_field"'):]
     apprise_section = apprise_section[:apprise_section.index("</div>", apprise_section.index("api-key-row"))]
     assert "Test &amp; Save" in apprise_section
     assert 'onclick="cancelAppriseEdit()"' in apprise_section

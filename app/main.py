@@ -182,35 +182,6 @@ def _updates_pending_rows() -> list[dict]:
     return [r for r in rows if r["status"] in ("update_available", "error") and not r.get("silenced")]
 
 
-_UPDATE_SEVERITY_RANK = {"bugfix": 0, "feature": 1, "action_needed": 2, "breaking": 3}
-_UPDATE_RANK_TIER = {0: "neutral", 1: "info", 2: "warning", 3: "critical"}
-
-
-def _updates_hero_tier(rows: list[dict]) -> str:
-    """Worst-severity tier among currently pending updates, driving the hero metric's color --
-    red for a breaking change or an outright check failure, amber for action-needed, the app's
-    own accent for a plain new feature, grey for a routine bugfix (or anything AI classification
-    hasn't reached yet -- an unknown severity is never shown as more urgent than that)."""
-    best_rank = -1
-    for r in rows:
-        if r["status"] == "error":
-            return "critical"
-        rank = _UPDATE_SEVERITY_RANK.get(r["severity"])
-        if rank is not None and rank > best_rank:
-            best_rank = rank
-    return _UPDATE_RANK_TIER.get(best_rank, "neutral")
-
-
-_FINDING_RANK_TIER = {"suggestion": "neutral", "warning": "warning", "critical": "critical"}
-
-
-def _findings_hero_tier(rows: list[dict]) -> str:
-    """rows are list_subjects_with_findings() output, each already carrying its own top_severity
-    (critical/warning/suggestion) -- reuses that rather than re-deriving it from raw findings."""
-    worst = max((r["top_severity"] for r in rows), key=lambda s: db.SEVERITY_ORDER.get(s, 0), default="suggestion")
-    return _FINDING_RANK_TIER.get(worst, "neutral")
-
-
 def _health_streak_text(since_iso: str, healthy: bool) -> str:
     since = datetime.fromisoformat(since_iso)
     if since.tzinfo is None:
@@ -231,6 +202,16 @@ def _feature_top_issues(feature: str, limit: int = 3) -> list[dict]:
         display_names = db.get_container_display_names(names) if names else {}
         for item in items:
             item["display_name"] = display_names.get(item["name"], item["name"])
+            # "New version available" said nothing a container-name box didn't already imply --
+            # the actual new version (e.g. "v1.6.0-ls355"), when it's resolvable, is the one
+            # piece of information this blurb can usefully add. Only ever resolves for the
+            # GitHub-releases path (see extract_latest_version's own docstring); every other
+            # source keeps the generic fallback db.list_attention_items_for_feature already set.
+            raw_notes = item.pop("release_notes_raw", None)
+            if not item["error"]:
+                version = release_notes.extract_latest_version(raw_notes)
+                if version:
+                    item["blurb"] = version
     else:
         for item in items:
             item["display_name"] = compose_lookup.subject_display_name(feature, item["name"])
@@ -245,7 +226,6 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
         count = len(rows)
         headline = f"{count} pending update{'s' if count != 1 else ''}" if count else "Up to date"
         last_at = summary["last_at"]
-        hero_tier = "ok" if count == 0 else _updates_hero_tier(rows)
     else:
         summary = db.findings_health_summary(feature)
         # Same subject-level, non-silenced set list_subjects_with_findings feeds the feature's
@@ -256,12 +236,15 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
         count = len(rows)
         headline = f"{count} Issue{'s' if count != 1 else ''}" if count else "All clean"
         last_at = summary["last_at"]
-        hero_tier = "ok" if count == 0 else _findings_hero_tier(rows)
     detail = f"Last checked {local_dt(last_at)}" if last_at else "Never checked"
     running = is_running(feature)
     use_master = db.get_feature_uses_master_schedule(feature)
     schedule_spec = db.get_master_schedule() if use_master else db.get_feature_schedule(feature)
     healthy = count == 0
+    # A flat theme-accent color once there's anything at all to flag, rather than grading it by
+    # severity -- ranged coloring (red for critical, amber for warning, etc.) was tried and
+    # reverted per feedback; "Up to date"/"All clean" keeps the app's own accent either way.
+    hero_tier = "ok" if healthy else "issue"
     streak_since = db.update_feature_health_streak(feature, healthy_now=healthy)
     return {
         "feature": feature, "title": title, "enabled": enabled,
@@ -500,9 +483,9 @@ def _compact_health_summary() -> tuple[str, str]:
     counts: dict[str, int] = {}
     for feature in check_state.FEATURES:
         if feature == "updates":
-            counts[feature] = db.latest_update_summary()["unread"]
+            counts[feature] = len(_updates_pending_rows())
         else:
-            counts[feature] = db.findings_health_summary(feature)["active"]
+            counts[feature] = len(db.list_subjects_with_findings(feature))
     ever_happened = any(counts.values()) or any(
         check_state.get_state(feature).get("last_run_at") for feature in check_state.FEATURES
     )
@@ -1429,30 +1412,15 @@ async def save_notify_compose_include_errors(request: Request):
     return _saved(request)
 
 
-def _normalize_apprise_url(url: str) -> str:
-    """Discord webhook URLs need ?format=markdown for Apprise to build a colored embed at all
-    (see notifications.py's own module docstring) -- a bare discord:// URL otherwise falls back
-    to a flat plain-text message with no severity color. Appended automatically here so the
-    user never has to remember to type it themselves, the same way an email signup form fills
-    in "@example.com" after whatever you type. Every other Apprise-supported service's URL
-    passes through untouched -- this only ever touches a discord:// URL with no query string
-    of its own yet."""
-    if url.startswith("discord://") and "?" not in url:
-        return url + "?format=markdown"
-    return url
-
-
 @app.post("/settings/notify/apprise-test")
 async def test_apprise(request: Request):
     form = await request.form()
     raw = form.get("apprise_urls", "") or ""
-    urls = [_normalize_apprise_url(u.strip()) for u in raw.replace("\n", ",").split(",") if u.strip()]
+    urls = [u.strip() for u in raw.replace("\n", ",").split(",") if u.strip()]
     success, message = send_test_notification(urls=urls)
     if success:
         # Only persist the URL once it's actually proven to work — an unsaved textarea
         # that hasn't been tested (or failed its test) never gets written to the database.
-        # Saves the normalized form (with ?format=markdown already appended) so what's tested
-        # is exactly what's saved and reused on every real notification from then on.
         db.set_apprise_urls(", ".join(urls))
     css_class = "test-result-ok" if success else "test-result-error"
     return templates.TemplateResponse(

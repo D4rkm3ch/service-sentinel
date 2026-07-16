@@ -1159,7 +1159,7 @@ tr:hover .row-chevron {
 .feature-card-title {
   font-size: 20px;
   font-weight: 500;
-  color: var(--title-accent, var(--text-dim));
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1175,12 +1175,10 @@ tr:hover .row-chevron {
 }
 
 /* Hero metric -- the single large "12 pending" / "3 Issues" / "Up to date" line each module
-   row leads with. Colored by the worst severity actually present (main._updates_hero_tier /
-   _findings_hero_tier) rather than a flat ok/not-ok, using the exact same palette the severity
-   badges elsewhere in the app already use -- critical/breaking red, warning/action_needed
-   amber, a plain new feature the app's own accent, and bugfix/suggestion (or anything not yet
-   classified) the same neutral grey as everywhere else, so the color alone says how urgent
-   this actually is, not just whether it's zero. */
+   row leads with. A severity-graded palette (red for critical, amber for warning, etc.) was
+   tried and reverted per feedback -- healthy stays the app's own accent, anything else is
+   always the theme's own highlight color (--title-accent, e.g. Nordic Blue's off-gold) rather
+   than grading it by how bad it is. */
 .feature-card-hero {
   display: flex;
   align-items: baseline;
@@ -1203,21 +1201,9 @@ tr:hover .row-chevron {
 .feature-card-hero.hero-ok .feature-card-hero-text {
   color: var(--accent);
 }
-.feature-card-hero.hero-critical .feature-card-hero-icon,
-.feature-card-hero.hero-critical .feature-card-hero-text {
-  color: var(--error);
-}
-.feature-card-hero.hero-warning .feature-card-hero-icon,
-.feature-card-hero.hero-warning .feature-card-hero-text {
-  color: var(--warn);
-}
-.feature-card-hero.hero-info .feature-card-hero-icon,
-.feature-card-hero.hero-info .feature-card-hero-text {
-  color: var(--accent);
-}
-.feature-card-hero.hero-neutral .feature-card-hero-icon,
-.feature-card-hero.hero-neutral .feature-card-hero-text {
-  color: var(--text-dim);
+.feature-card-hero.hero-issue .feature-card-hero-icon,
+.feature-card-hero.hero-issue .feature-card-hero-text {
+  color: var(--title-accent, var(--warn));
 }
 .feature-card-streak {
   font-size: 12px;
@@ -1251,16 +1237,15 @@ tr:hover .row-chevron {
   flex-direction: column;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--title-accent, var(--border));
   border-radius: 10px;
   padding: 18px;
   text-decoration: none;
   color: inherit;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
 .feature-card-issue-slot:hover {
-  border-color: var(--accent-dim);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
   transform: translateY(-2px);
 }
@@ -1647,42 +1632,6 @@ textarea {
   font-size: 13px;
   resize: vertical;
 }
-/* Input with a fixed, non-editable suffix -- e.g. the Apprise Discord URL field, where
-   ?format=markdown is always appended server-side, so it's shown outside the editable area
-   the same way a signup form shows a fixed "@example.com" after an editable username box. */
-.input-with-suffix {
-  display: flex;
-  align-items: stretch;
-  max-width: 520px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  overflow: hidden;
-}
-.input-with-suffix:focus-within {
-  border-color: var(--accent);
-}
-.input-with-suffix input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  padding: 8px;
-  font-size: 13px;
-  color: var(--text);
-  outline: none;
-}
-.input-with-suffix .input-suffix {
-  display: flex;
-  align-items: center;
-  padding: 0 10px;
-  font-size: 13px;
-  color: var(--text-dim);
-  background: var(--hover-tint);
-  border-left: 1px solid var(--border);
-  white-space: nowrap;
-}
-.input-with-suffix.dimmed { opacity: 0.6; }
 .apprise-disclaimer {
   font-style: italic;
   margin: 6px 0 10px;

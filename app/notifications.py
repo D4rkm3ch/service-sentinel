@@ -20,7 +20,11 @@ one check still batches into a single message.
 
 Apprise's Discord plugin only builds a colored embed at all when the target webhook URL itself
 includes `?format=markdown` (e.g. `discord://id/token/?format=markdown`); a bare discord://
-URL falls back to a flat plain-text message with no color. See settings.html's Apprise URL hint.
+URL falls back to a flat plain-text message with no color. This used to be appended
+automatically for a bare discord:// URL, but that special-cased Discord over every other
+Apprise-supported service in both the UI copy and the actual saved value -- Discord users who
+want the colored embed now add `?format=markdown` to their own webhook URL themselves, the
+same way any other service-specific query string works.
 
 _ASSET below strips Apprise's own default branding (the "Apprise" author line and its megaphone
 avatar) entirely rather than replacing it with our own -- the webhook's own name/icon (set

@@ -151,11 +151,7 @@ capped by your last actual check</p>
 
   <div class="settings-subsection">
     <h4>Runtime</h4>
-    <p class="meta">Only look at logs since the last check - turn off to always rescan the
-window below</p>
-    {{ ts.toggle_switch('logs_use_checkpoint', logs_use_checkpoint, '/settings/logs-use-checkpoint', 'Use checkpoint') }}
-    <p class="meta" style="margin-top:12px">How far back to look without a checkpoint - a new
-or just-reset container, or every check with the toggle above off</p>
+    <p class="meta">How far back to look without a checkpoint</p>
     <select name="logs_lookback" class="mono field-input" hx-post="/settings/logs-lookback"
             hx-trigger="change" hx-target="#saved-logs-lookback">
       <option value="1" {{ 'selected' if logs_lookback == '1' else '' }}>Last 1 hour</option>
@@ -167,6 +163,9 @@ or just-reset container, or every check with the toggle above off</p>
       <option value="168" {{ 'selected' if logs_lookback == '168' else '' }}>Last 7 days</option>
     </select>
     <span class="saved-indicator-slot" id="saved-logs-lookback"></span>
+    <p class="meta" style="margin-top:12px">Only look at logs since the last check - turn off to
+always rescan the window above</p>
+    {{ ts.toggle_switch('logs_use_checkpoint', logs_use_checkpoint, '/settings/logs-use-checkpoint', 'Use checkpoint') }}
   </div>
 </section>
 
@@ -210,14 +209,11 @@ or just-reset container, or every check with the toggle above off</p>
   <div class="settings-subsection settings-subsection-first">
     {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', 'Enable notifications', "toggleAppriseField(this.checked)") }}
 
-    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated - see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for other services.<br>Discord webhooks are entered as <code>discord://{WebhookID}/{WebhookToken}</code>.<br><code>?format=markdown</code> is appended automatically to enable colored Discord embeds.</p>
-    <div class="input-with-suffix {{ '' if notify.enabled else 'dimmed' }}" id="apprise_urls_wrapper">
-      <input type="text" name="apprise_urls" id="apprise_urls_field" class="mono"
-             placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}
-             data-saved-value="{{ notify.apprise_urls.replace('?format=markdown', '') }}"
-             value="{{ notify.apprise_urls.replace('?format=markdown', '') }}">
-      <span class="input-suffix">?format=markdown</span>
-    </div>
+    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated - see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for the exact format each service needs.</p>
+    <input type="text" name="apprise_urls" id="apprise_urls_field" class="mono field-input"
+           placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}
+           data-saved-value="{{ notify.apprise_urls }}"
+           value="{{ notify.apprise_urls }}">
     <div class="api-key-row">
       <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
         Test &amp; Save
@@ -458,10 +454,7 @@ function toggleScheduleOverride(feature, usingOwnSchedule) {
 
 // ---- Apprise URL field gating ----
 function toggleAppriseField(enabled) {
-  const field = document.getElementById('apprise_urls_field');
-  field.disabled = !enabled;
-  const wrapper = document.getElementById('apprise_urls_wrapper');
-  if (wrapper) wrapper.classList.toggle('dimmed', !enabled);
+  document.getElementById('apprise_urls_field').disabled = !enabled;
 }
 
 // ---- Apprise URL Test & Save / Reset -- same shape as the API key fields' own Test & Save /

@@ -172,23 +172,56 @@ def test_overview_card_shows_top_issue_slots_with_display_names_and_links(client
         _cleanup_findings("compose", "attn-render-subject")
 
 
-def test_overview_hero_color_reflects_worst_severity_present(client):
-    """A breaking-change update must read as critical (red), not just "not healthy" -- the
-    same amber every other issue used to get regardless of how severe it actually was."""
+def test_updates_issue_slot_blurb_shows_the_resolved_version_not_a_generic_line(client):
+    """"New version available" on every single box was pointless -- it's the same text
+    regardless of which container or which version. Shows the actual resolved version (e.g.
+    "v1.6.0-ls355") when release_notes_raw resolves to one."""
+    db.upsert_container_state("attn-version-app", "owner/attn-version-app", "latest", "sha256:new")
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)):
+        db.record_update(
+            container_name="attn-version-app", image_repo="owner/attn-version-app", tag="latest",
+            old_digest="sha256:old", new_digest="sha256:new", summary_markdown=None,
+            source_url=None, release_notes_raw="## v1.6.0-ls355 (2024-01-01)\n\nSome fixes.",
+            severity="breaking",
+        )
+    try:
+        resp = client.get("/")
+        card = resp.text[resp.text.index('id="card-updates"'):]
+        assert "v1.6.0-ls355" in card
+        assert "New version available" not in card
+    finally:
+        _cleanup_container("attn-version-app")
+
+
+def test_updates_issue_slot_blurb_falls_back_when_no_version_is_resolvable(client):
+    _seed_container_with_update("attn-no-version-app", "breaking")
+    try:
+        resp = client.get("/")
+        card = resp.text[resp.text.index('id="card-updates"'):]
+        assert "New version available" in card
+    finally:
+        _cleanup_container("attn-no-version-app")
+
+
+def test_overview_hero_color_is_the_theme_accent_regardless_of_severity(client):
+    """Severity-graded hero coloring (red for critical, amber for warning, etc.) was tried and
+    reverted per feedback -- any pending issue at all, regardless of how severe, gets the same
+    flat "hero-issue" theme-accent color, not a color scaled to how bad it is."""
     _seed_container_with_update("attn-hero-breaking", "breaking")
     try:
         resp = client.get("/")
         card = resp.text[resp.text.index('id="card-updates"'):resp.text.index('id="card-logs"')]
-        assert "hero-critical" in card
+        assert "hero-issue" in card
+        assert "hero-critical" not in card
     finally:
         _cleanup_container("attn-hero-breaking")
 
 
-def test_overview_hero_color_is_neutral_for_a_plain_bugfix_update(client):
+def test_overview_hero_color_is_still_the_theme_accent_for_a_plain_bugfix_update(client):
     _seed_container_with_update("attn-hero-bugfix", "bugfix")
     try:
         resp = client.get("/")
         card = resp.text[resp.text.index('id="card-updates"'):resp.text.index('id="card-logs"')]
-        assert "hero-neutral" in card
+        assert "hero-issue" in card
     finally:
         _cleanup_container("attn-hero-bugfix")

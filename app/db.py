@@ -1291,7 +1291,12 @@ def list_attention_items_for_feature(feature: str, limit: int = 3) -> list[dict]
                 # container whose severity hasn't been classified yet -- None/"" would otherwise
                 # reach the badge/severity_label in the template, which expects a real value.
                 "name": row["container_name"], "severity": row["severity"] or "bugfix",
+                # main._feature_top_issues replaces this with the actual resolved version (e.g.
+                # "v1.6.0-ls355") when release_notes_raw resolves to one -- see its own comment
+                # for why that lives in main.py rather than here (release_notes.py itself
+                # imports db, so importing it back from here would be circular).
                 "blurb": "Check failed" if error else "New version available",
+                "release_notes_raw": row.get("release_notes_raw"),
                 "url": f"/updates/{row['id']}" if row.get("id") else "/updates",
                 "at": row.get("created_at") or "",
             })

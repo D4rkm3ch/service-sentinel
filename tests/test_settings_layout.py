@@ -5,8 +5,8 @@ slot moved from between a toggle switch and its label (where it just read as an 
 to trail after the label instead, and the severity buttons colored to match their badges
 elsewhere in the app instead of one flat accent color regardless of severity. A later round
 removed the now-redundant "Active provider" label and the Timezone explanation paragraph, and
-replaced the free-form Apprise textarea with a single input showing a fixed ?format=markdown
-suffix outside the editable box."""
+replaced the free-form Apprise textarea with a single input (a later round removed that input's
+auto-appended ?format=markdown suffix -- see test_apprise_url_normalization.py)."""
 
 from pathlib import Path
 
@@ -75,25 +75,17 @@ def test_timezone_explanation_paragraph_is_gone():
     assert "Last checked" not in timezone_section
 
 
-def test_apprise_field_shows_a_fixed_format_markdown_suffix(client):
+def test_apprise_field_no_longer_shows_a_fixed_format_markdown_suffix(client):
+    """?format=markdown used to be appended automatically to a bare discord:// URL and shown as
+    a fixed suffix outside the editable box -- removed per a real-world report that special-
+    casing Discord (in the UI and in the actual saved value) hamstrung every other Apprise-
+    supported service. URLs are now saved exactly as typed, so there's no suffix to show."""
     page = client.get("/settings")
-    assert '<span class="input-suffix">?format=markdown</span>' in page.text
-    # The editable input itself must never show the suffix baked into its value -- it's shown
-    # once, fixed, outside the box, not duplicated inside it.
-    input_start = page.text.index('id="apprise_urls_field"')
-    input_end = page.text.index(">", input_start)
-    assert "?format=markdown" not in page.text[input_start:input_end]
+    assert "input-suffix" not in page.text
+    assert "input-with-suffix" not in page.text
 
 
-def test_apprise_help_text_shows_a_discord_format_example():
+def test_apprise_help_text_no_longer_singles_out_discord():
     text = SETTINGS_TEMPLATE.read_text()
-    assert "discord://{WebhookID}/{WebhookToken}" in text
-    assert "Discord webhook URLs are formatted automatically." not in text
-
-
-def test_apprise_help_text_breaks_after_the_first_sentence():
-    text = SETTINGS_TEMPLATE.read_text()
-    start = text.index("Apprise URL(s), comma-separated")
-    end = text.index("</p>", start)
-    paragraph = text[start:end]
-    assert "for other services.<br>Discord webhooks" in paragraph
+    assert "discord://{WebhookID}/{WebhookToken}" not in text
+    assert "?format=markdown</code> is appended automatically" not in text
