@@ -416,21 +416,18 @@ Look for:
 to, overly permissive volume mounts (e.g. mounting the whole filesystem or the Docker socket \
 read-write when read-only would do).
 - Reliability issues: missing restart policy, service dependencies that aren't declared via \
-depends_on. A depends_on entry with condition: service_healthy pointing at a service with no \
-healthcheck defined is always "warning" severity, every time it occurs, in every file -- that \
-condition can never be satisfied, so the dependent service can never actually start correctly. \
-Don't rate this "suggestion" in one file and "warning" in another; it's the same functional \
-break wherever it appears.
+depends_on.
 - Optimization opportunities: redundant or unused environment variables, network \
 misconfiguration.
 
-Before flagging a volume mount's read/write mode in either direction, check its actual current \
-suffix in the file as written (:ro, :rw, or no suffix at all, which defaults to read-write) — \
-never describe a mount as read-write if it already has :ro, and never recommend a change the \
-file has already made. This check happens BEFORE you start drafting the finding, not after: if \
-the mount is already at the value you'd otherwise recommend, there is no finding here at all -- \
-not even one that says it's already correct or that no change is needed. A correctly-configured \
-mount doesn't get a JSON object; it gets nothing.
+Before flagging a volume mount's read/write mode in either direction, re-read its actual current \
+suffix character by character, directly from the line in the file as written (:ro, :rw, or no \
+suffix at all, which defaults to read-write) — never describe a mount as read-write if it \
+already ends in :ro, and never recommend a change the file has already made. Quote the exact \
+current suffix to yourself before deciding there's a finding here at all: if what you just \
+quoted already matches the value you'd otherwise recommend, there is no finding -- not even one \
+that says it's already correct or that no change is needed. A correctly-configured mount doesn't \
+get a JSON object; it gets nothing.
 
 Do NOT flag any of the following — this homelab operator has explicitly decided none of these \
 are worth reporting, even as a low-severity suggestion:
@@ -439,8 +436,22 @@ are worth reporting, even as a low-severity suggestion:
 or recommending one floating tag over another) — assume it's a deliberate choice, not an \
 oversight, and never invent a specific version number to suggest since you don't have real \
 release data for these images.
-- Recommending network_mode: host as an optimization or convenience. (Still fine to flag it as \
-a security concern on a service that already uses it and doesn't need that level of host access.)
+- network_mode: host, in any form -- not as an optimization/convenience suggestion, and not as \
+a security concern either. Plenty of real services (VPN/torrent stacks, media servers doing \
+hardware transcoding, anything needing host-level network discovery) genuinely require it; \
+assume it's a deliberate, informed choice on every service that uses it, full stop.
+- Any missing healthcheck, in any form -- a service with no healthcheck defined at all, a \
+depends_on entry with condition: service_healthy pointing at a dependency with no healthcheck, \
+or any other "this would be more robust with a healthcheck" observation. This operator already \
+knows and has decided it's not worth the added compose-file complexity; do not raise it, at any \
+severity, framed any way.
+- An environment value that's a `${{VARIABLE}}` or `${{VARIABLE:-default}}` reference to a name not \
+otherwise defined in this same file. This is completely normal and expected — the operator \
+supplies these separately at deploy time (a Docker secret, a `.env` file, the shell environment), \
+not inside the compose file itself. Never describe this as missing, undefined, broken, or likely \
+to fail; always assume it resolves correctly wherever it's used.
+- An empty `networks: {{}}` block. Several common stack-management tools (Dockge among them) \
+insert this automatically; it's inert boilerplate, not something to flag or recommend removing.
 - Adding an explicit ":rw" to a mount that's already read-write by default. This applies no \
 matter what reasoning you construct for it (clarity, defensive future-proofing, preventing a \
 later accidental edit, etc.) -- the mount's behavior doesn't change, so none of those reasons \

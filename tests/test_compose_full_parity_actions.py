@@ -232,7 +232,9 @@ def test_compose_file_page_has_check_now_and_reset_buttons_scoped_to_its_subject
     assert f"/compose/file/check-now?path={path}" in resp.text
     assert f"/compose/file/regenerate?path={path}" in resp.text
     assert f"/compose/file/reset-and-recheck?path={path}" in resp.text
-    assert f"/compose/file/read?path={path}" in resp.text
+    # Viewing the page auto-marks its findings read (see test_finding_read_unread.py's own
+    # coverage of that), so the toggle now renders "Mark all as Unread", not "...as Read".
+    assert f"/compose/file/unread?path={path}" in resp.text
     assert f"/compose/file/silence?path={path}" in resp.text
 
 

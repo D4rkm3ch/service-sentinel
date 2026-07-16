@@ -800,6 +800,22 @@ def _findings_summary(findings: list[dict]) -> dict:
     }
 
 
+def _auto_mark_subject_read(source: str, subject: str, findings: list[dict]) -> list[dict]:
+    """Shared by logs_container_detail/compose_file_detail: viewing a subject's whole findings
+    list counts as "seen it," the same unconditional server-side semantics update_detail and
+    finding_detail already apply at the single-item level (see either route's own "Auto-mark-
+    as-read" comment for why this beats a client-side signal) -- extended here to the list view
+    itself, since a subject with exactly one finding redirects straight into finding_detail
+    (auto-marked there for free) but a subject with 2+ never landed on either auto-mark path
+    before, staying unread until each finding was opened individually. Only writes when
+    something's actually unread, so a page that's already all-read doesn't pay for an UPDATE on
+    every single view."""
+    if any(f["status"] == "active" and f["read_status"] == "unread" for f in findings):
+        db.set_findings_read_status_for_subject(source, subject, "read")
+        return db.list_findings_for_subject(source, subject, include_silenced=True)
+    return findings
+
+
 def _sort_subject_findings(findings: list[dict], sort: str, direction: str) -> list[dict]:
     """Sorts subject_findings.html's per-finding table (one subject's own findings, Logs or
     Compose) -- a small, single-subject result set, so plain full-page sort links are enough
@@ -1686,6 +1702,7 @@ def logs_container_detail(request: Request, container_name: str, sort: str = "se
     if len(findings) == 1:
         return RedirectResponse(url=f"/findings/{findings[0]['id']}", status_code=303)
 
+    findings = _auto_mark_subject_read("logs", container_name, findings)
     overview = _get_or_build_overview("logs", container_name, container_name, findings)
     overview_html = render_markdown(overview) if overview else None
     summary = _findings_summary(findings)
@@ -1908,6 +1925,7 @@ def compose_file_detail(request: Request, path: str, sort: str = "severity", dir
     if len(findings) == 1:
         return RedirectResponse(url=f"/findings/{findings[0]['id']}", status_code=303)
 
+    findings = _auto_mark_subject_read("compose", path, findings)
     display_name = compose_lookup.subject_display_name("compose", path)
     overview = _get_or_build_overview("compose", path, display_name, findings)
     overview_html = render_markdown(overview) if overview else None

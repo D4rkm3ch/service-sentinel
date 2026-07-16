@@ -133,6 +133,17 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
 
     db.set_compose_file_hashes(hashes_to_stamp)
 
+    # Unlike Logs (which only ever sees an incremental window of new log lines and so needs the
+    # AI to explicitly judge "is this now resolved?", see analyze_logs_batch's resolved_title
+    # field), a compose review sees the file's ENTIRE current content every single pass -- no AI
+    # judgment call is needed here, a plain diff against what this pass's fresh review actually
+    # produced is enough. A real-world report: Check Now correctly re-reviewed a file after an
+    # edit (its hash genuinely changed), but a finding for whatever got fixed just stayed active
+    # forever, since nothing ever cleared it -- only Reset & re-check's full wipe made it look
+    # like the fix "worked." Batched (one connection for every file about to be reviewed this
+    # pass), same discipline as Logs' own active_findings_by_container fetch.
+    active_findings_by_path = db.get_active_findings_by_subject("compose", [path_str for path_str, _, _ in to_review])
+
     reviewed = 0
     findings_found = 0
     new_findings = []
@@ -168,10 +179,12 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
 
         file_findings_count = 0
         file_new_findings = []
+        fresh_titles = set()
         for finding in findings:
             title = finding.get("title")
             if not title:
                 continue
+            fresh_titles.add(title)
             severity = finding.get("severity", "warning")
             _finding_id, is_new = db.upsert_finding(
                 source="compose",
@@ -189,6 +202,13 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
                 file_new_findings.append({
                     "subject": subject_display_name("compose", path_str), "severity": severity, "title": title,
                 })
+
+        # Anything that was active for this file before this review but isn't in what the
+        # review just produced no longer applies -- clear it now rather than leaving it to look
+        # active forever (see this function's own docstring above for the real-world report).
+        for active in active_findings_by_path.get(path_str, []):
+            if active["title"] not in fresh_titles:
+                db.resolve_finding("compose", path_str, active["title"])
 
         db.set_compose_file_hash(path_str, content_hash)
 
