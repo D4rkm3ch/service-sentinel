@@ -5,12 +5,17 @@ on:
     branches: [main, model-providers, concurrency, uioverhaul, polish]
   workflow_dispatch: {}
 
+# Workflow-level default is deliberately minimal -- only the build job actually pushes to GHCR,
+# so only it gets the extra packages: write grant, via its own per-job permissions block below
+# (security_hardening_plan.md finding #15). Every other job (test, and any future lint/scan job)
+# inherits just this, not packages: write it doesn't need.
 permissions:
   contents: read
-  packages: write
 
 jobs:
   test:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +39,9 @@ jobs:
 
   build:
     needs: test
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

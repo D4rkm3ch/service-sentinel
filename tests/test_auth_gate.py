@@ -127,11 +127,16 @@ def test_gate_applies_to_every_ordinary_route_not_just_the_homepage(client):
 
 def test_healthz_is_reachable_without_credentials_even_when_the_gate_is_on(client):
     """A container orchestrator's liveness probe has no way to supply a credential and
-    shouldn't need one just to confirm the process is up."""
+    shouldn't need one just to confirm the process is up. Asserts not-401 rather than a
+    specific success code: /healthz is a real readiness check now (see
+    test_healthz_readiness.py), and in this test environment the Docker socket legitimately
+    doesn't exist, so it reports 503-degraded -- which is still 'reached the route without
+    credentials', the only thing THIS test is about."""
     db.set_auth_secret(_SECRET)
     try:
         resp = client.get("/healthz")
-        assert resp.status_code == 200
+        assert resp.status_code != 401
+        assert resp.json()["status"] in ("ok", "degraded")
     finally:
         db.clear_auth_secret()
 

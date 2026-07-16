@@ -1,0 +1,56 @@
+# Dependency and image vulnerability scanning (security_hardening_plan.md finding #12).
+# Non-blocking on purpose, to start: both jobs report findings without failing the run, so they
+# never stall shipping while the current baseline gets worked through. Tighten to blocking
+# (drop the continue-on-error / exit-code settings) once a clean baseline exists.
+#
+# A separate workflow from build-and-push rather than more jobs inside it: these run on a weekly
+# schedule as well as on pushes (a CVE published Tuesday should surface this week, not whenever
+# the next commit happens to land), and keeping them out of the build workflow means a scan
+# hiccup can never delay an image push.
+name: security-scan
+
+on:
+  push:
+    branches: [main, polish]
+  schedule:
+    # Weekly, Monday 03:00 UTC -- catches newly published CVEs between pushes.
+    - cron: "0 3 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run pip-audit against pinned requirements
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        # Report-only for now -- see the header comment.
+        continue-on-error: true
+        with:
+          inputs: requirements.txt
+
+  image-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image locally (not pushed)
+        run: docker build -t service-sentinel:scan .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: service-sentinel:scan
+          format: table
+          # exit-code 0 = report-only for now -- see the header comment.
+          exit-code: "0"
+          severity: CRITICAL,HIGH

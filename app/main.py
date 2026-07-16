@@ -3,6 +3,7 @@ import binascii
 import hashlib
 import hmac
 import logging
+import os
 import re
 import threading
 import time
@@ -37,7 +38,16 @@ from app.uptime import get_uptime_str
 
 APP_VERSION = "0.7.0"
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+# LOG_LEVEL was previously hardcoded to INFO with no override (test_improvement_plan.md section
+# 6) -- an env var rather than a Settings-page toggle since logging is configured once at import
+# time, before the database is even opened, and a debugging session is exactly when the Settings
+# UI itself might be the thing that's broken. An unrecognized value falls back to INFO rather
+# than crashing the app over a typo in a compose file.
+_LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, _LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
 logger = logging.getLogger("service_sentinel")
 
 
@@ -419,9 +429,50 @@ def on_startup():
     logger.info("Service Sentinel started")
 
 
+def _database_reachable() -> bool:
+    """Its own tiny helper (rather than inlined in healthz) so tests can simulate a dead
+    database by patching exactly this, without also breaking every other db.* call in the
+    request path -- the auth gate middleware reads db.get_auth_secret() on the same request,
+    and patching db.get_conn wholesale would crash that first."""
+    try:
+        with db.get_conn() as conn:
+            conn.execute("SELECT 1")
+        return True
+    except Exception:
+        logger.exception("healthz: database check failed")
+        return False
+
+
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok"}
+    """Liveness plus a real readiness signal (test_improvement_plan.md section 6) -- this used
+    to return {"status": "ok"} unconditionally, so a container that was up but couldn't reach
+    its own database or the Docker socket still reported healthy to the Dockerfile's HEALTHCHECK.
+    Degraded states return 503 (which is what flips Docker's health status to unhealthy), with
+    per-dependency detail in the body for a human investigating why.
+
+    The Docker socket check is a cheap os-level existence test, not a live API ping -- a real
+    ping per probe (every 30s, forever) would be sustained load on the daemon for a question
+    ("is the socket file mounted?") that stat answers, and a daemon that's mounted-but-hung
+    shows up loudly in the check pipeline's own error handling anyway. A TCP-based
+    DOCKER_SOCKET override (no local socket file to stat) is reported as unverified-but-assumed
+    -ok rather than failing the whole probe on a check this function can't cheaply make."""
+    db_ok = _database_reachable()
+
+    socket_path = settings.docker_socket
+    if socket_path.startswith("unix://"):
+        # docker-py accepts both unix:///var/run/... and the non-standard unix:/var/run/...
+        docker_ok = os.path.exists("/" + socket_path[len("unix://"):].lstrip("/"))
+    else:
+        docker_ok = True  # TCP/other transport -- not verifiable with a cheap local check
+
+    ok = db_ok and docker_ok
+    body = {
+        "status": "ok" if ok else "degraded",
+        "database": "ok" if db_ok else "unreachable",
+        "docker_socket": "ok" if docker_ok else "missing",
+    }
+    return JSONResponse(body, status_code=200 if ok else 503)
 
 
 # ---------------------------------------------------------------------------
