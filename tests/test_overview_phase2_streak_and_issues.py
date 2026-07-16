@@ -1,7 +1,9 @@
 """Phase 2 of the Overview redesign: a "Healthy for N days"/"Issues for N days" streak per
 module, and a per-module "top issues" feed (shown inside each module's own row, not a separate
-panel) ranking Updates' and Logs/Compose's two different severity vocabularies onto one shared
-critical/warning scale."""
+panel) ranked by severity across Updates' and Logs/Compose's two different vocabularies. Nothing
+is excluded by severity -- an earlier version hid bugfix/suggestion-tier items entirely, which
+read as broken the moment a module's hero count said e.g. "3 Issues" but none of them showed up
+as a box because all three happened to be low severity."""
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -71,7 +73,7 @@ def _seed_container_with_update(container_name: str, severity: str):
         )
 
 
-def test_attention_items_excludes_low_severity_and_ranks_critical_first():
+def test_attention_items_include_low_severity_and_rank_critical_first():
     fid_warn, _ = db.upsert_finding("logs", "attn-subject", "Elevated memory", "reliability", "warning", "d")
     fid_suggestion, _ = db.upsert_finding("compose", "attn-subject-2", "Consider adding healthcheck",
                                            "reliability", "suggestion", "d")
@@ -82,17 +84,53 @@ def test_attention_items_excludes_low_severity_and_ranks_critical_first():
         compose_blurbs = [i["blurb"] for i in db.list_attention_items_for_feature("compose", limit=10)]
         assert "Elevated memory" in logs_blurbs
         assert "Docker socket exposed" in compose_blurbs
-        # Suggestion-tier findings never count as "needing attention".
-        assert "Consider adding healthcheck" not in compose_blurbs
-        # Critical ranks above warning within its own module.
-        assert compose_blurbs.index("Docker socket exposed") == 0
+        # A suggestion-tier finding still shows up (a module's hero count includes it too).
+        assert "Consider adding healthcheck" in compose_blurbs
+        # Critical ranks above suggestion within its own module.
+        assert compose_blurbs.index("Docker socket exposed") < compose_blurbs.index("Consider adding healthcheck")
     finally:
         _cleanup_findings("logs", "attn-subject")
         _cleanup_findings("compose", "attn-subject-2")
         _cleanup_findings("compose", "attn-subject-3")
 
 
-def test_attention_items_excludes_silenced_and_low_severity_updates():
+def test_overview_renders_an_unclassified_pending_update_without_crashing(client):
+    """A real crash: an update whose severity hasn't been classified yet (record_update's own
+    default is "", which list_tracked_containers_with_status then normalizes to None) reached
+    severity_label() unguarded once low-severity items stopped being filtered out entirely,
+    raising AttributeError on None.capitalize()."""
+    db.upsert_container_state("attn-unclassified", "owner/attn-unclassified", "latest", "sha256:new")
+    with patch("app.persist.release_notes.get_release_notes", return_value=(None, None)):
+        db.record_update(
+            container_name="attn-unclassified", image_repo="owner/attn-unclassified", tag="latest",
+            old_digest="sha256:old", new_digest="sha256:new",
+            summary_markdown=None, source_url=None, release_notes_raw=None,
+        )
+    try:
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "attn-unclassified" in resp.text
+    finally:
+        _cleanup_container("attn-unclassified")
+
+
+def test_attention_items_dedupe_findings_by_subject_to_the_worst_one():
+    db.upsert_finding("logs", "attn-multi-subject", "Minor log noise", "reliability", "suggestion", "d")
+    fid_critical, _ = db.upsert_finding("logs", "attn-multi-subject", "Container crash-looping",
+                                         "reliability", "critical", "d")
+    try:
+        items = db.list_attention_items_for_feature("logs", limit=10)
+        matches = [i for i in items if i["name"] == "attn-multi-subject"]
+        # One box per subject, not one per finding -- matching list_subjects_with_findings'
+        # own per-subject counting -- and it's the subject's most severe finding that wins.
+        assert len(matches) == 1
+        assert matches[0]["blurb"] == "Container crash-looping"
+        assert matches[0]["url"] == f"/findings/{fid_critical}"
+    finally:
+        _cleanup_findings("logs", "attn-multi-subject")
+
+
+def test_attention_items_excludes_silenced_updates():
     _seed_container_with_update("attn-update-breaking", "breaking")
     _seed_container_with_update("attn-update-bugfix", "bugfix")
     _seed_container_with_update("attn-update-silenced", "breaking")
@@ -100,8 +138,8 @@ def test_attention_items_excludes_silenced_and_low_severity_updates():
     try:
         names = [i["name"] for i in db.list_attention_items_for_feature("updates", limit=10)]
         assert "attn-update-breaking" in names
-        # A plain bugfix update isn't something that needs "attention".
-        assert "attn-update-bugfix" not in names
+        # A plain bugfix update still shows up now (matches the hero's own pending count).
+        assert "attn-update-bugfix" in names
         # Silenced containers never surface here either, same as the Updates page itself.
         assert "attn-update-silenced" not in names
     finally:

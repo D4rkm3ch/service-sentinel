@@ -1260,53 +1260,56 @@ def list_subjects_with_findings(source: str, include_silenced: bool = False) -> 
         return rows
 
 
-_UPDATE_ATTENTION_TIER = {"breaking": "critical", "action_needed": "warning"}
-_FINDING_ATTENTION_TIER = {"critical": "critical", "warning": "warning"}
-_ATTENTION_TIER_RANK = {"critical": 2, "warning": 1}
+_UPDATE_SEVERITY_RANK = {"bugfix": 0, "feature": 1, "action_needed": 2, "breaking": 3}
+_FINDING_SEVERITY_RANK = {"suggestion": 0, "warning": 1, "critical": 2}
 
 
 def list_attention_items_for_feature(feature: str, limit: int = 3) -> list[dict]:
-    """Top `limit` most-severe currently-actionable items for a single module, shown inside
-    that module's own Overview row (see main._build_card, which calls this once per module on
-    every card render/poll -- scoped to one feature rather than computing all three every time).
-    Updates' own 4-tier severity (bugfix/feature/action_needed/breaking) and Logs/Compose's
-    3-tier one (suggestion/warning/critical) don't share a vocabulary, so each maps onto the
-    same critical/warning scale here -- a plain bugfix/feature update or a suggestion-level
-    finding never appears, since neither is something that actually needs "attention", just
-    something to know about. A container whose check itself failed always counts as critical
-    regardless of its stored severity (which is meaningless once the check didn't complete).
+    """Top `limit` currently-actionable items for a single module, shown inside that module's
+    own Overview row (see main._build_card, which calls this once per module on every card
+    render/poll -- scoped to one feature rather than computing all three every time). Same
+    actionable-and-not-silenced set the module's own hero count already uses (_updates_pending_
+    rows/list_subjects_with_findings), just narrowed to the handful most worth surfacing first --
+    nothing is excluded by severity here (an earlier version only showed critical/warning-tier
+    items, which read as broken the moment a module's hero count said e.g. "3 Issues" but every
+    one of them happened to be suggestion/bugfix-tier and none showed up at all).
 
-    Ranked by tier first (critical above warning), most-recently-seen within a tier second --
-    same actionable-and-not-silenced set _updates_pending_count/list_findings already use, so
-    this never surfaces something silenced or already resolved elsewhere on the page."""
+    Ranked by severity first (an outright check failure ranks above even a breaking change),
+    most-recently-seen within the same severity second. Logs/Compose findings are deduped down
+    to one (their most severe) per subject, matching list_subjects_with_findings' own per-
+    subject counting -- a container with 3 active findings is still one box, not three."""
     items: list[dict] = []
     if feature == "updates":
         for row in list_tracked_containers_with_status():
             if row["status"] not in ("update_available", "error") or row.get("silenced"):
                 continue
             error = row["status"] == "error"
-            tier = "critical" if error else _UPDATE_ATTENTION_TIER.get(row["severity"])
-            if tier is None:
-                continue
+            rank = 4 if error else _UPDATE_SEVERITY_RANK.get(row["severity"], 0)
             items.append({
-                "source": "updates", "tier": tier, "error": error,
-                "name": row["container_name"], "severity": row["severity"],
+                "source": "updates", "rank": rank, "error": error,
+                # Falls back to "bugfix" (the same neutral grey tier as a routine fix) for a
+                # container whose severity hasn't been classified yet -- None/"" would otherwise
+                # reach the badge/severity_label in the template, which expects a real value.
+                "name": row["container_name"], "severity": row["severity"] or "bugfix",
                 "blurb": "Check failed" if error else "New version available",
                 "url": f"/updates/{row['id']}" if row.get("id") else "/updates",
                 "at": row.get("created_at") or "",
             })
     else:
+        best_by_subject: dict[str, dict] = {}
         for f in list_findings(feature):
-            tier = _FINDING_ATTENTION_TIER.get(f["severity"])
-            if tier is None:
+            rank = _FINDING_SEVERITY_RANK.get(f["severity"], 0)
+            at = f["last_seen_at"] or ""
+            current = best_by_subject.get(f["subject"])
+            if current is not None and (rank, at) <= (current["rank"], current["at"]):
                 continue
-            items.append({
-                "source": feature, "tier": tier, "error": False,
+            best_by_subject[f["subject"]] = {
+                "source": feature, "rank": rank, "error": False,
                 "name": f["subject"], "severity": f["severity"], "blurb": f["title"],
-                "url": f"/findings/{f['id']}",
-                "at": f["last_seen_at"] or "",
-            })
-    items.sort(key=lambda i: (_ATTENTION_TIER_RANK[i["tier"]], i["at"]), reverse=True)
+                "url": f"/findings/{f['id']}", "at": at,
+            }
+        items = list(best_by_subject.values())
+    items.sort(key=lambda i: (i["rank"], i["at"]), reverse=True)
     return items[:limit]
 
 

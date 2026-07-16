@@ -52,11 +52,14 @@
   <div class="feature-card-issues">
     {% for item in card.top_issues %}
     <a class="feature-card-issue-slot" href="{{ item.url }}">
-      <span class="issue-slot-name">{{ item.display_name }}</span>
       <span class="badge {{ 'badge-sev-critical' if item.error else 'badge-sev-' ~ item.severity }}">
         {{ 'Check failed' if item.error else severity_label(item.source, item.severity) }}
       </span>
-      <span class="issue-slot-blurb">{{ item.blurb }}</span>
+      <span class="issue-slot-body">
+        <span class="issue-slot-name">{{ item.display_name }}</span>
+        <span class="issue-slot-blurb">{{ item.blurb }}</span>
+      </span>
+      <span class="issue-slot-cta">View details →</span>
     </a>
     {% endfor %}
   </div>
