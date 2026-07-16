@@ -1116,6 +1116,42 @@ def findings_health_summary(source: str) -> dict:
     return {"active": active, "last_at": last_at}
 
 
+def get_feature_health_streak(feature: str) -> dict:
+    """The state ("healthy"/"unhealthy") a feature's Overview hero has read continuously since
+    a given timestamp -- backs the "Healthy for N days"/"Issues for N days" line. None/None the
+    very first time a feature is ever observed (see update_feature_health_streak)."""
+    with get_conn() as conn:
+        cur = conn.execute("SELECT value FROM app_settings WHERE key = ?", (f"health_streak_{feature}_state",))
+        state_row = cur.fetchone()
+        cur = conn.execute("SELECT value FROM app_settings WHERE key = ?", (f"health_streak_{feature}_since",))
+        since_row = cur.fetchone()
+    return {
+        "healthy": (state_row["value"] == "healthy") if state_row else None,
+        "since": since_row["value"] if since_row else None,
+    }
+
+
+def update_feature_health_streak(feature: str, healthy_now: bool) -> str:
+    """Called on every fresh Overview count read (see main._build_card) rather than requiring
+    every check pipeline (persist.py, log_watch, compose_review) to separately remember to
+    report a transition here -- cheap (two point reads, and a write only on an actual flip) and
+    accurate to well within a day, which is all a day-granularity streak display needs. Returns
+    the (possibly just-reset) timestamp the current state began."""
+    current = get_feature_health_streak(feature)
+    if current["healthy"] is not None and current["healthy"] == healthy_now:
+        return current["since"]
+    now = now_iso()
+    state = "healthy" if healthy_now else "unhealthy"
+    with get_conn() as conn:
+        for key, value in ((f"health_streak_{feature}_state", state), (f"health_streak_{feature}_since", now)):
+            conn.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+    return now
+
+
 def list_findings_for_subject(source: str, subject: str, include_silenced: bool = False) -> list[sqlite3.Row]:
     with get_conn() as conn:
         if include_silenced:
@@ -1222,6 +1258,52 @@ def list_subjects_with_findings(source: str, include_silenced: bool = False) -> 
                 row["top_severity"] = "suggestion"
             rows.append(row)
         return rows
+
+
+_UPDATE_ATTENTION_TIER = {"breaking": "critical", "action_needed": "warning"}
+_FINDING_ATTENTION_TIER = {"critical": "critical", "warning": "warning"}
+_ATTENTION_TIER_RANK = {"critical": 2, "warning": 1}
+
+
+def list_attention_items(limit: int = 5) -> list[dict]:
+    """Cross-module "needs a look" feed for the Overview page. Updates' own 4-tier severity
+    (bugfix/feature/action_needed/breaking) and Logs/Compose's 3-tier one (suggestion/warning/
+    critical) don't share a vocabulary, so each maps onto the same critical/warning scale here
+    -- a plain bugfix/feature update or a suggestion-level finding never appears, since neither
+    is something that actually needs "attention", just something to know about. A container
+    whose check itself failed always counts as critical regardless of its stored severity
+    (which is meaningless once the check didn't complete).
+
+    Ranked by tier first (critical above warning), most-recently-seen within a tier second --
+    same actionable-and-not-silenced set _updates_pending_count/list_findings already use, so
+    this never surfaces something silenced or already resolved elsewhere on the page."""
+    items: list[dict] = []
+    for row in list_tracked_containers_with_status():
+        if row["status"] not in ("update_available", "error") or row.get("silenced"):
+            continue
+        error = row["status"] == "error"
+        tier = "critical" if error else _UPDATE_ATTENTION_TIER.get(row["severity"])
+        if tier is None:
+            continue
+        items.append({
+            "source": "updates", "tier": tier, "error": error,
+            "title": row["container_name"], "subject": None, "severity": row["severity"],
+            "url": f"/updates/{row['id']}" if row.get("id") else "/updates",
+            "at": row.get("created_at") or "",
+        })
+    for source in ("logs", "compose"):
+        for f in list_findings(source):
+            tier = _FINDING_ATTENTION_TIER.get(f["severity"])
+            if tier is None:
+                continue
+            items.append({
+                "source": source, "tier": tier, "error": False,
+                "title": f["title"], "subject": f["subject"], "severity": f["severity"],
+                "url": f"/findings/{f['id']}",
+                "at": f["last_seen_at"] or "",
+            })
+    items.sort(key=lambda i: (_ATTENTION_TIER_RANK[i["tier"]], i["at"]), reverse=True)
+    return items[:limit]
 
 
 def _row_silence_state(active: int, total: int) -> str | None:

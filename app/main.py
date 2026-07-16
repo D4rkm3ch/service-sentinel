@@ -182,6 +182,15 @@ def _updates_pending_count() -> int:
     return sum(1 for r in rows if r["status"] in ("update_available", "error") and not r.get("silenced"))
 
 
+def _health_streak_text(since_iso: str, healthy: bool) -> str:
+    since = datetime.fromisoformat(since_iso)
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    days = (datetime.now(timezone.utc) - since).days
+    label = "Healthy" if healthy else "Issues"
+    return f"{label} since today" if days <= 0 else f"{label} for {days} day{'s' if days != 1 else ''}"
+
+
 def _build_card(feature: str, title: str, tab_url: str) -> dict:
     enabled = db.get_feature_enabled(feature)
     if feature == "updates":
@@ -202,10 +211,13 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
     running = is_running(feature)
     use_master = db.get_feature_uses_master_schedule(feature)
     schedule_spec = db.get_master_schedule() if use_master else db.get_feature_schedule(feature)
+    healthy = count == 0
+    streak_since = db.update_feature_health_streak(feature, healthy_now=healthy)
     return {
         "feature": feature, "title": title, "enabled": enabled,
         "headline": headline, "detail": detail, "tab_url": tab_url,
-        "running": running, "count": count, "healthy": count == 0,
+        "running": running, "count": count, "healthy": healthy,
+        "streak_text": _health_streak_text(streak_since, healthy),
         # Reuses the exact same live progress text the feature's own status badge shows (e.g.
         # "Checking for updates (3/59)…" for Updates, "Checking container logs (3/59)…" for
         # Logs, a plain "Checking…" for Compose, which doesn't report granular progress) -- the
@@ -217,6 +229,24 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
     }
 
 
+def _attention_items() -> list[dict]:
+    """Resolves each cross-module item's raw container/compose-file name to its configured
+    display name (db.get_container_display_names for updates, compose_lookup.subject_display_name
+    for logs/compose findings) -- same rename feature every other table in the app already
+    honors, so an Attention Required row never shows a raw name the operator has renamed
+    everywhere else."""
+    items = db.list_attention_items(limit=5)
+    updates_names = [i["title"] for i in items if i["source"] == "updates"]
+    display_names = db.get_container_display_names(updates_names) if updates_names else {}
+    for item in items:
+        item["source_title"] = _CARD_TITLES[item["source"]]
+        if item["source"] == "updates":
+            item["display_title"] = display_names.get(item["title"], item["title"])
+        else:
+            item["display_title"] = compose_lookup.subject_display_name(item["source"], item["subject"])
+    return items
+
+
 @app.get("/")
 def overview(request: Request):
     cards = [
@@ -225,7 +255,8 @@ def overview(request: Request):
         _build_card("compose", "Configuration Health", "/compose"),
     ]
     return templates.TemplateResponse(
-        "overview.html", {"request": request, "cards": cards, "active_tab": "overview"}
+        "overview.html",
+        {"request": request, "cards": cards, "attention_items": _attention_items(), "active_tab": "overview"},
     )
 
 

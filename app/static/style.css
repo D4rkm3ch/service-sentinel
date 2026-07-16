@@ -946,6 +946,7 @@ tr:hover .row-chevron {
 .status-dot-ok { background: var(--accent); }
 .status-dot-warn { background: var(--warn); }
 .status-dot-idle { background: var(--text-dim); }
+.status-dot-critical { background: var(--error); }
 
 .htmx-request button { opacity: 0.6; cursor: default; }
 
@@ -1189,6 +1190,52 @@ tr:hover .row-chevron {
 .feature-card-hero.hero-warn .feature-card-hero-icon,
 .feature-card-hero.hero-warn .feature-card-hero-text {
   color: var(--warn);
+}
+.feature-card-streak {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: -8px 0 0;
+}
+
+/* Overview's cross-module "Attention Required" panel -- a flat, severity-ranked feed spanning
+   all three modules (see db.list_attention_items), sitting above the per-module rows so the
+   handful of things that actually need a look surface before the summary-level hero metrics. */
+.attention-panel h2 {
+  margin-bottom: 12px;
+}
+.attention-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.attention-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: inherit;
+}
+.attention-row:hover {
+  background: var(--bg);
+}
+.attention-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attention-detail {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+.attention-source {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .feature-card-meta {
