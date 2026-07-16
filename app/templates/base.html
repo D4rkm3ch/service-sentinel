@@ -354,41 +354,6 @@
       });
     })();
 
-    // Sidebar hover-peek -- while collapsed, hovering the rail (its icons are effectively the
-    // whole visible rail at that width) briefly slides it open exactly as if the hamburger had
-    // been clicked, purely as a temporary visual overlay (see .sidebar-peeking in style.css for
-    // why this never reflows the rest of the page the way the real pinned/expanded state does).
-    // A short delay before opening avoids it firing on every incidental mouse pass-through;
-    // closing has no delay at all -- moving the mouse away collapses it back immediately. Only
-    // active while collapsed: an already-pinned-open sidebar has nothing to peek into, and a
-    // pending peek is cancelled the moment an explicit click pins it open first.
-    (function () {
-      var PEEK_DELAY_MS = 400;
-      var sidebar = document.getElementById("sidebar");
-      var toggleBtn = document.getElementById("sidebar-toggle");
-      if (!sidebar || !toggleBtn) return;
-
-      var peekTimer = null;
-
-      function cancelPeek() {
-        if (peekTimer) {
-          window.clearTimeout(peekTimer);
-          peekTimer = null;
-        }
-        sidebar.classList.remove("sidebar-peeking");
-      }
-
-      sidebar.addEventListener("mouseenter", function () {
-        if (document.documentElement.dataset.sidebar !== "collapsed") return;
-        peekTimer = window.setTimeout(function () {
-          sidebar.classList.add("sidebar-peeking");
-        }, PEEK_DELAY_MS);
-      });
-
-      sidebar.addEventListener("mouseleave", cancelPeek);
-      toggleBtn.addEventListener("click", cancelPeek);
-    })();
-
     // Light/dark theme toggle -- the actual switch on click; the matching read happens in the
     // blocking <head> script above (same localStorage key), which is what avoids a flash of the
     // wrong theme on every subsequent page load once a preference has been saved once.

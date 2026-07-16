@@ -436,27 +436,6 @@ html[data-sidebar="expanded"] .sidebar-label {
   opacity: 1;
 }
 
-/* Hover-peek (see the JS below): while collapsed, hovering the rail after a short delay widens
-   just the rail itself to the expanded width and reveals its labels. Reuses .sidebar's own
-   existing width transition, so this slides exactly like clicking the hamburger would; gone the
-   instant the mouse leaves, with no separate collapse delay. */
-.sidebar.sidebar-peeking {
-  width: var(--sidebar-width-expanded);
-  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.25);
-}
-.sidebar.sidebar-peeking .sidebar-label {
-  opacity: 1;
-}
-/* body's own padding-left (and so <main>'s centered position, via its plain margin:0 auto)
-   tracks the peek too -- real-world feedback: leaving it planted at the collapsed width while
-   the rail visually grew left main centered against the OLD (narrower) rail edge, so the gap
-   between the now-wider rail and main's left edge read noticeably smaller than the gap between
-   main's right edge and the viewport, instead of the two matching. Reuses body's own existing
-   padding-left transition below, so this animates in lockstep with the rail's own width slide. */
-body:has(.sidebar.sidebar-peeking) {
-  padding-left: var(--sidebar-width-expanded);
-}
-
 main {
   max-width: 1260px;
   width: 100%;
