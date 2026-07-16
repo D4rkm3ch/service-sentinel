@@ -5,6 +5,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+from app import secrets_crypto
 from app.config import settings
 
 SCHEMA = """
@@ -330,7 +331,7 @@ def init_db() -> None:
         if env_key:
             conn.execute(
                 "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
-                ("anthropic_api_key", env_key),
+                ("anthropic_api_key", secrets_crypto.encrypt(env_key)),
             )
         env_model = os.environ.get("CLAUDE_MODEL", "")
         if env_model:
@@ -345,7 +346,7 @@ def init_db() -> None:
         if env_github_token:
             conn.execute(
                 "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
-                ("github_token", env_github_token),
+                ("github_token", secrets_crypto.encrypt(env_github_token)),
             )
 
         # Migration: an existing install may already have notify_severity_updates seeded with
@@ -614,12 +615,12 @@ def set_notifications_enabled(enabled: bool) -> None:
 
 
 def get_apprise_urls() -> list[str]:
-    raw = _get_setting("notify_apprise_urls", "")
+    raw = secrets_crypto.decrypt(_get_setting("notify_apprise_urls", ""))
     return [u.strip() for u in raw.replace("\n", ",").split(",") if u.strip()]
 
 
 def set_apprise_urls(raw: str) -> None:
-    _set_setting("notify_apprise_urls", raw or "")
+    _set_setting("notify_apprise_urls", secrets_crypto.encrypt(raw or ""))
 
 
 def get_feature_notify_enabled(feature: str) -> bool:
@@ -1746,11 +1747,11 @@ def set_ai_provider(provider: str) -> None:
 
 
 def get_anthropic_api_key() -> str:
-    return _get_setting("anthropic_api_key", "")
+    return secrets_crypto.decrypt(_get_setting("anthropic_api_key", ""))
 
 
 def set_anthropic_api_key(key: str) -> None:
-    _set_setting("anthropic_api_key", key)
+    _set_setting("anthropic_api_key", secrets_crypto.encrypt(key))
 
 
 def get_anthropic_model() -> str:
@@ -1762,11 +1763,11 @@ def set_anthropic_model(model: str) -> None:
 
 
 def get_gemini_api_key() -> str:
-    return _get_setting("gemini_api_key", "")
+    return secrets_crypto.decrypt(_get_setting("gemini_api_key", ""))
 
 
 def set_gemini_api_key(key: str) -> None:
-    _set_setting("gemini_api_key", key)
+    _set_setting("gemini_api_key", secrets_crypto.encrypt(key))
 
 
 def get_gemini_model() -> str:
@@ -1804,11 +1805,11 @@ def set_gemini_concurrency(value: int) -> None:
 
 
 def get_github_token() -> str:
-    return _get_setting("github_token", "")
+    return secrets_crypto.decrypt(_get_setting("github_token", ""))
 
 
 def set_github_token(token: str) -> None:
-    _set_setting("github_token", token)
+    _set_setting("github_token", secrets_crypto.encrypt(token))
 
 
 # The optional shared-secret auth gate (security_hardening_plan.md finding #2) -- off by
@@ -1816,11 +1817,11 @@ def set_github_token(token: str) -> None:
 # rather than an env var, so it's configurable from a running instance without a restart.
 # AuthGateMiddleware in main.py is what actually enforces this; these are just storage.
 def get_auth_secret() -> str:
-    return _get_setting("auth_secret", "")
+    return secrets_crypto.decrypt(_get_setting("auth_secret", ""))
 
 
 def set_auth_secret(secret: str) -> None:
-    _set_setting("auth_secret", secret)
+    _set_setting("auth_secret", secrets_crypto.encrypt(secret))
 
 
 def clear_auth_secret() -> None:

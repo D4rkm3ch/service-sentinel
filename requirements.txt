@@ -11,5 +11,6 @@ python-multipart==0.0.9
 python-dotenv==1.0.1
 markdown==3.7
 nh3==0.3.6
+cryptography==49.0.0
 apprise==1.9.0
 tzdata==2025.2

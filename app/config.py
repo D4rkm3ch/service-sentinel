@@ -44,6 +44,13 @@ class Settings:
         # gets pulled and pre-filtered per container.
         self.log_max_lines_per_container: int = int(os.environ.get("LOG_MAX_LINES_PER_CONTAINER", "5000"))
 
+        # Optional -- see app/secrets_crypto.py. Encrypts AI provider keys, the Apprise URL, and
+        # the auth gate's shared secret at rest in app_settings, instead of storing them as plain
+        # text. Unset by default (matching every existing deployment's current behavior exactly)
+        # -- an operator opts in by setting this once at deploy time; it's never itself written
+        # to the database.
+        self.secrets_encryption_key: str = os.environ.get("SECRETS_ENCRYPTION_KEY", "")
+
     def validate(self) -> list[str]:
         """Returns a list of human-readable problems. Empty list means we're good to start.
         No longer checks for an AI provider key here -- that's now a Settings-page concern
