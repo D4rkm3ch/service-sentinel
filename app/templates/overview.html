@@ -2,6 +2,15 @@
 {% block title %}Overview - Service Sentinel{% endblock %}
 {% block content %}
 
+<div class="overview-chips">
+  {% for c in cards %}
+  <a href="#card-{{ c.feature }}" class="overview-chip {{ 'chip-ok' if c.healthy else 'chip-warn' }}">
+    <span class="status-dot {{ 'status-dot-ok' if c.healthy else 'status-dot-warn' }}"></span>
+    {{ c.title }}: {{ c.count }}
+  </a>
+  {% endfor %}
+</div>
+
 <section class="feature-cards">
   {% for c in cards %}
     {% with card = c %}{% include "_feature_card.html" %}{% endwith %}

@@ -178,25 +178,29 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
     if feature == "updates":
         summary = db.latest_update_summary()
         count = summary["unread"]
-        headline = f"{count} pending update{'s' if count != 1 else ''}" if count else "All up to date"
+        headline = f"{count} pending update{'s' if count != 1 else ''}" if count else "Up to date"
         last_at = summary["last_at"]
     else:
         summary = db.findings_health_summary(feature)
         count = summary["active"]
-        headline = f"{count} active finding{'s' if count != 1 else ''}" if count else "All clean"
+        headline = f"{count} Issue{'s' if count != 1 else ''}" if count else "All clean"
         last_at = summary["last_at"]
     detail = f"Last checked {local_dt(last_at)}" if last_at else "Never checked"
     running = is_running(feature)
+    use_master = db.get_feature_uses_master_schedule(feature)
+    schedule_spec = db.get_master_schedule() if use_master else db.get_feature_schedule(feature)
     return {
         "feature": feature, "title": title, "enabled": enabled,
         "headline": headline, "detail": detail, "tab_url": tab_url,
-        "running": running,
+        "running": running, "count": count, "healthy": count == 0,
         # Reuses the exact same live progress text the feature's own status badge shows (e.g.
         # "Checking for updates (3/59)…" for Updates, "Checking container logs (3/59)…" for
         # Logs, a plain "Checking…" for Compose, which doesn't report granular progress) -- the
         # Overview card's indicator is meant to read identically to the real thing, not a
         # simplified stand-in.
         "progress_text": _progress_text(get_progress(feature)) if running else "",
+        "schedule_text": describe_schedule(schedule_spec),
+        "notify_enabled": db.get_notifications_enabled() and db.get_feature_notify_enabled(feature),
     }
 
 

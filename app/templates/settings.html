@@ -228,7 +228,7 @@ or just-reset container, or every check with the toggle above off</p>
   </div>
 
   {% for feature, title in [('updates', 'Update Notifications'), ('logs', 'Runtime Notifications'), ('compose', 'Configuration Notifications')] %}
-  <div class="settings-subsection">
+  <div class="settings-subsection" id="{{ feature }}_notify_section">
     <h4>{{ title }}</h4>
     {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature,
                          'Enable notifications', "toggleNotifyErrorsField('" ~ feature ~ "', this.checked)") }}

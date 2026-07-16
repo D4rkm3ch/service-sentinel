@@ -65,7 +65,7 @@ def test_sidebar_state_is_restored_by_the_blocking_head_script_not_body():
     after_head = text[text.index("</head>") + len("</head>"):]
     body_open = after_head.index("<body")
     body_tag = after_head[body_open:after_head.index(">", body_open) + 1]
-    assert body_tag == "<body>"
+    assert body_tag == '<body data-tab="{{ active_tab }}">'
 
 
 def test_sidebar_has_a_watermark_element_for_the_dimmed_background_logo():

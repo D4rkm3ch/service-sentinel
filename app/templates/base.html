@@ -33,7 +33,7 @@
   <link rel="stylesheet" href="/static/style.css?v={{ static_asset_version }}">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js"></script>
 </head>
-<body>
+<body data-tab="{{ active_tab }}">
   <!-- Icon sprite: every icon used anywhere in the chrome below is a <use href="#icon-*">
        against one of these -- one definition per icon regardless of how many places reference
        it, all inheriting color/size from .icon (style.css) via currentColor rather than each

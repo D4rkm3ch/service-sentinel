@@ -337,6 +337,15 @@ code {
   padding: 6px 14px;
   font-size: 12px;
 }
+/* The Overview page's own module rows each lead with the same headline count (see
+   .feature-card-hero below) that #topbar-idle-summary already summarizes app-wide -- showing
+   both at once on that one page is pure duplication, so it's hidden there only. Its own JS
+   (base.html) sets an inline style="display:..." on every poll, so this needs !important to
+   keep winning regardless of poll timing; every other page still shows it as before, since
+   there's no equivalent hero metric in view on Updates/Logs/Compose/Settings. */
+body[data-tab="overview"] #topbar-idle-summary {
+  display: none !important;
+}
 
 /* Left nav rail -- fixed full height below the topbar (see body's own padding-left, which
    reserves the matching space in normal flow), collapsed to an icon-only strip by default,
@@ -1093,20 +1102,46 @@ tr:hover .row-chevron {
   transition: max-height 0.3s ease;
 }
 
-/* Overview feature cards */
+/* Overview status chips -- a row of small clickable pills above the module rows, jumping to
+   the matching row's own id (#card-{feature}) via a plain in-page anchor. */
+.overview-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.overview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.overview-chip:hover {
+  border-color: var(--accent-dim);
+}
+
+/* Overview feature/module rows -- full-width stacked rows rather than a 3-column grid, so
+   each module has room for a hero metric plus its meta/footer rows without cramming. */
 .feature-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 16px;
 }
 .feature-card {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 20px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
 }
 .feature-card.card-disabled {
   opacity: 0.55;
@@ -1125,6 +1160,9 @@ tr:hover .row-chevron {
 .feature-card-title {
   font-size: 14px;
   font-weight: 500;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .card-status-running {
   /* Reuses .status-badge/.status-running (same classes the feature page's own status badge
@@ -1136,9 +1174,57 @@ tr:hover .row-chevron {
   width: 9px;
   height: 9px;
 }
-.feature-card-headline {
-  font-size: 18px;
-  margin: 0;
+
+/* Hero metric -- the single large "12 pending" / "3 Issues" / "Up to date" line each module
+   row leads with, colored the same semantic ok/warn as the status dots elsewhere in the app. */
+.feature-card-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.feature-card-hero-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+.feature-card-hero-text {
+  font-size: 28px;
+  font-weight: 600;
+}
+.feature-card-hero.hero-ok .feature-card-hero-icon,
+.feature-card-hero.hero-ok .feature-card-hero-text {
+  color: var(--accent);
+}
+.feature-card-hero.hero-warn .feature-card-hero-icon,
+.feature-card-hero.hero-warn .feature-card-hero-text {
+  color: var(--warn);
+}
+
+.feature-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.feature-card-meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: none;
+  color: inherit;
+}
+.meta-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.feature-card-meta-row.meta-label-link .meta-value {
+  color: var(--accent);
+}
+.feature-card-meta-row.meta-label-link:hover .meta-value {
+  text-decoration: underline;
+}
+.meta-value {
+  font-size: 13px;
 }
 .feature-card-detail {
   font-size: 12px;
@@ -1147,7 +1233,20 @@ tr:hover .row-chevron {
 }
 .feature-card-link {
   font-size: 12px;
-  margin-top: 4px;
+}
+
+.feature-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.feature-card-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
 /* Toggle switch — same simple pill style already used on the Overview cards */
