@@ -29,9 +29,12 @@ convention). Priority order get_release_notes() actually uses:
 Returns (notes_text, source_url) or (None, None) if nothing could be found — callers should
 treat that as "flag for manual review" rather than failing the whole check."""
 
+import ipaddress
 import logging
 import re
+import socket
 from datetime import datetime
+from urllib.parse import urlparse
 
 import httpx
 
@@ -39,6 +42,11 @@ from app import ai_provider, db
 from app.ai_json import extract_json
 
 logger = logging.getLogger("service_sentinel.release_notes")
+
+# _fetch_manual_url's own redirect ceiling -- see its docstring for why this exists at all
+# (SSRF hardening against the changelog_url container label) rather than just using httpx's
+# built-in follow_redirects=True.
+_MAX_MANUAL_REDIRECTS = 5
 
 # Hard ceiling on how many releases get compiled into one prompt regardless of the Settings
 # lookback window -- a container that's gone unchecked for a very long time (or one with a
@@ -235,14 +243,68 @@ def _extract_github_repo_from_url(url: str) -> str | None:
     return None
 
 
-def _fetch_manual_url(url: str) -> tuple[str | None, str | None]:
+def _is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """The actual SSRF check: rejects loopback/private/link-local (which also covers the cloud
+    metadata address, 169.254.169.254)/multicast/reserved/unspecified ranges, leaving only real
+    public internet addresses fetchable."""
+    return not (
+        ip.is_private or ip.is_loopback or ip.is_link_local
+        or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+    )
+
+
+def _is_safe_public_url(url: str) -> bool:
+    """http(s) only, and every address the hostname resolves to must be public -- a hostname
+    that resolves to more than one IP (round-robin DNS, or an attacker-controlled DNS response)
+    is rejected if ANY of them is internal, not just the first."""
     try:
-        with httpx.Client(timeout=10.0, follow_redirects=True) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            return resp.text, url
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror:
+        return False
+    return all(_is_public_ip(ipaddress.ip_address(info[4][0])) for info in infos)
+
+
+def _fetch_manual_url(url: str) -> tuple[str | None, str | None]:
+    """Fetches a container-label-provided URL (servicesentinel.changelog_url) or an AI web-
+    search-discovered one -- both operator/attacker-influenced to different degrees, neither
+    trusted to point somewhere safe. Validated with _is_safe_public_url before every request,
+    including each redirect hop (follow_redirects=False plus a manual loop here, rather than
+    httpx's own follow_redirects=True): a container's labels can come baked into a third-party
+    image's own Dockerfile, not something the operator necessarily typed themselves, so this is
+    real SSRF surface -- reaching other devices on the LAN the container can see but the label
+    author never should, or a cloud metadata endpoint in a cloud-hosted deployment. Validating
+    only the initial URL and then trusting httpx to follow redirects transparently would leave
+    that same hole open one hop later. Checked before even opening a connection, not just
+    before reading the response, so an unsafe URL never gets a request sent to it at all."""
+    if not _is_safe_public_url(url):
+        logger.warning("Refusing to fetch changelog URL pointing at a non-public host: %s", url)
+        return None, None
+    try:
+        with httpx.Client(timeout=10.0, follow_redirects=False) as client:
+            for _ in range(_MAX_MANUAL_REDIRECTS + 1):
+                resp = client.get(url)
+                if 300 <= resp.status_code < 400:
+                    location = resp.headers.get("location")
+                    if not location:
+                        return None, None
+                    url = str(httpx.URL(url).join(location))
+                    if not _is_safe_public_url(url):
+                        logger.warning(
+                            "Refusing to follow changelog redirect to a non-public host: %s", url,
+                        )
+                        return None, None
+                    continue
+                resp.raise_for_status()
+                return resp.text, url
     except httpx.HTTPError:
         return None, None
+    return None, None
 
 
 def _web_search_release_notes(image_repo: str, tag: str) -> tuple[str | None, str | None]:

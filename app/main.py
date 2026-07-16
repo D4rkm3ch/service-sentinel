@@ -8,6 +8,7 @@ from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 import markdown
+import nh3
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -140,9 +141,36 @@ templates.env.filters["local_dt"] = local_dt
 # matches http(s) URLs, so it never touches non-link markup this app generates itself.
 _EXTERNAL_LINK_RE = re.compile(r'<a href="(https?://[^"]*)"')
 
+# markdown.markdown() passes inline HTML through completely unescaped by default -- this app
+# already relies on that intentionally in one place (_emphasize_stack_mentions injects a literal
+# <strong> tag), but every markdown-rendered block ultimately originates from a less-trusted
+# source too: public release notes text, and log lines pulled straight from the operator's own
+# running containers, both fed through an AI provider that could echo back HTML- or script-shaped
+# content it was never asked to generate. Sanitized to exactly the tags/attributes this app
+# actually intends to render -- standard Markdown output plus the one internal <a href="#..."> /
+# <strong> convention above -- rather than trusting Python-Markdown's unescaped-HTML passthrough,
+# closing the stored-XSS path every `| safe` template filter on one of these fields would
+# otherwise open.
+_MARKDOWN_ALLOWED_TAGS = {
+    "p", "br", "hr", "strong", "em", "code", "pre",
+    "ul", "ol", "li", "blockquote",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "a", "img",
+}
+_MARKDOWN_ALLOWED_ATTRIBUTES = {
+    "a": {"href"},
+    "img": {"src", "alt"},
+}
+
 
 def render_markdown(text: str) -> str:
-    return _EXTERNAL_LINK_RE.sub(r'<a target="_blank" rel="noopener" href="\1"', markdown.markdown(text))
+    # link_rel=None: nh3 otherwise stamps rel="noopener noreferrer" onto every <a> unconditionally
+    # (including same-page anchors), which would both fight with and duplicate the app's own
+    # target/rel handling below (external links only, via _EXTERNAL_LINK_RE).
+    clean_html = nh3.clean(
+        markdown.markdown(text), tags=_MARKDOWN_ALLOWED_TAGS, attributes=_MARKDOWN_ALLOWED_ATTRIBUTES, link_rel=None,
+    )
+    return _EXTERNAL_LINK_RE.sub(r'<a target="_blank" rel="noopener" href="\1"', clean_html)
 
 
 TRIGGER_FUNCS = {

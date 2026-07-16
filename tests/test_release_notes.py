@@ -22,7 +22,8 @@ def _github_response(status_code=200, body="Fixed a bug", html_url="https://gith
 
 def test_changelog_url_override_takes_priority_over_everything():
     with patch("app.release_notes.httpx.Client") as mock_client_cls, \
-         patch("app.release_notes.db.get_release_notes_source") as mock_cache:
+         patch("app.release_notes.db.get_release_notes_source") as mock_cache, \
+         patch("app.release_notes._is_safe_public_url", return_value=True):
         mock_client = mock_client_cls.return_value.__enter__.return_value
         resp = MagicMock(status_code=200, text="raw changelog text")
         resp.raise_for_status.return_value = None

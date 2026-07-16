@@ -17,6 +17,55 @@ from app.config import settings
 
 SECRET_KEY_PATTERN = re.compile(r"(PASSWORD|SECRET|TOKEN|KEY|PASS\b|APIKEY|CREDENTIAL)", re.IGNORECASE)
 
+# Value-shape redaction: catches a secret that doesn't live under a secret-looking key name at
+# all, the two most common real-world cases in a homelab compose file --
+# 1. A connection-string password (DATABASE_URL=postgres://user:hunter2@host/db,
+#    REDIS_URL=redis://:hunter2@host:6379): the key name never matches SECRET_KEY_PATTERN
+#    above, but the credential is right there in the value. Only the password segment gets
+#    redacted, in place -- keeping the scheme/user/host visible preserves exactly the context
+#    an AI compose review needs ("this points at the right host/db"), just not the credential.
+_CONN_STRING_CREDENTIAL_PATTERN = re.compile(r"://([^\s/:@]*):([^\s/@]+)@")
+# 2. A bearer/webhook-token-shaped value (a Discord/Slack webhook URL's own token segment, an
+#    API key pasted directly into a URL or command arg): no user:password@ shape to key off of,
+#    just a long opaque-looking run of characters. Requires both a letter and a digit so this
+#    doesn't fire on an ordinary long English word or a plain numeric ID -- real tokens are
+#    reliably mixed alphanumeric, most homelab path segments and identifiers aren't.
+_TOKEN_LOOKALIKE_PATTERN = re.compile(r"[A-Za-z0-9_\-]{20,}")
+
+
+def _looks_like_a_token(candidate: str) -> bool:
+    has_letter = any(c.isalpha() for c in candidate)
+    has_digit = any(c.isdigit() for c in candidate)
+    return has_letter and has_digit
+
+
+def _redact_value_shaped_secrets(value):
+    """Value-shape redaction, independent of whatever key the value is stored under -- see the
+    two pattern comments above. Applied on top of (never instead of) the key-name check in
+    _redact_env, since a key literally named PASSWORD is still the clearest signal when it's
+    there."""
+    if not isinstance(value, str):
+        return value
+    value = _CONN_STRING_CREDENTIAL_PATTERN.sub(r"://\1:[REDACTED]@", value)
+    value = _TOKEN_LOOKALIKE_PATTERN.sub(
+        lambda m: "[REDACTED]" if _looks_like_a_token(m.group(0)) else m.group(0), value,
+    )
+    return value
+
+
+def _redact_value_shapes_recursive(node):
+    """Same value-shape redaction as above, walked over an arbitrary YAML-parsed structure --
+    for compose sections with no natural per-item key name to check the way environment:/
+    labels: have (command:, and the top-level secrets: block), so only value-shape detection
+    applies, not the stronger key-name check _redact_env also does."""
+    if isinstance(node, str):
+        return _redact_value_shaped_secrets(node)
+    if isinstance(node, list):
+        return [_redact_value_shapes_recursive(item) for item in node]
+    if isinstance(node, dict):
+        return {key: _redact_value_shapes_recursive(val) for key, val in node.items()}
+    return node
+
 # build_stack_index() used to re-walk COMPOSE_ROOT and re-parse every compose file on every
 # call -- and it's called on every Updates/Logs page render AND their 20-second self-refreshing
 # table partials, so an idle open tab was re-parsing the entire compose tree three times a
@@ -70,7 +119,7 @@ def _redact_env(env) -> dict:
         if SECRET_KEY_PATTERN.search(key):
             result[key] = "[REDACTED]"
         else:
-            result[key] = value
+            result[key] = _redact_value_shaped_secrets(value)
     return result
 
 
@@ -99,7 +148,7 @@ def find_service_config(container_name: str) -> dict | None:
                     "environment": _redact_env(service_def.get("environment", {})),
                     "volumes": service_def.get("volumes", []),
                     "ports": service_def.get("ports", []),
-                    "labels": service_def.get("labels", []),
+                    "labels": _redact_env(service_def.get("labels", [])),
                     "depends_on": service_def.get("depends_on", []),
                     "compose_file": entry["stack_id"],
                 }
@@ -281,9 +330,12 @@ def list_compose_files() -> list:
 
 
 def redact_compose_file_text(path) -> str | None:
-    """Loads a compose file and returns it re-serialized with secret-looking env values
-    redacted across every service, for sending to Claude for review. Returns None if the
-    file can't be parsed."""
+    """Loads a compose file and returns it re-serialized with secret-looking values redacted
+    across every service, for sending to Claude for review. Returns None if the file can't be
+    parsed. Covers environment: and labels: (the key-name check plus value-shape detection, via
+    _redact_env) and command: plus the top-level secrets: block (value-shape detection only,
+    via _redact_value_shapes_recursive -- neither has a natural per-item key name the way
+    environment/labels do)."""
     try:
         data = yaml.safe_load(path.read_text())
     except (yaml.YAMLError, OSError):
@@ -293,7 +345,18 @@ def redact_compose_file_text(path) -> str | None:
         return None
 
     for service_def in (data.get("services") or {}).values():
-        if isinstance(service_def, dict) and "environment" in service_def:
+        if not isinstance(service_def, dict):
+            continue
+        if "environment" in service_def:
             service_def["environment"] = _redact_env(service_def["environment"])
+        if "labels" in service_def:
+            service_def["labels"] = _redact_env(service_def["labels"])
+        if "command" in service_def:
+            service_def["command"] = _redact_value_shapes_recursive(service_def["command"])
+        if "secrets" in service_def:
+            service_def["secrets"] = _redact_value_shapes_recursive(service_def["secrets"])
+
+    if "secrets" in data:
+        data["secrets"] = _redact_value_shapes_recursive(data["secrets"])
 
     return yaml.dump(data, default_flow_style=False, sort_keys=False)
