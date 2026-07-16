@@ -259,13 +259,13 @@ def get_service_names_for_file(file_path: str) -> list[str]:
 
 
 def subject_display_name(source: str, subject: str) -> str:
-    """Friendly display label for a finding's subject: container name as-is for logs, or
-    for compose -- a manual override if one's been set (never auto-overwritten by the
-    computed name), otherwise the service name(s) defined in the file (falling back to the
-    raw path if the file can't be parsed, e.g. it was deleted since the finding was
-    recorded)."""
+    """Friendly display label for a finding's subject: for logs, a manual override if one's
+    been set (see db.container_names), otherwise the raw container name as-is; for compose --
+    a manual override if one's been set (never auto-overwritten by the computed name),
+    otherwise the service name(s) defined in the file (falling back to the raw path if the
+    file can't be parsed, e.g. it was deleted since the finding was recorded)."""
     if source == "logs":
-        return subject
+        return db.get_container_display_name(subject) or subject
     override = db.get_compose_file_name(subject)
     if override and override["name_source"] == "manual":
         return override["display_name"]

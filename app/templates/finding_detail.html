@@ -15,9 +15,7 @@
 <section class="panel">
   <div class="subject-title-row">
     <h1 class="mono subject-heading">{{ display_name }}</h1>
-    {% if finding.source == 'compose' %}
-    <button type="button" class="icon-button" title="Rename this compose file" onclick="document.getElementById('finding-rename-form').classList.toggle('hidden')">✎</button>
-    {% endif %}
+    <button type="button" class="icon-button" title="Rename this {{ 'compose file' if finding.source == 'compose' else 'container' }}" onclick="document.getElementById('finding-rename-form').classList.toggle('hidden')">✎</button>
     <span class="badge badge-lg badge-sev-{{ finding.severity }}">{{ severity_label(finding.source, finding.severity) }}</span>
     {% with is_unread = finding.read_status == 'unread', show_badge = true %}{% include "_read_badge.html" %}{% endwith %}
     {% with silence_state = finding.status if finding.status == 'silenced' else none %}{% include "_silence_badge.html" %}{% endwith %}
@@ -31,6 +29,11 @@
   {# See subject_findings.html's own comment -- the display name can be an unhelpful generated
      label; the raw path is what actually traces this back to a real file on disk. #}
   <p class="meta mono subject-path" title="{{ finding.subject }}">{{ finding.subject }}</p>
+  {% else %}
+  <form id="finding-rename-form" method="post" action="/logs/container/{{ finding.subject }}/rename" class="hidden stack-rename-form">
+    <input type="text" name="name" value="{{ display_name }}" class="mono" placeholder="Container name">
+    <button type="submit">Save Name</button>
+  </form>
   {% endif %}
   <p class="meta">
     {{ finding.title }}

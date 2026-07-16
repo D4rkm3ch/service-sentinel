@@ -29,7 +29,7 @@
   <tbody>
     {% for u in updates %}
     <tr class="{{ 'row-error' if u.status == 'error' else 'row-unread' }} {{ 'row-clickable' if u.id else '' }}" {% if u.id %}onclick="window.location='/updates/{{ u.id }}'"{% endif %}>
-      <td class="mono"><span class="truncate-cell" title="{{ u.container_name }}">{{ u.container_name }}</span></td>
+      <td class="mono"><span class="truncate-cell" title="{{ u.container_display_name }}">{{ u.container_display_name }}</span></td>
       <td>
         {% if u.stack_name %}
         <a href="/updates/stack?id={{ u.stack_id|urlencode }}" class="stack-cell" title="{{ u.stack_name }}" onclick="event.stopPropagation()">{{ u.stack_name }}</a>

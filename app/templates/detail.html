@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ update.container_name }} - Service Sentinel{% endblock %}
+{% block title %}{{ display_name }} - Service Sentinel{% endblock %}
 {% block content %}
 
 <div class="back-link-row">
@@ -11,7 +11,8 @@
 
 <section class="panel">
   <div class="subject-title-row">
-    <h1 class="mono subject-heading">{{ update.container_name }}</h1>
+    <h1 class="mono subject-heading">{{ display_name }}</h1>
+    <button type="button" class="icon-button" title="Rename this container" onclick="document.getElementById('container-rename-form').classList.toggle('hidden')">✎</button>
     {% if update.severity %}
     <span class="badge badge-lg badge-sev-{{ update.severity }}">{{ severity_label('updates', update.severity) }}</span>
     {% elif not update.error and not update.release_notes_raw %}
@@ -22,6 +23,10 @@
     {% with is_unread = update.status == 'unread', show_badge = not update.error %}{% include "_read_badge.html" %}{% endwith %}
     {% with silence_state = 'silenced' if container_silenced else none %}{% include "_silence_badge.html" %}{% endwith %}
   </div>
+  <form id="container-rename-form" method="post" action="/updates/container/{{ update.container_name }}/rename" class="hidden stack-rename-form">
+    <input type="text" name="name" value="{{ display_name }}" class="mono" placeholder="Container name">
+    <button type="submit">Save Name</button>
+  </form>
   <p class="meta">
     <span class="mono">{{ update.image_repo }}:{{ update.tag }}</span>
     · detected {{ update.created_at | local_dt }}

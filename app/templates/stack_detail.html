@@ -79,7 +79,7 @@
       {% for m in members %}
       {% if m.latest_update %}
       <tr id="row-{{ m.container_name }}" class="{{ 'row-error' if m.latest_update.error else 'row-unread' }} row-clickable" onclick="window.location='/updates/{{ m.latest_update.id }}'">
-        <td class="mono"><span class="truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</span></td>
+        <td class="mono"><span class="truncate-cell" title="{{ m.container_display_name }}">{{ m.container_display_name }}</span></td>
         <td class="mono"><span class="truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</span></td>
         <td class="nowrap">{{ m.latest_update.created_at | local_dt }}</td>
         <td class="importance-cell">
@@ -104,7 +104,7 @@
       </tr>
       {% else %}
       <tr id="row-{{ m.container_name }}">
-        <td class="mono"><span class="truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</span></td>
+        <td class="mono"><span class="truncate-cell" title="{{ m.container_display_name }}">{{ m.container_display_name }}</span></td>
         <td class="mono"><span class="truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</span></td>
         <td class="nowrap">-</td>
         <td class="importance-cell"><span class="badge badge-healthy">Up To Date</span></td>

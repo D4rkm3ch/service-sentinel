@@ -79,7 +79,7 @@
     <tbody>
       {% for m in members %}
       <tr class="row-clickable" onclick="window.location='/logs/container/{{ m.container_name }}'">
-        <td class="mono"><span class="truncate-cell" title="{{ m.container_name }}">{{ m.container_name }}</span></td>
+        <td class="mono"><span class="truncate-cell" title="{{ m.container_display_name }}">{{ m.container_display_name }}</span></td>
         <td>
           {% if m.top_severity %}
           {{ m.active_count }} active{% if m.silenced_count %}, {{ m.silenced_count }} silenced{% endif %}

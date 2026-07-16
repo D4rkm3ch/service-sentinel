@@ -510,6 +510,8 @@ def logs_status_poll(request: Request, prev_running: bool = False, prev_badge_ru
 @app.get("/logs/partial/issues")
 def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str = "severity", dir: str = "asc"):
     issues = _attach_stack_info(db.list_subjects_with_findings("logs", include_silenced=show_silenced), "subject")
+    for issue in issues:
+        issue["display_name"] = compose_lookup.subject_display_name("logs", issue["subject"])
     issues = _sort_issue_rows(issues, sort, dir)
     return templates.TemplateResponse(
         "_issues_grouped_table.html",
@@ -523,6 +525,8 @@ def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str
 @app.get("/logs/partial/containers")
 def logs_partial_containers(request: Request, csort: str = "status", cdir: str = "asc"):
     items = _attach_stack_info(db.all_log_watch_states_with_status(), "name")
+    for item in items:
+        item["display_name"] = compose_lookup.subject_display_name("logs", item["name"])
     items = _sort_status_list_rows(items, csort, cdir)
     return templates.TemplateResponse(
         "_status_list_table.html",
@@ -666,8 +670,13 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
     # image:tag now -- same value Discord's own digest already computes (see notifications.
     # _format_update_line), pulled from release_notes_raw's own "## <tag> (<date>)" heading, not
     # a fresh AI/network call, so attaching it here for every row is free.
+    # container_display_name is a manual override (see db.container_names) shown instead of the
+    # raw container_name wherever this table renders it -- one batched read for the whole page
+    # rather than one query per row.
+    display_names = db.get_container_display_names([r["container_name"] for r in annotated])
     for r in annotated:
         r["new_version"] = release_notes.extract_latest_version(r.get("release_notes_raw"))
+        r["container_display_name"] = display_names.get(r["container_name"], r["container_name"])
     reverse = direction == "desc"
 
     if sort == "image":
@@ -715,7 +724,10 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
         annotated.sort(key=lambda r: r["container_name"].lower())
         annotated.sort(key=lambda r: 0 if r.get("silenced") else 1, reverse=reverse)
     else:
-        annotated.sort(key=lambda r: r["container_name"].lower(), reverse=reverse)
+        # Covers the explicit "container" sort key -- sorts by whatever's actually displayed
+        # (a renamed container's own override, or the raw name otherwise), not the hidden raw
+        # identity underneath it, so a rename doesn't leave the column looking unsorted.
+        annotated.sort(key=lambda r: r["container_display_name"].lower(), reverse=reverse)
 
     return annotated
 
@@ -1515,6 +1527,7 @@ def stack_detail(request: Request, id: str, sort: str = "importance", dir: str =
 
     members = []
     silenced_total = 0
+    display_names = db.get_container_display_names(member_names)
     for name in member_names:
         container_row = db.get_container_state(name)
         latest_update = db.get_latest_update_for_container(name)
@@ -1522,6 +1535,7 @@ def stack_detail(request: Request, id: str, sort: str = "importance", dir: str =
             silenced_total += 1
         members.append({
             "container_name": name,
+            "container_display_name": display_names.get(name, name),
             "image_repo": container_row["image_repo"] if container_row else "",
             "tag": container_row["tag"] if container_row else "",
             "latest_update": dict(latest_update) if latest_update else None,
@@ -1685,8 +1699,12 @@ def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
 def logs_page(request: Request, show_silenced: bool = False,
               sort: str = "severity", dir: str = "asc", csort: str = "status", cdir: str = "asc"):
     issues = _attach_stack_info(db.list_subjects_with_findings("logs", include_silenced=show_silenced), "subject")
+    for issue in issues:
+        issue["display_name"] = compose_lookup.subject_display_name("logs", issue["subject"])
     issues = _sort_issue_rows(issues, sort, dir)
     containers = _attach_stack_info(db.all_log_watch_states_with_status(), "name")
+    for item in containers:
+        item["display_name"] = compose_lookup.subject_display_name("logs", item["name"])
     containers = _sort_status_list_rows(containers, csort, cdir)
     return templates.TemplateResponse(
         "logs.html",
@@ -1711,7 +1729,8 @@ def logs_container_detail(request: Request, container_name: str, sort: str = "se
         return RedirectResponse(url=f"/findings/{findings[0]['id']}", status_code=303)
 
     findings = _auto_mark_subject_read("logs", container_name, findings)
-    overview = _get_or_build_overview("logs", container_name, container_name, findings)
+    display_name = compose_lookup.subject_display_name("logs", container_name)
+    overview = _get_or_build_overview("logs", container_name, display_name, findings)
     overview_html = render_markdown(overview) if overview else None
     summary = _findings_summary(findings)
     stack_info = compose_lookup.get_stack_info(container_name)
@@ -1720,7 +1739,7 @@ def logs_container_detail(request: Request, container_name: str, sort: str = "se
         "subject_findings.html",
         {
             "request": request, "findings": _sort_subject_findings(findings, sort, dir),
-            "display_name": container_name, "subject": container_name,
+            "display_name": display_name, "subject": container_name,
             "back_url": "/logs", "overview_html": overview_html, "source": "logs",
             **summary,
             "silence_state": _silence_state(summary["active_count"], summary["silenced_count"]),
@@ -1755,6 +1774,7 @@ def logs_stack_detail(request: Request, id: str, sort: str = "severity", dir: st
     members = []
     active_total = 0
     silenced_total = 0
+    display_names = db.get_container_display_names(member_names)
     for name in member_names:
         findings = db.list_findings_for_subject("logs", name, include_silenced=True)
         summary = _findings_summary(findings)
@@ -1762,6 +1782,7 @@ def logs_stack_detail(request: Request, id: str, sort: str = "severity", dir: st
         silenced_total += summary["silenced_count"]
         members.append({
             "container_name": name,
+            "container_display_name": display_names.get(name, name),
             "last_checked_at": db.get_log_watch_checkpoint(name),
             **summary,
         })
@@ -1995,10 +2016,12 @@ def update_detail(request: Request, update_id: int):
     stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
     container_row = db.get_container_state(update["container_name"])
     upgrade_guidance_html = render_markdown(update["upgrade_guidance"]) if update["upgrade_guidance"] else None
+    display_name = db.get_container_display_name(update["container_name"]) or update["container_name"]
     return templates.TemplateResponse(
         "detail.html",
         {
-            "request": request, "update": update, "summary_html": summary_html,
+            "request": request, "update": update, "display_name": display_name,
+            "summary_html": summary_html,
             "release_notes_html": release_notes_html,
             "upgrade_guidance_html": upgrade_guidance_html,
             "stack_id": stack_id, "active_tab": "updates",
@@ -2052,6 +2075,21 @@ def unsilence_container(request: Request, container_name: str):
         raise HTTPException(status_code=404, detail="Container not found")
     db.set_container_silenced(container_name, False)
     return _container_silence_toggle_response(request, container_name)
+
+
+@app.post("/updates/container/{container_name}/rename")
+async def rename_updates_container_route(request: Request, container_name: str):
+    """Updates' counterpart to rename_log_container_route -- same shared db.container_names
+    override, just landing back on this container's current update (Updates has no standalone
+    per-container page the way Logs' subject page is; an update's own detail page is the closest
+    equivalent, same "figure out where this landed" lookup update_recheck_status_poll's own
+    _landing_url already uses)."""
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    if name:
+        db.set_container_display_name(container_name, name)
+    latest = db.get_latest_update_for_container(container_name)
+    return RedirectResponse(url=f"/updates/{latest['id']}" if latest else "/updates", status_code=303)
 
 
 def _stack_container_silence_toggle_response(request: Request, stack_id: str):
@@ -2347,6 +2385,19 @@ def silence_log_subject(request: Request, container_name: str):
 def unsilence_log_subject(request: Request, container_name: str):
     db.unsilence_all_findings_for_subjects("logs", [container_name])
     return _subject_silence_toggle_response(request, "logs", container_name)
+
+
+@app.post("/logs/container/{container_name}/rename")
+async def rename_log_container_route(request: Request, container_name: str):
+    """A container's own display-name override -- stacks and compose files were already
+    renameable, a bare container name was the one place left that wasn't. See db.container_
+    names' own schema comment for why this is a dedicated table rather than a column on either
+    container_state or log_watch_state."""
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    if name:
+        db.set_container_display_name(container_name, name)
+    return RedirectResponse(url=f"/logs/container/{container_name}", status_code=303)
 
 
 # ---------------------------------------------------------------------------

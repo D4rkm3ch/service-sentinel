@@ -131,6 +131,21 @@ CREATE TABLE IF NOT EXISTS compose_files (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS container_names (
+    -- A container's own display-name override -- an explicit ask: stacks and compose files
+    -- were already renameable, a bare container name (Updates' detail.html, Logs' subject
+    -- page) was the one place left that wasn't. Keyed by container_name directly (unlike
+    -- compose_files' file_path), and independent of both container_state (Updates-only) and
+    -- log_watch_state (Logs-only) -- a container can appear in either, both, or neither, so
+    -- this can't live as a column on either of those without losing overrides for the other
+    -- feature's own view of the same name. Always 'manual' once a row exists at all -- there's
+    -- no AI-generated name to protect here the way stacks/compose files have (the raw Docker
+    -- container name IS the computed default, nothing to invalidate).
+    container_name TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS stack_analyses (
     -- stack_id is a PRIMARY KEY column holding a "{stack_id}:{source}" compound value (see
     -- _stack_analysis_key below) rather than a real composite PRIMARY KEY -- SQLite can't ALTER
@@ -1763,6 +1778,49 @@ def reset_compose_file_name(file_path: str) -> None:
     the file's own services: keys on every lookup."""
     with get_conn() as conn:
         conn.execute("DELETE FROM compose_files WHERE file_path = ?", (file_path,))
+
+
+def get_container_display_name(container_name: str) -> str | None:
+    """None means no override -- callers fall back to the raw container_name itself, same
+    "computed default, manual override optional" shape as compose_files' own get."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "SELECT display_name FROM container_names WHERE container_name = ?", (container_name,)
+        )
+        row = cur.fetchone()
+        return row["display_name"] if row else None
+
+
+def get_container_display_names(container_names: list[str]) -> dict[str, str]:
+    """Batched equivalent of get_container_display_name -- one connection for the whole list
+    instead of one per row, for table listings that need every visible container's override (if
+    any) at once rather than looking each one up individually."""
+    if not container_names:
+        return {}
+    with get_conn() as conn:
+        qs = ",".join("?" * len(container_names))
+        cur = conn.execute(
+            f"SELECT container_name, display_name FROM container_names WHERE container_name IN ({qs})",
+            container_names,
+        )
+        return {r["container_name"]: r["display_name"] for r in cur.fetchall()}
+
+
+def set_container_display_name(container_name: str, display_name: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO container_names (container_name, display_name, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(container_name) DO UPDATE SET
+                display_name = excluded.display_name, updated_at = excluded.updated_at
+            """,
+            (container_name, display_name, now_iso()),
+        )
+
+
+def reset_container_display_name(container_name: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM container_names WHERE container_name = ?", (container_name,))
 
 
 # ---------------------------------------------------------------------------

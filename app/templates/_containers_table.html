@@ -24,7 +24,7 @@
   <tbody>
     {% for c in containers %}
     <tr>
-      <td class="mono"><span class="truncate-cell" title="{{ c.container_name }}">{{ c.container_name }}</span></td>
+      <td class="mono"><span class="truncate-cell" title="{{ c.container_display_name }}">{{ c.container_display_name }}</span></td>
       <td>
         {% if c.stack_name %}
         <a href="/updates/stack?id={{ c.stack_id|urlencode }}" class="stack-cell" title="{{ c.stack_name }}">{{ c.stack_name }}</a>

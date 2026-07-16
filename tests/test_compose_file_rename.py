@@ -130,32 +130,72 @@ def test_single_finding_compose_page_shows_rename_controls(client):
             conn.execute("DELETE FROM findings WHERE source = 'compose' AND subject = ?", (path,))
 
 
-def test_single_finding_logs_page_does_not_show_rename_controls(client):
+def test_single_finding_logs_page_shows_container_rename_controls_not_the_compose_route(client):
+    """A real-world ask: stacks and compose files were already renameable, a bare container
+    name was the one place left that wasn't. Logs gets its own container-scoped rename route
+    (db.container_names, shared with Updates -- see rename_log_container_route), not Compose's
+    file-path-based one."""
     finding_id, _ = db.upsert_finding("logs", "rename-log-subject-single", "issue one", "crash", "warning", "desc")
     try:
         resp = client.get(f"/findings/{finding_id}")
         assert resp.status_code == 200
         assert 'action="/compose/file/rename"' not in resp.text
-        assert "Rename this compose file" not in resp.text
+        assert 'action="/logs/container/rename-log-subject-single/rename"' in resp.text
+        assert "Rename this container" in resp.text
     finally:
         with db.get_conn() as conn:
             conn.execute("DELETE FROM findings WHERE source = 'logs' AND subject = 'rename-log-subject-single'")
+        db.reset_container_display_name("rename-log-subject-single")
 
 
-def test_logs_subject_page_does_not_show_rename_controls(client):
-    """The rename feature is Compose-only -- a Logs container name isn't something an operator
-    would want to override the same way (there's no equivalent "computed from services:" name
-    to override in the first place)."""
+def test_logs_subject_page_shows_container_rename_controls_not_the_compose_route(client):
     db.upsert_finding("logs", "rename-log-subject", "issue one", "crash", "warning", "desc")
     db.upsert_finding("logs", "rename-log-subject", "issue two", "crash", "warning", "desc")
     try:
         resp = client.get("/logs/container/rename-log-subject")
         assert resp.status_code == 200
         assert 'action="/compose/file/rename"' not in resp.text
-        assert "Rename this compose file" not in resp.text
+        assert 'action="/logs/container/rename-log-subject/rename"' in resp.text
+        assert "Rename this container" in resp.text
     finally:
         with db.get_conn() as conn:
             conn.execute("DELETE FROM findings WHERE source = 'logs' AND subject = 'rename-log-subject'")
+        db.reset_container_display_name("rename-log-subject")
+
+
+def test_renaming_a_container_on_its_logs_subject_page_takes_effect(client):
+    db.upsert_finding("logs", "rename-log-effect", "issue one", "crash", "warning", "desc")
+    db.upsert_finding("logs", "rename-log-effect", "issue two", "crash", "warning", "desc")
+    try:
+        resp = client.post(
+            "/logs/container/rename-log-effect/rename",
+            data={"name": "My Renamed Container"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/logs/container/rename-log-effect"
+        assert compose_lookup.subject_display_name("logs", "rename-log-effect") == "My Renamed Container"
+
+        resp = client.get("/logs/container/rename-log-effect")
+        assert "My Renamed Container" in resp.text
+    finally:
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE source = 'logs' AND subject = 'rename-log-effect'")
+        db.reset_container_display_name("rename-log-effect")
+
+
+def test_renaming_a_container_ignores_a_blank_name(client):
+    db.upsert_finding("logs", "rename-log-blank", "issue one", "crash", "warning", "desc")
+    try:
+        resp = client.post(
+            "/logs/container/rename-log-blank/rename", data={"name": "   "}, follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert db.get_container_display_name("rename-log-blank") is None
+    finally:
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE source = 'logs' AND subject = 'rename-log-blank'")
+        db.reset_container_display_name("rename-log-blank")
 
 
 def test_compose_file_detail_page_shows_the_raw_path_for_traceability(client):
