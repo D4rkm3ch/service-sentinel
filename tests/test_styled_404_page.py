@@ -45,4 +45,4 @@ def test_generic_route_that_doesnt_exist_at_all_renders_the_styled_page(client):
     assert "Page not found" in resp.text
     # Starlette's default detail for an unmatched route is "Not Found" -- the template falls
     # back to a generic message for that exact string rather than showing it verbatim.
-    assert "Whatever you were looking for isn't here" in resp.text
+    assert "The page you're looking for isn't available" in resp.text

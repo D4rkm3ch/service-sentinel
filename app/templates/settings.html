@@ -192,7 +192,7 @@ or just-reset container, or every check with the toggle above off</p>
   </div>
 
   {% for feature, title in [('updates', 'Update Schedule'), ('logs', 'Runtime Schedule'), ('compose', 'Configuration Schedule')] %}
-  <div class="settings-subsection">
+  <div class="settings-subsection" id="{{ feature }}_schedule_section">
     <h4>{{ title }}</h4>
     {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
                          'Using own schedule' if not features[feature].use_master else 'Using general schedule',

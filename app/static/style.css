@@ -1102,31 +1102,6 @@ tr:hover .row-chevron {
   transition: max-height 0.3s ease;
 }
 
-/* Overview status chips -- a row of small clickable pills above the module rows, jumping to
-   the matching row's own id (#card-{feature}) via a plain in-page anchor. */
-.overview-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-.overview-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
-  text-decoration: none;
-}
-.overview-chip:hover {
-  border-color: var(--accent-dim);
-}
-
 /* Overview feature/module rows -- full-width stacked rows rather than a 3-column grid, so
    each module has room for a hero metric plus its meta/footer rows without cramming. */
 .feature-cards {
@@ -1158,7 +1133,7 @@ tr:hover .row-chevron {
   min-width: 0;
 }
 .feature-card-title {
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 500;
   color: var(--text-dim);
   text-transform: uppercase;
@@ -1240,7 +1215,7 @@ tr:hover .row-chevron {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding-top: 4px;
+  padding-top: 14px;
   border-top: 1px solid var(--border);
 }
 .feature-card-footer-actions {
@@ -1432,6 +1407,10 @@ tr:hover .row-chevron {
   border-top: 1px solid var(--border);
   padding-top: 14px;
   margin-top: 14px;
+  /* The topbar is fixed (see .topbar), so a plain #anchor jump lands the target's own top edge
+     underneath it -- this is what a link from the Overview page's Schedule/Notifications rows
+     targets, so without this the heading it's meant to reveal ends up hidden above the fold. */
+  scroll-margin-top: calc(var(--topbar-height) + 14px);
 }
 .settings-subsection-first {
   border-top: none;

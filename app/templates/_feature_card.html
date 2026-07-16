@@ -19,7 +19,7 @@
       <span class="meta-label">Last run</span>
       <span class="meta-value">{{ card.detail }}{% if not card.enabled %} · disabled{% endif %}</span>
     </span>
-    <a class="feature-card-meta-row meta-label-link" href="/settings#{{ card.feature }}_schedule_wrapper">
+    <a class="feature-card-meta-row meta-label-link" href="/settings#{{ card.feature }}_schedule_section">
       <span class="meta-label">Schedule</span>
       <span class="meta-value">{{ card.schedule_text }}</span>
     </a>
@@ -42,7 +42,7 @@
                hx-post="/settings/toggle/{{ card.feature }}" hx-target="#card-{{ card.feature }}" hx-swap="outerHTML">
         <span class="toggle-slider"></span>
       </label>
-      <span class="toggle-label">Enabled</span>
+      <span class="toggle-label">{{ 'Scheduling enabled' if card.enabled else 'Scheduling disabled' }}</span>
     </span>
   </div>
 </div>
