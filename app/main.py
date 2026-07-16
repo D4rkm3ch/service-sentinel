@@ -546,7 +546,7 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
         count = len(rows)
         headline = f"{count} Issue{'s' if count != 1 else ''}" if count else "All clean"
         last_at = summary["last_at"]
-    detail = f"Last checked {local_dt(last_at)}" if last_at else "Never checked"
+    detail = local_dt(last_at) if last_at else "Never checked"
     running = is_running(feature)
     use_master = db.get_feature_uses_master_schedule(feature)
     schedule_spec = db.get_master_schedule() if use_master else db.get_feature_schedule(feature)
@@ -586,16 +586,16 @@ def overview(request: Request):
 
 
 @app.post("/settings/toggle/{feature}")
-def toggle_feature(feature: str, request: Request):
+async def toggle_feature(feature: str, request: Request):
     if feature not in ("updates", "logs", "compose"):
         raise HTTPException(status_code=404)
-    db.set_feature_enabled(feature, not db.get_feature_enabled(feature))
+    form = await request.form()
+    db.set_feature_enabled(feature, form.get("enabled") == "on")
     # Takes effect immediately (adds/removes the periodic job) rather than waiting for a
     # restart -- see apply_schedules()'s own docstring for why this is the only place the
     # toggle is actually enforced.
     apply_schedules()
-    card = _build_card(feature, _CARD_TITLES[feature], _CARD_TAB_URLS[feature])
-    return templates.TemplateResponse("_feature_card.html", {"request": request, "card": card})
+    return _saved(request)
 
 
 @app.get("/status/card/{feature}")
@@ -1440,6 +1440,7 @@ def settings_page(request: Request):
     master = db.get_master_schedule()
     features = {
         feature: {
+            "enabled": db.get_feature_enabled(feature),
             "use_master": db.get_feature_uses_master_schedule(feature),
             "spec": db.get_feature_schedule(feature),
         }

@@ -1313,6 +1313,23 @@ a.feature-card-issue-slot:hover {
   text-decoration: none;
   color: inherit;
   min-width: 0;
+  flex-shrink: 0;
+}
+/* Fixed per-column widths, not just a shared max-width -- a report that a shorter Schedule
+   value (e.g. "Daily at 6:00 AM" vs "Weekly on Friday at ...") left Notifications sitting at a
+   different x-position card to card, since a plain max-width only caps the longest case and
+   otherwise lets each row shrink-wrap to its own content. Last run and Notifications have
+   naturally bounded content (a fixed date/time format, "On"/"Off") so their width just needs to
+   fit that comfortably; Schedule is the one column that can genuinely run long, so it gets the
+   most room of the three but is still capped so it can never push Notifications off its mark. */
+.feature-card-meta-row:nth-child(1) {
+  width: 140px;
+}
+.feature-card-meta-row:nth-child(2) {
+  width: 160px;
+}
+.feature-card-meta-row:nth-child(3) {
+  width: 100px;
 }
 .meta-label {
   font-size: 11px;
@@ -1326,27 +1343,16 @@ a.feature-card-issue-slot:hover {
 .feature-card-meta-row.meta-label-link:hover .meta-value {
   text-decoration: underline;
 }
-/* max-width + ellipsis: a real-world report -- a weekly schedule with several days selected
-   ("Weekly on Monday, Wednesday, Thursday, Friday at 06:00") ran long enough to widen this whole
-   row past its column, pushing every other row's content right along with it. Capped uniformly
-   (not just on the Schedule row) so any future long value in Last run/Notifications gets the
-   same protection rather than needing its own fix later. The full text is still one hover away
+/* Ellipsis truncation -- the fixed widths above are what actually keeps every column locked in
+   place; this is just what makes a value that overflows its own column (long Schedule text)
+   truncate cleanly instead of spilling into the next one. The full text is still one hover away
    via the matching title attribute in _feature_card.html. */
 .meta-value {
   display: block;
-  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-}
-/* Schedule specifically needs a tighter cap than the shared 220px: even truncated at 220px it
-   was still wide enough that the row (Last run + Schedule + Notifications) no longer fit on one
-   line, wrapping Notifications onto its own row below. .feature-card-meta is nowrap now (see
-   above), so this is what actually keeps all three columns on one line -- Last run/Notifications
-   stay short in practice and don't need the same squeeze. */
-.meta-value-schedule {
-  max-width: 130px;
 }
 /* Toggle switch — same simple pill style already used on Settings page toggles */
 .toggle-switch {

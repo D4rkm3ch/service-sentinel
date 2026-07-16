@@ -196,11 +196,16 @@ capped by your last actual check</p>
   {% for feature, title in [('updates', 'Update Schedule'), ('logs', 'Runtime Schedule'), ('compose', 'Configuration Schedule')] %}
   <div class="settings-subsection" id="{{ feature }}_schedule_section">
     <h4>{{ title }}</h4>
-    {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
-                         'Using own schedule' if not features[feature].use_master else 'Using general schedule',
-                         "toggleScheduleOverride('" ~ feature ~ "', this.checked)", feature ~ '_schedule_toggle_label') }}
-    <div id="{{ feature }}_schedule_wrapper" class="schedule-wrapper {{ 'faded' if features[feature].use_master else '' }}">
-      {{ sf.schedule_fields(feature, features[feature].spec, '/settings/schedule/' ~ feature, features[feature].use_master) }}
+    {{ ts.toggle_switch(feature ~ '_scheduling_enabled', features[feature].enabled, '/settings/toggle/' ~ feature,
+                         'Scheduling enabled' if features[feature].enabled else 'Scheduling disabled',
+                         "toggleFeatureScheduling('" ~ feature ~ "', this.checked)", feature ~ '_scheduling_toggle_label') }}
+    <div id="{{ feature }}_scheduling_gated" class="{{ 'faded' if not features[feature].enabled else '' }}">
+      {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
+                           'Using own schedule' if not features[feature].use_master else 'Using general schedule',
+                           "toggleScheduleOverride('" ~ feature ~ "', this.checked)", feature ~ '_schedule_toggle_label') }}
+      <div id="{{ feature }}_schedule_wrapper" class="schedule-wrapper {{ 'faded' if features[feature].use_master else '' }}">
+        {{ sf.schedule_fields(feature, features[feature].spec, '/settings/schedule/' ~ feature, features[feature].use_master) }}
+      </div>
     </div>
   </div>
   {% endfor %}
@@ -546,6 +551,16 @@ function updateScheduleVisibility(scope) {
 document.querySelectorAll('.schedule-fields').forEach(form => {
   updateScheduleVisibility(form.dataset.scope);
 });
+
+// ---- Feature-level "scheduling enabled" gating -- disabling it means neither its own nor the
+// general schedule ever fires for this feature, so the "use own schedule" toggle and the actual
+// schedule editor beneath it are moot until it's re-enabled again. ----
+function toggleFeatureScheduling(feature, enabled) {
+  const gated = document.getElementById(`${feature}_scheduling_gated`);
+  if (gated) gated.classList.toggle('faded', !enabled);
+  const label = document.getElementById(`${feature}_scheduling_toggle_label`);
+  if (label) label.textContent = enabled ? 'Scheduling enabled' : 'Scheduling disabled';
+}
 
 // ---- Feature-level "use own schedule" gating -- checked means "using my own schedule", the
 // opposite of the underlying use_master flag the server stores, so useGeneral is derived here

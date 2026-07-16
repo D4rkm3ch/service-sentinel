@@ -101,16 +101,19 @@ def test_disabling_the_feature_never_blocks_a_manual_check():
 
 
 def test_toggle_route_re_applies_schedules_immediately(client):
+    """Same explicit checkbox-value convention as every other Settings toggle (see
+    save_notify_enabled/save_schedule_use_master) -- an unchecked box submits no "enabled" field
+    at all, rather than the route inferring a flip from current state."""
     db.set_feature_enabled("updates", True)
     scheduler.apply_schedules()
     assert scheduler._scheduler.get_job("periodic_updates_check") is not None
 
-    resp = client.post("/settings/toggle/updates")
+    resp = client.post("/settings/toggle/updates")  # no "enabled" field posted = unchecked
     assert resp.status_code == 200
     assert db.get_feature_enabled("updates") is False
     assert scheduler._scheduler.get_job("periodic_updates_check") is None
 
-    client.post("/settings/toggle/updates")  # restore for other tests
+    client.post("/settings/toggle/updates", data={"enabled": "on"})  # restore for other tests
     assert db.get_feature_enabled("updates") is True
 
 
