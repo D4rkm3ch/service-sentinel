@@ -1,18 +1,18 @@
 <div class="feature-card {{ '' if card.enabled else 'card-disabled' }}" id="card-{{ card.feature }}"
      {{ 'hx-swap-oob="true"' | safe if oob is defined and oob else '' }}>
   <div class="feature-card-header">
-    <span class="feature-card-title-group">
+    <a class="feature-card-title-group" href="{{ card.tab_url }}">
       <span class="feature-card-title">{{ card.title }}</span>
       {% with feature = card.feature, running = card.running, progress_text = card.progress_text %}
       {% with card = none %}{% include "_card_status.html" %}{% endwith %}
       {% endwith %}
-    </span>
+    </a>
   </div>
 
-  <div class="feature-card-hero {{ 'hero-ok' if card.healthy else 'hero-warn' }}">
+  <a class="feature-card-hero {{ 'hero-ok' if card.healthy else 'hero-warn' }}" href="{{ card.tab_url }}">
     <span class="feature-card-hero-icon" aria-hidden="true">{{ '✓' if card.healthy else '●' }}</span>
     <span class="feature-card-hero-text">{{ card.headline }}</span>
-  </div>
+  </a>
 
   <div class="feature-card-meta">
     <span class="feature-card-meta-row">
@@ -34,7 +34,6 @@
       <button type="button" class="{{ card.feature }}-action-btn" hx-post="{{ card.tab_url }}/check-now" hx-swap="none">
         Check Now
       </button>
-      <a href="{{ card.tab_url }}" class="feature-card-link">View all →</a>
     </span>
     <span class="toggle-with-label">
       <label class="toggle-switch">

@@ -9,6 +9,13 @@
    light/blue chrome. */
 :root {
   accent-color: var(--accent);
+  /* Without this, the vertical scrollbar only reserves its own width on pages tall enough to
+     actually scroll -- main's centered max-width column would then measure a few pixels
+     narrower on a short page (e.g. Overview) than on a long one (e.g. Settings) purely because
+     one has a scrollbar eating into the viewport and the other doesn't, even though both use
+     the exact same layout rules. Reserving the gutter unconditionally keeps every page's
+     content column pixel-identical regardless of how tall that particular page is. */
+  scrollbar-gutter: stable;
 }
 
 :root[data-theme="dark"] {
@@ -1131,6 +1138,11 @@ tr:hover .row-chevron {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+.feature-card-title-group:hover .feature-card-title {
+  color: var(--text);
 }
 .feature-card-title {
   font-size: 17px;
@@ -1156,6 +1168,11 @@ tr:hover .row-chevron {
   display: flex;
   align-items: baseline;
   gap: 10px;
+  text-decoration: none;
+  width: fit-content;
+}
+.feature-card-hero:hover .feature-card-hero-text {
+  text-decoration: underline;
 }
 .feature-card-hero-icon {
   font-size: 22px;
@@ -1201,15 +1218,6 @@ tr:hover .row-chevron {
 .meta-value {
   font-size: 13px;
 }
-.feature-card-detail {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin: 0;
-}
-.feature-card-link {
-  font-size: 12px;
-}
-
 .feature-card-footer {
   display: flex;
   justify-content: space-between;

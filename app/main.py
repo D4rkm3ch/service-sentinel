@@ -173,16 +173,29 @@ _CARD_TITLES = {"updates": "Updates", "logs": "Runtime Health", "compose": "Conf
 _CARD_TAB_URLS = {"updates": "/updates", "logs": "/logs", "compose": "/compose"}
 
 
+def _updates_pending_count() -> int:
+    """Exactly the same actionable-and-not-silenced filter the Updates page's own count badge
+    uses (see _sort_and_filter_rows's updates_only path) -- the Overview hero metric needs to
+    match what actually shows up on a click into that tab, not some other slice of the same
+    data (e.g. counting only unread rows undercounts the moment they've been viewed once)."""
+    rows = db.list_tracked_containers_with_status()
+    return sum(1 for r in rows if r["status"] in ("update_available", "error") and not r.get("silenced"))
+
+
 def _build_card(feature: str, title: str, tab_url: str) -> dict:
     enabled = db.get_feature_enabled(feature)
     if feature == "updates":
         summary = db.latest_update_summary()
-        count = summary["unread"]
+        count = _updates_pending_count()
         headline = f"{count} pending update{'s' if count != 1 else ''}" if count else "Up to date"
         last_at = summary["last_at"]
     else:
         summary = db.findings_health_summary(feature)
-        count = summary["active"]
+        # Same subject-level, non-silenced set list_subjects_with_findings feeds the feature's
+        # own Issues table/heading-count badge (_feature_header.html) -- findings_health_summary
+        # counts individual finding rows regardless of silenced state, which disagrees with what
+        # the page itself shows the moment a subject has more than one finding or any silenced.
+        count = len(db.list_subjects_with_findings(feature))
         headline = f"{count} Issue{'s' if count != 1 else ''}" if count else "All clean"
         last_at = summary["last_at"]
     detail = f"Last checked {local_dt(last_at)}" if last_at else "Never checked"
