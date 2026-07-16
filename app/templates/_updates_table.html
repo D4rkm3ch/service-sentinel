@@ -7,19 +7,19 @@
 {% if updates %}
 <table class="updates-table">
   <colgroup>
-    <col style="width: 13%">
-    <col style="width: 13%">
-    <col style="width: 28%">
-    <col style="width: 13%">
-    <col style="width: 16%">
-    <col style="width: 13%">
+    <col style="width: 20%">
+    <col style="width: 18%">
+    <col style="width: 10%">
+    <col style="width: 15%">
+    <col style="width: 18%">
+    <col style="width: 15%">
     <col style="width: 4%">
   </colgroup>
   <thead>
     <tr>
       <th>{{ sh.sort_link('Container', 'container', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th>{{ sh.sort_link('Stack', 'stack', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
-      <th>{{ sh.sort_link('Image', 'image', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
+      <th>{{ sh.sort_link('Version', 'version', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th>{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th class="read-cell">{{ sh.sort_link('Read', 'status', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
@@ -37,7 +37,13 @@
         <span class="meta">-</span>
         {% endif %}
       </td>
-      <td class="mono"><span class="truncate-cell" title="{{ u.image_repo }}:{{ u.tag }}">{{ u.image_repo }}:{{ u.tag }}</span></td>
+      <td class="mono" title="{{ u.image_repo }}:{{ u.tag }}">
+        {% if u.new_version %}
+        v{{ u.new_version.lstrip('vV') }}
+        {% else %}
+        <span class="meta">-</span>
+        {% endif %}
+      </td>
       <td class="nowrap">{{ u.created_at | local_dt }}</td>
       <td class="importance-cell">
         {% if u.severity %}

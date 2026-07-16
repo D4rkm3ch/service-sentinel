@@ -199,3 +199,45 @@ def test_lastchecked_sort_works_for_the_full_containers_table(client):
 
     newest_first = client.get("/updates", params={"csort": "lastchecked", "cdir": "desc"})
     assert newest_first.text.index("aaa-second") < newest_first.text.index("zzz-first")
+
+
+def test_updates_table_shows_a_version_column_instead_of_the_raw_image(client):
+    """A real-world ask: the raw image:tag string wasn't useful at a glance -- the same resolved
+    version Discord's own digest already shows (see notifications._format_update_line) is what
+    belongs in the table instead."""
+    _seed("versioned-app", severity="bugfix", image_repo="owner/versioned-app", tag="latest",
+          release_notes_raw="## v2.4.1 (2026-01-01)\n\nSome notes.")
+    _seed("unversioned-app", severity="bugfix", release_notes_raw="Some notes with no heading.")
+
+    page = client.get("/updates")
+    assert "sort=version" in page.text
+
+    # Scoped to the Updates Found table's own row -- the separate Tracked containers table
+    # below it still legitimately shows the raw image:tag in its own Image column, untouched.
+    # ">versioned-app<" (not the bare substring) so this can't accidentally match inside
+    # "unversioned-app"'s own cell text.
+    versioned_row_start = page.text.rindex("<tr", 0, page.text.index(">versioned-app<"))
+    versioned_row_end = page.text.index("</tr>", versioned_row_start)
+    versioned_row = page.text[versioned_row_start:versioned_row_end]
+    assert "v2.4.1" in versioned_row
+    # The raw image:tag is still available as a hover tooltip, just no longer the visible cell
+    # text -- confirm it moved into a title attribute, not that it's gone entirely.
+    assert 'title="owner/versioned-app:latest">' in versioned_row
+    assert ">owner/versioned-app:latest<" not in versioned_row
+
+    # No resolvable version falls back to a plain dash, same empty-state convention as every
+    # other column in this table.
+    unversioned_row_start = page.text.rindex("<tr", 0, page.text.index("unversioned-app"))
+    unversioned_row_end = page.text.index("</tr>", unversioned_row_start)
+    assert "meta\">-</span>" in page.text[unversioned_row_start:unversioned_row_end]
+
+
+def test_version_column_sorts_alphabetically(client):
+    _seed("version-b-app", severity="bugfix", release_notes_raw="## v2.0.0 (2026-01-01)\n\nNotes.")
+    _seed("version-a-app", severity="bugfix", release_notes_raw="## v1.0.0 (2026-01-01)\n\nNotes.")
+
+    ascending = client.get("/updates", params={"sort": "version", "dir": "asc"})
+    assert ascending.text.index("v1.0.0") < ascending.text.index("v2.0.0")
+
+    descending = client.get("/updates", params={"sort": "version", "dir": "desc"})
+    assert descending.text.index("v2.0.0") < descending.text.index("v1.0.0")

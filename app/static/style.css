@@ -635,6 +635,11 @@ a {
   margin: 0 0 24px;
 }
 
+.subject-path {
+  margin: -4px 0 12px;
+  word-break: break-all;
+}
+
 .subject-title-row {
   display: flex;
   align-items: center;

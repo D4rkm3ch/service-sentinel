@@ -662,10 +662,18 @@ def _sort_and_filter_rows(rows: list[dict], sort: str, direction: str, updates_o
     if updates_only:
         filtered = [r for r in filtered if bool(r.get("silenced")) == show_silenced]
     annotated = _attach_stack_info(filtered, "container_name")
+    # The Updates Found table shows a resolved version (e.g. "v1.2.3") instead of the raw
+    # image:tag now -- same value Discord's own digest already computes (see notifications.
+    # _format_update_line), pulled from release_notes_raw's own "## <tag> (<date>)" heading, not
+    # a fresh AI/network call, so attaching it here for every row is free.
+    for r in annotated:
+        r["new_version"] = release_notes.extract_latest_version(r.get("release_notes_raw"))
     reverse = direction == "desc"
 
     if sort == "image":
         annotated.sort(key=lambda r: r["image_repo"].lower(), reverse=reverse)
+    elif sort == "version":
+        annotated.sort(key=lambda r: (r.get("new_version") or "").lower(), reverse=reverse)
     elif sort == "detected":
         annotated.sort(key=lambda r: r.get("created_at") or "", reverse=reverse)
     elif sort == "lastchecked":

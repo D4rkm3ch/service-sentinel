@@ -158,6 +158,55 @@ def test_logs_subject_page_does_not_show_rename_controls(client):
             conn.execute("DELETE FROM findings WHERE source = 'logs' AND subject = 'rename-log-subject'")
 
 
+def test_compose_file_detail_page_shows_the_raw_path_for_traceability(client):
+    """A real-world report: an auto-generated display name built from generic service names
+    (e.g. "app, database, scraper") gives the operator zero way to tell which actual file it's
+    even looking at. The raw path is now always shown, regardless of what the display name
+    says, so it's always traceable back to a real file on disk."""
+    path = _compose_file("rename-10.yml", "app", "database", "scraper")
+    try:
+        db.upsert_finding("compose", path, "issue one", "reliability", "warning", "desc")
+        db.upsert_finding("compose", path, "issue two", "reliability", "warning", "desc")
+
+        resp = client.get(f"/compose/file?path={path}")
+        assert resp.status_code == 200
+        assert "app, database, scraper" in resp.text
+        assert path in resp.text
+    finally:
+        Path(path).unlink()
+        db.reset_compose_file_name(path)
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE source = 'compose' AND subject = ?", (path,))
+
+
+def test_single_finding_compose_page_shows_the_raw_path_for_traceability(client):
+    path = _compose_file("rename-11.yml", "app")
+    try:
+        finding_id, _ = db.upsert_finding("compose", path, "issue one", "reliability", "warning", "desc")
+
+        resp = client.get(f"/findings/{finding_id}")
+        assert resp.status_code == 200
+        assert path in resp.text
+    finally:
+        Path(path).unlink()
+        db.reset_compose_file_name(path)
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE source = 'compose' AND subject = ?", (path,))
+
+
+def test_logs_subject_page_does_not_show_a_raw_path_line(client):
+    """Logs' display_name already IS the raw container name -- no separate identifier to add."""
+    db.upsert_finding("logs", "rename-log-no-path-line", "issue one", "crash", "warning", "desc")
+    db.upsert_finding("logs", "rename-log-no-path-line", "issue two", "crash", "warning", "desc")
+    try:
+        resp = client.get("/logs/container/rename-log-no-path-line")
+        assert resp.status_code == 200
+        assert "subject-path" not in resp.text
+    finally:
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE source = 'logs' AND subject = 'rename-log-no-path-line'")
+
+
 def test_renamed_file_shows_the_new_name_on_the_main_compose_list(client):
     path = _compose_file("rename-8.yml", "plex")
     try:

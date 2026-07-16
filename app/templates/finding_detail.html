@@ -28,6 +28,9 @@
     <input type="text" name="name" value="{{ display_name }}" class="mono" placeholder="Configuration file name">
     <button type="submit">Save Name</button>
   </form>
+  {# See subject_findings.html's own comment -- the display name can be an unhelpful generated
+     label; the raw path is what actually traces this back to a real file on disk. #}
+  <p class="meta mono subject-path" title="{{ finding.subject }}">{{ finding.subject }}</p>
   {% endif %}
   <p class="meta">
     {{ finding.title }}
