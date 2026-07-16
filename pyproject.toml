@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+# Baseline measured on 2026-07-16: 943 tests, 4061 statements, 509 missed (~87.5%).
+# CI fails below this so coverage can't silently regress; raise it as real coverage improves.
+fail_under = 87
+show_missing = true
+skip_covered = false

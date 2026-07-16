@@ -2,7 +2,7 @@ name: build-and-push
 
 on:
   push:
-    branches: [main, model-providers, concurrency, uioverhaul]
+    branches: [main, model-providers, concurrency, uioverhaul, polish]
   workflow_dispatch: {}
 
 permissions:
@@ -10,7 +10,30 @@ permissions:
   packages: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests with coverage
+        run: python -m pytest --cov=app --cov-report=term-missing --cov-report=json
+
+      - name: Publish coverage summary
+        if: always() && hashFiles('coverage.json') != ''
+        run: |
+          PCT=$(python -c "import json; print(json.load(open('coverage.json'))['totals']['percent_covered_display'])")
+          echo "### Coverage: ${PCT}%" >> "$GITHUB_STEP_SUMMARY"
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

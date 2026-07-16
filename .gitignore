@@ -5,3 +5,6 @@ data/
 *.db
 .venv/
 venv/
+.coverage
+coverage.json
+htmlcov/
