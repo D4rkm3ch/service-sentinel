@@ -377,6 +377,28 @@ body[data-tab="overview"] #topbar-idle-summary {
   transition: width 0.18s ease;
 }
 
+/* Hover-peek: while collapsed, hovering anywhere over the rail widens it to the expanded width
+   and reveals labels, without needing to click the toggle -- a plain :hover override of the same
+   --sidebar-width variable .sidebar/body already read (see the app-shell layout tokens above),
+   so the rail and body's padding-left always move together with no separate JS or "peeking"
+   class to keep in sync.
+
+   Deliberately CSS-only rather than the earlier JS mouseenter/mouseleave version, and
+   deliberately with no opening transition-delay (an earlier version of this rule had one, "to
+   avoid firing on incidental mouse pass-through" -- reverted after testing showed it caused
+   the exact problem it was meant to fix: a full page navigation always repaints the rail
+   collapsed for a beat before Chromium's next hit-test re-applies :hover, so any opening delay
+   stacks on top of that and reads as a real close, not just a pause. Instant open keeps that
+   gap as short as the browser's own hit-test latency allows. Closing was always instant --
+   the moment :hover stops matching, the cascade falls straight back to .sidebar/body's own
+   un-delayed base transition above. */
+html[data-sidebar="collapsed"]:has(.sidebar:hover) {
+  --sidebar-width: var(--sidebar-width-expanded);
+}
+html[data-sidebar="collapsed"]:has(.sidebar:hover) .sidebar-label {
+  opacity: 1;
+}
+
 /* Large, dimmed brand mark watermarked behind the nav links -- purely decorative (aria-hidden),
    sized well past the rail's own width/height and clipped by .sidebar's overflow:hidden so it
    reads as a subtle background texture rather than a competing logo. Faded low enough to stay
