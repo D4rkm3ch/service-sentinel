@@ -13,8 +13,8 @@ def test_feature_card_embeds_a_status_slot_next_to_its_title():
     text = (TEMPLATES / "_feature_card.html").read_text()
     title_pos = text.index("feature-card-title")
     status_include_pos = text.index('include "_card_status.html"')
-    toggle_pos = text.index("toggle-switch")
-    assert title_pos < status_include_pos < toggle_pos
+    check_now_pos = text.index("Check Now")
+    assert title_pos < status_include_pos < check_now_pos
 
 
 def test_card_status_route_reflects_running_state(client):

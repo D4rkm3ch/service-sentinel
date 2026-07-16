@@ -8,6 +8,9 @@
         {% with card = none %}{% include "_card_status.html" %}{% endwith %}
         {% endwith %}
       </a>
+      <button type="button" class="{{ card.feature }}-action-btn" hx-post="{{ card.tab_url }}/check-now" hx-swap="none">
+        Check Now
+      </button>
     </div>
 
     <a class="feature-card-hero hero-{{ card.hero_tier }}" href="{{ card.tab_url }}">
@@ -23,28 +26,12 @@
       </span>
       <a class="feature-card-meta-row meta-label-link" href="/settings#{{ card.feature }}_schedule_section">
         <span class="meta-label">Schedule</span>
-        <span class="meta-value" title="{{ card.schedule_text }}">{{ card.schedule_text }}</span>
+        <span class="meta-value meta-value-schedule" title="{{ card.schedule_text if card.enabled else 'Off' }}">{{ card.schedule_text if card.enabled else 'Off' }}</span>
       </a>
       <a class="feature-card-meta-row meta-label-link" href="/settings#{{ card.feature }}_notify_section">
         <span class="meta-label">Notifications</span>
         <span class="meta-value">{{ 'On' if card.notify_enabled else 'Off' }}</span>
       </a>
-    </div>
-
-    <div class="feature-card-footer">
-      <span class="feature-card-footer-actions">
-        <button type="button" class="{{ card.feature }}-action-btn" hx-post="{{ card.tab_url }}/check-now" hx-swap="none">
-          Check Now
-        </button>
-      </span>
-      <span class="toggle-with-label">
-        <label class="toggle-switch">
-          <input type="checkbox" {{ 'checked' if card.enabled else '' }}
-                 hx-post="/settings/toggle/{{ card.feature }}" hx-target="#card-{{ card.feature }}" hx-swap="outerHTML">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="toggle-label">{{ 'Scheduling enabled' if card.enabled else 'Scheduling disabled' }}</span>
-      </span>
     </div>
   </div>
 

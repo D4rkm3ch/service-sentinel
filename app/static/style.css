@@ -1303,7 +1303,7 @@ a.feature-card-issue-slot:hover {
 
 .feature-card-meta {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 20px;
 }
 .feature-card-meta-row {
@@ -1312,6 +1312,7 @@ a.feature-card-issue-slot:hover {
   gap: 2px;
   text-decoration: none;
   color: inherit;
+  min-width: 0;
 }
 .meta-label {
   font-size: 11px;
@@ -1339,21 +1340,15 @@ a.feature-card-issue-slot:hover {
   white-space: nowrap;
   font-size: 13px;
 }
-.feature-card-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+/* Schedule specifically needs a tighter cap than the shared 220px: even truncated at 220px it
+   was still wide enough that the row (Last run + Schedule + Notifications) no longer fit on one
+   line, wrapping Notifications onto its own row below. .feature-card-meta is nowrap now (see
+   above), so this is what actually keeps all three columns on one line -- Last run/Notifications
+   stay short in practice and don't need the same squeeze. */
+.meta-value-schedule {
+  max-width: 130px;
 }
-.feature-card-footer-actions {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-/* Toggle switch — same simple pill style already used on the Overview cards */
+/* Toggle switch — same simple pill style already used on Settings page toggles */
 .toggle-switch {
   position: relative;
   display: inline-block;
