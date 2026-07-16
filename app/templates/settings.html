@@ -263,6 +263,36 @@ capped by your last actual check</p>
   {% endfor %}
 </section>
 
+<section class="panel">
+  <h2 class="settings-heading-lg">Access Control</h2>
+
+  <div class="settings-subsection settings-subsection-first">
+    <p class="meta">Service Sentinel has no login by default - it assumes you're running it on a
+private network. If you're exposing it beyond that (a reverse proxy without its own
+sign-in, a port forward), set a shared password here. Your browser will prompt for it using
+its own standard sign-in dialog.</p>
+    <div class="api-key-row">
+      <input type="password" id="auth_secret_field" class="mono field-input" autocomplete="off"
+             data-placeholder-new="Choose a password"
+             placeholder="{{ '•••••••• (configured)' if auth_secret_configured else 'Choose a password' }}"
+             {{ 'disabled' if auth_secret_configured else '' }}>
+      <button type="button" id="auth_secret_action_btn" onclick="handleAuthSecretButtonClick()">
+        {{ 'Change' if auth_secret_configured else 'Save' }}
+      </button>
+      <button type="button" id="auth_secret_cancel_btn" class="button-danger"
+              onclick="cancelAuthSecretEdit()" style="{{ 'display:none' if auth_secret_configured else '' }}">
+        Cancel
+      </button>
+      {% if auth_secret_configured %}
+      <button type="button" id="auth_secret_remove_btn" class="button-danger" onclick="removeAuthSecret()">
+        Remove
+      </button>
+      {% endif %}
+      <span id="auth_secret_result">{% if auth_secret_configured %}<span class="key-configured-badge">✓ Enabled</span>{% endif %}</span>
+    </div>
+  </div>
+</section>
+
 <script>
 function toggleAiProvider(active) {
   document.getElementById('anthropic-provider-section').classList.toggle('hidden', active !== 'anthropic');
@@ -331,6 +361,82 @@ function testAndSaveApiKey(provider) {
     }
   }).catch(() => {
     resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  });
+}
+
+function handleAuthSecretButtonClick() {
+  const field = document.getElementById('auth_secret_field');
+  if (field.disabled) {
+    unlockAuthSecret();
+  } else {
+    saveAuthSecret();
+  }
+}
+
+function unlockAuthSecret() {
+  const field = document.getElementById('auth_secret_field');
+  field.disabled = false;
+  field.placeholder = field.dataset.placeholderNew;
+  field.value = '';
+  field.focus();
+  document.getElementById('auth_secret_action_btn').textContent = 'Save';
+  document.getElementById('auth_secret_cancel_btn').style.display = '';
+  document.getElementById('auth_secret_result').innerHTML = '';
+}
+
+function cancelAuthSecretEdit() {
+  const field = document.getElementById('auth_secret_field');
+  const resultSlot = document.getElementById('auth_secret_result');
+  const wasConfigured = document.getElementById('auth_secret_remove_btn') !== null || field.placeholder === '•••••••• (configured)';
+  field.value = '';
+  if (wasConfigured) {
+    field.disabled = true;
+    field.placeholder = '•••••••• (configured)';
+    document.getElementById('auth_secret_action_btn').textContent = 'Change';
+    document.getElementById('auth_secret_cancel_btn').style.display = 'none';
+    resultSlot.innerHTML = '<span class="key-configured-badge">✓ Enabled</span>';
+  } else {
+    field.placeholder = field.dataset.placeholderNew;
+    resultSlot.innerHTML = '';
+  }
+}
+
+function saveAuthSecret() {
+  const field = document.getElementById('auth_secret_field');
+  const value = field.value.trim();
+  const resultSlot = document.getElementById('auth_secret_result');
+  if (!value) return;
+  fetch('/settings/auth-secret', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'secret=' + encodeURIComponent(value),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      field.value = '';
+      field.disabled = true;
+      field.placeholder = '•••••••• (configured)';
+      document.getElementById('auth_secret_action_btn').textContent = 'Change';
+      document.getElementById('auth_secret_cancel_btn').style.display = 'none';
+      resultSlot.innerHTML = '<span class="key-configured-badge">✓ Enabled</span>';
+      // A page reload picks up the Remove button (server-rendered, not built client-side here)
+      // and primes the browser to start sending Basic Auth on its very next request.
+      window.location.reload();
+    } else {
+      resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+    }
+  }).catch(() => {
+    resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  });
+}
+
+function removeAuthSecret() {
+  const ok = confirm(
+    'This disables the password gate entirely -- Service Sentinel will be reachable by anyone ' +
+    'who can reach this address, with no sign-in required.\n\nRemove the password?'
+  );
+  if (!ok) return;
+  fetch('/settings/auth-secret/remove', { method: 'POST' }).then(() => {
+    window.location.reload();
   });
 }
 

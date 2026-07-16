@@ -1811,6 +1811,22 @@ def set_github_token(token: str) -> None:
     _set_setting("github_token", token)
 
 
+# The optional shared-secret auth gate (security_hardening_plan.md finding #2) -- off by
+# default (empty string), same settings-in-database convention as every other secret above
+# rather than an env var, so it's configurable from a running instance without a restart.
+# AuthGateMiddleware in main.py is what actually enforces this; these are just storage.
+def get_auth_secret() -> str:
+    return _get_setting("auth_secret", "")
+
+
+def set_auth_secret(secret: str) -> None:
+    _set_setting("auth_secret", secret)
+
+
+def clear_auth_secret() -> None:
+    _set_setting("auth_secret", "")
+
+
 # ---------------------------------------------------------------------------
 # Stacks — grouping containers that share a compose file. Names are AI-generated
 # by default but can be manually overridden; a manual name never gets auto-regenerated.

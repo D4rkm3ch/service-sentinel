@@ -1,4 +1,7 @@
+import base64
+import binascii
 import hashlib
+import hmac
 import logging
 import re
 import threading
@@ -10,7 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 import markdown
 import nh3
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -47,6 +50,83 @@ class NoStoreMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# Every route in this app -- including ones that read AI provider keys' configured state,
+# silence findings, rename stacks, and trigger checks that spend real API budget -- is reachable
+# by anyone who can send a request to the port; there's no authentication anywhere by default
+# (security_hardening_plan.md finding #2). That's a reasonable default for a process meant to
+# sit behind a private homelab network, but not everyone's deployment stays inside one (a reverse
+# proxy without its own auth layer, a port-forwarded instance), so this is an optional gate: off
+# by default (db.get_auth_secret() empty), on automatically the moment an operator sets a secret
+# in Settings, no restart required either way.
+#
+# HTTP Basic Auth rather than a custom login page/session cookie: this app is browser- and
+# htmx-driven, and Basic Auth is the one scheme browsers handle entirely natively -- the browser
+# prompts, caches the credential for the origin, and automatically attaches it to every
+# subsequent request (full page loads and htmx's own fragment/action requests alike) with zero
+# app-side session storage, cookie handling, or CSRF surface to build and get right.
+#
+# /healthz is deliberately exempt: it's meant to answer a container orchestrator's liveness
+# probe, which has no way to supply a credential and shouldn't need one just to confirm the
+# process is up.
+_AUTH_EXEMPT_PATHS = {"/healthz"}
+
+
+class AuthGateMiddleware:
+    """Plain ASGI middleware (not a BaseHTTPMiddleware subclass) on purpose: BaseHTTPMiddleware
+    runs the downstream call in a separate anyio task, which is unnecessary overhead for a check
+    this simple and, stacked on top of NoStoreMiddleware (also currently a BaseHTTPMiddleware),
+    was observed to create real gaps in coverage.py's line tracking across the task boundary --
+    route handler code that provably executes (every test using it passes) wasn't being recorded
+    as covered. A plain ASGI callable awaits the downstream app directly in the same coroutine,
+    which avoids that class of issue entirely, not just papers over the symptom."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        secret = db.get_auth_secret()
+        if not secret or scope["path"] in _AUTH_EXEMPT_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        header_value = None
+        for name, value in scope.get("headers", ()):
+            if name == b"authorization":
+                header_value = value.decode("latin-1")
+                break
+
+        if not self._credential_matches(header_value, secret):
+            response = Response(
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="Service Sentinel"'},
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+    @staticmethod
+    def _credential_matches(header_value: str | None, secret: str) -> bool:
+        if not header_value or not header_value.startswith("Basic "):
+            return False
+        try:
+            decoded = base64.b64decode(header_value[len("Basic "):]).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError):
+            return False
+        # Only the password half is checked -- this is a single shared secret, not real
+        # multi-user accounts (see the plan's own note that real accounts are a different scope
+        # of project), so the username the browser prompts for is arbitrary and never inspected.
+        _, _, password = decoded.partition(":")
+        # Constant-time comparison -- a naive == here would let a network attacker recover the
+        # secret one byte at a time via response-timing differences, defeating the point of the
+        # gate it's supposed to be enforcing.
+        return hmac.compare_digest(password, secret)
+
+
 def _static_asset_version() -> str:
     """A content hash of style.css, appended as a cache-busting query string on its <link> tag
     (see base.html) -- StaticFiles is deliberately excluded from NoStoreMiddleware below so
@@ -59,6 +139,11 @@ def _static_asset_version() -> str:
 
 
 app = FastAPI(title="Service Sentinel")
+# Registered before NoStoreMiddleware so NoStoreMiddleware stays outermost (added last =
+# outermost -- Starlette executes middleware in reverse registration order on the request path)
+# and so its Cache-Control: no-store header still applies to a 401 challenge response, not just
+# to normal ones.
+app.add_middleware(AuthGateMiddleware)
 app.add_middleware(NoStoreMiddleware)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
@@ -1192,6 +1277,7 @@ def settings_page(request: Request):
             "ai_concurrency_min": db.AI_CONCURRENCY_MIN,
             "ai_concurrency_max": db.AI_CONCURRENCY_MAX,
             "github_token_configured": bool(db.get_github_token()),
+            "auth_secret_configured": bool(db.get_auth_secret()),
             "active_tab": "settings",
         },
     )
@@ -1313,6 +1399,28 @@ async def save_github_token(request: Request):
     if ok:
         db.set_github_token(token)
     return {"ok": ok, "message": message}
+
+
+# Minimum length for the shared auth secret -- just enough to rule out trivially-guessable
+# one-or-two-character values typed by accident; not trying to be a full password-strength
+# policy for what's meant to sit behind a private network gate in the first place.
+_AUTH_SECRET_MIN_LENGTH = 8
+
+
+@app.post("/settings/auth-secret")
+async def save_auth_secret(request: Request):
+    form = await request.form()
+    secret = (form.get("secret") or "").strip()
+    if len(secret) < _AUTH_SECRET_MIN_LENGTH:
+        return {"ok": False, "message": f"Use at least {_AUTH_SECRET_MIN_LENGTH} characters."}
+    db.set_auth_secret(secret)
+    return {"ok": True, "message": "Saved"}
+
+
+@app.post("/settings/auth-secret/remove")
+def remove_auth_secret():
+    db.clear_auth_secret()
+    return {"ok": True}
 
 
 @app.post("/settings/ai/gemini-model")
