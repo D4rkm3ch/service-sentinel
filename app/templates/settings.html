@@ -163,9 +163,12 @@ capped by your last actual check</p>
       <option value="168" {{ 'selected' if logs_lookback == '168' else '' }}>Last 7 days</option>
     </select>
     <span class="saved-indicator-slot" id="saved-logs-lookback"></span>
-    <p class="meta" style="margin-top:12px">Only look at logs since the last check - turn off to
-always rescan the window above</p>
-    {{ ts.toggle_switch('logs_use_checkpoint', logs_use_checkpoint, '/settings/logs-use-checkpoint', 'Use checkpoint') }}
+  </div>
+
+  <div class="settings-subsection">
+    <h4>Checkpoint</h4>
+    {{ ts.toggle_switch('logs_use_checkpoint', logs_use_checkpoint, '/settings/logs-use-checkpoint',
+                         'Only look at logs since the last check - turn off to always rescan the window above') }}
   </div>
 </section>
 

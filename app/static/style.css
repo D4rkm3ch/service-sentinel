@@ -939,21 +939,6 @@ tr:hover .row-chevron {
   to { transform: rotate(360deg); }
 }
 
-/* Idle counterpart to .spinner in the topbar's compact health summary (#topbar-idle-summary,
-   base.html) -- a plain static dot instead of an animated ring, since there's nothing actually
-   in progress to show motion for. Color communicates the same "how's it looking" at a glance
-   .status-running's green already gives the spinner while a check is actually running. */
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-dim);
-}
-.status-dot-ok { background: var(--accent); }
-.status-dot-warn { background: var(--warn); }
-.status-dot-idle { background: var(--text-dim); }
-
 .htmx-request button { opacity: 0.6; cursor: default; }
 
 /* Icon sprite (see base.html's <symbol> defs) -- every icon in the app (nav rail, hamburger,
@@ -1237,7 +1222,7 @@ tr:hover .row-chevron {
   flex-direction: column;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid var(--title-accent, var(--border));
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 18px;
   text-decoration: none;
@@ -1582,6 +1567,12 @@ tr:hover .row-chevron {
   border-radius: 6px;
   padding: 5px 8px;
   font-size: 13px;
+}
+/* A bare browser-default text input is only ~20 characters wide -- nowhere near enough to read
+   a real Apprise URL (or several, comma-separated) without scrolling inside the box. */
+#apprise_urls_field {
+  width: 100%;
+  max-width: 720px;
 }
 .schedule-weekday-group {
   display: flex;

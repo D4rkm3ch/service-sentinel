@@ -99,7 +99,6 @@
            this and shows the banner, finishing a check hides the banner and brings this back. -->
       <div id="topbar-idle-summary" class="topbar-status" style="display:none">
         <span class="status-badge">
-          <span id="topbar-idle-summary-dot" class="status-dot"></span>
           <span id="topbar-idle-summary-text"></span>
         </span>
       </div>
@@ -223,7 +222,6 @@
       var bannerText = document.getElementById("check-running-banner-text");
       var bannerCancelBtn = document.getElementById("check-running-banner-cancel");
       var idleSummary = document.getElementById("topbar-idle-summary");
-      var idleSummaryDot = document.getElementById("topbar-idle-summary-dot");
       var idleSummaryText = document.getElementById("topbar-idle-summary-text");
 
       function applyRunningState(running) {
@@ -241,7 +239,6 @@
       function updateIdleSummary(data) {
         if (!idleSummary) return;
         if (idleSummaryText) idleSummaryText.textContent = data.summary_text || "";
-        if (idleSummaryDot) idleSummaryDot.className = "status-dot status-dot-" + (data.summary_status || "idle");
       }
 
       function updateBanner(data) {

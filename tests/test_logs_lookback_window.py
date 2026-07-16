@@ -102,7 +102,8 @@ def test_settings_page_has_a_lookback_window_section_with_both_subsections(clien
     assert ">Lookback Window<" in text
     assert "<h4>Release Notes</h4>" in text
     assert "<h4>Runtime</h4>" in text
-    assert "Use checkpoint" in text
+    assert "<h4>Checkpoint</h4>" in text
+    assert "logs_use_checkpoint" in text
 
 
 # ---------------------------------------------------------------------------

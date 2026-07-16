@@ -157,17 +157,11 @@ def test_idle_summary_lives_in_the_topbar_center_and_is_hidden_by_default():
     center = text[center_start:center_end]
     assert 'id="topbar-idle-summary"' in center
     assert 'id="topbar-idle-summary-text"' in center
-    assert 'id="topbar-idle-summary-dot"' in center
+    # The colored status dot next to the summary text was removed per feedback -- just the text.
+    assert 'id="topbar-idle-summary-dot"' not in center
     idle_start = center.index('id="topbar-idle-summary"')
     idle_tag = center[idle_start - 40:idle_start + 100]
     assert "display:none" in idle_tag
-
-
-def test_status_dot_has_ok_and_warn_color_variants():
-    style = STYLE.read_text()
-    assert ".status-dot-ok" in style
-    assert ".status-dot-warn" in style
-    assert ".status-dot-idle" in style
 
 
 # ---------------------------------------------------------------------------
