@@ -6,7 +6,7 @@ container_state.silenced flag instead of findings' active/silenced status."""
 
 from pathlib import Path
 
-from app import compose_lookup, db, stacks
+from app import compose_lookup, db
 from app.config import settings
 
 db.init_db()

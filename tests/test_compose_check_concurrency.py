@@ -10,7 +10,7 @@ import threading
 import time
 from unittest.mock import patch
 
-from app import ai_provider, check_state, compose_reviewer, db
+from app import check_state, compose_reviewer, db
 from app.config import settings
 
 

@@ -8,7 +8,6 @@ sorted most-important-first."""
 
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 

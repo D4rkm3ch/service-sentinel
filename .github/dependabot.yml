@@ -1,0 +1,25 @@
+# Dependency update automation (test_improvement_plan.md section 1) -- anthropic, google-genai,
+# and docker all move fast enough that manual pin-bumping falls behind within months. Weekly
+# rather than daily so updates arrive as one reviewable batch, not a drip of single-pin PRs.
+# The pip ecosystem entry covers requirements.txt and requirements-dev.txt together (Dependabot
+# scans the whole directory); docker covers the base image pin in the Dockerfile; github-actions
+# covers the action versions in .github/workflows/.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday

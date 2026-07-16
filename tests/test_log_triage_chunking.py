@@ -53,7 +53,6 @@ def test_a_failed_chunk_does_not_lose_findings_from_other_chunks():
     """The core regression guard: previously one combined call meant one failure lost every
     container's findings. Now a failure in one chunk must not affect another chunk's results."""
     names = [f"c{i}" for i in range(log_watcher._MAX_BATCH_CONTAINERS + 1)]  # forces 2 chunks
-    excerpts = {name: "ERROR: boom" for name in names}
 
     def fake_analyze(chunk, include_fix=False, active_findings_by_container=None):
         if "c0" in chunk:

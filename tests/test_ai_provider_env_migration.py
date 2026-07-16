@@ -7,7 +7,6 @@ app.db.settings.db_path) rather than the shared session database every other tes
 since the whole point here is exercising what happens on a *fresh* database file with the env
 vars present -- the shared database has long since had these settings seeded by other tests."""
 
-import sqlite3
 
 from app import db
 

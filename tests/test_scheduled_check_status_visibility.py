@@ -8,7 +8,6 @@ and by generalizing the per-feature running-state poll (base.html) that dims Che
 to all three features instead of just Updates."""
 
 from pathlib import Path
-from unittest.mock import patch
 
 from app import check_state
 

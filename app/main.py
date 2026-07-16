@@ -9,7 +9,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 import markdown

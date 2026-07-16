@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Lint
+        run: ruff check app/ tests/
+
       - name: Run tests with coverage
         run: python -m pytest --cov=app --cov-report=term-missing --cov-report=json
 

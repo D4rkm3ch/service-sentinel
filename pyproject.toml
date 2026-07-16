@@ -5,8 +5,21 @@ testpaths = ["tests"]
 source = ["app"]
 
 [tool.coverage.report]
-# Baseline measured on 2026-07-16: 943 tests, 4061 statements, 509 missed (~87.5%).
-# CI fails below this so coverage can't silently regress; raise it as real coverage improves.
-fail_under = 87
+# Originally 87, from the baseline measured 2026-07-16 (943 tests, ~87.5%). Raised to 90 the
+# same day after the coverage gap-filling pass (1094 tests, 90.45% -- ai_json/log_filter/
+# registry/docker_client got direct suites). CI fails below this so coverage can't silently
+# regress; keep raising it as real coverage improves.
+fail_under = 90
 show_missing = true
 skip_covered = false
+
+[tool.ruff]
+# Deliberately starting from ruff's own defaults (pyflakes F + a pycodestyle-error subset E) --
+# the point right now is a CI gate against real defects (unused imports, undefined names,
+# unused variables), not restyling a working codebase. Broaden the rule set later if it earns
+# its keep; line-length and formatting opinions are explicitly out of scope for this gate.
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

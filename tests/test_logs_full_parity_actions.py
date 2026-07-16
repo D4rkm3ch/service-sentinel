@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app import check_state, compose_lookup, db, log_watcher, main, stacks
+from app import check_state, compose_lookup, db, log_watcher, main
 from app.config import settings
 
 db.init_db()

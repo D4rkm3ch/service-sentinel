@@ -16,7 +16,6 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from app import check_state, compose_reviewer, db
 from app.config import settings

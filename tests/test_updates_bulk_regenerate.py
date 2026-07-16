@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-from app import check_state, compose_lookup, db, stacks
+from app import check_state, compose_lookup, db
 from app.config import settings
 
 
