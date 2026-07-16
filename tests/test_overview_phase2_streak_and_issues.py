@@ -1,6 +1,7 @@
 """Phase 2 of the Overview redesign: a "Healthy for N days"/"Issues for N days" streak per
-module, and a cross-module "Attention Required" feed ranking Updates' and Logs/Compose's two
-different severity vocabularies onto one shared critical/warning scale."""
+module, and a per-module "top issues" feed (shown inside each module's own row, not a separate
+panel) ranking Updates' and Logs/Compose's two different severity vocabularies onto one shared
+critical/warning scale."""
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -77,14 +78,13 @@ def test_attention_items_excludes_low_severity_and_ranks_critical_first():
     fid_critical, _ = db.upsert_finding("compose", "attn-subject-3", "Docker socket exposed",
                                          "security", "critical", "d")
     try:
-        by_feature = db.list_attention_items_by_feature(limit_per_feature=10)
-        logs_blurbs = [i["blurb"] for i in by_feature["logs"]]
-        compose_blurbs = [i["blurb"] for i in by_feature["compose"]]
+        logs_blurbs = [i["blurb"] for i in db.list_attention_items_for_feature("logs", limit=10)]
+        compose_blurbs = [i["blurb"] for i in db.list_attention_items_for_feature("compose", limit=10)]
         assert "Elevated memory" in logs_blurbs
         assert "Docker socket exposed" in compose_blurbs
         # Suggestion-tier findings never count as "needing attention".
         assert "Consider adding healthcheck" not in compose_blurbs
-        # Critical ranks above warning within its own column.
+        # Critical ranks above warning within its own module.
         assert compose_blurbs.index("Docker socket exposed") == 0
     finally:
         _cleanup_findings("logs", "attn-subject")
@@ -98,7 +98,7 @@ def test_attention_items_excludes_silenced_and_low_severity_updates():
     _seed_container_with_update("attn-update-silenced", "breaking")
     db.set_container_silenced("attn-update-silenced", True)
     try:
-        names = [i["name"] for i in db.list_attention_items_by_feature(limit_per_feature=10)["updates"]]
+        names = [i["name"] for i in db.list_attention_items_for_feature("updates", limit=10)]
         assert "attn-update-breaking" in names
         # A plain bugfix update isn't something that needs "attention".
         assert "attn-update-bugfix" not in names
@@ -110,26 +110,26 @@ def test_attention_items_excludes_silenced_and_low_severity_updates():
         _cleanup_container("attn-update-silenced")
 
 
-def test_attention_items_by_feature_caps_each_column_independently():
+def test_attention_items_for_feature_caps_the_list():
     names = [f"attn-cap-{i}" for i in range(5)]
     for name in names:
         _seed_container_with_update(name, "breaking")
     try:
-        updates_items = db.list_attention_items_by_feature(limit_per_feature=3)["updates"]
+        updates_items = db.list_attention_items_for_feature("updates", limit=3)
         assert len(updates_items) == 3
     finally:
         for name in names:
             _cleanup_container(name)
 
 
-def test_overview_attention_panel_renders_with_display_names_and_links(client):
+def test_overview_card_shows_top_issue_slots_with_display_names_and_links(client):
     fid, _ = db.upsert_finding("compose", "attn-render-subject", "Docker socket exposed",
                                 "security", "critical", "d")
     try:
         resp = client.get("/")
-        assert "Attention Required" in resp.text
-        assert "Docker socket exposed" in resp.text
-        assert f'href="/findings/{fid}"' in resp.text
+        card = resp.text[resp.text.index('id="card-compose"'):]
+        assert "Docker socket exposed" in card
+        assert f'href="/findings/{fid}"' in card
     finally:
         _cleanup_findings("compose", "attn-render-subject")
 

@@ -220,6 +220,23 @@ def _health_streak_text(since_iso: str, healthy: bool) -> str:
     return f"{label} since today" if days <= 0 else f"{label} for {days} day{'s' if days != 1 else ''}"
 
 
+def _feature_top_issues(feature: str, limit: int = 3) -> list[dict]:
+    """Resolves each item's raw container/compose-file name to its configured display name
+    (db.get_container_display_names for updates, compose_lookup.subject_display_name for logs/
+    compose findings) -- same rename feature every other table in the app already honors, so a
+    module row's top-issue slots never show a raw name the operator has renamed elsewhere."""
+    items = db.list_attention_items_for_feature(feature, limit=limit)
+    if feature == "updates":
+        names = [i["name"] for i in items]
+        display_names = db.get_container_display_names(names) if names else {}
+        for item in items:
+            item["display_name"] = display_names.get(item["name"], item["name"])
+    else:
+        for item in items:
+            item["display_name"] = compose_lookup.subject_display_name(feature, item["name"])
+    return items
+
+
 def _build_card(feature: str, title: str, tab_url: str) -> dict:
     enabled = db.get_feature_enabled(feature)
     if feature == "updates":
@@ -251,6 +268,7 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
         "headline": headline, "detail": detail, "tab_url": tab_url,
         "running": running, "count": count, "healthy": healthy, "hero_tier": hero_tier,
         "streak_text": _health_streak_text(streak_since, healthy),
+        "top_issues": _feature_top_issues(feature),
         # Reuses the exact same live progress text the feature's own status badge shows (e.g.
         # "Checking for updates (3/59)…" for Updates, "Checking container logs (3/59)…" for
         # Logs, a plain "Checking…" for Compose, which doesn't report granular progress) -- the
@@ -262,22 +280,6 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
     }
 
 
-def _attention_by_feature() -> dict:
-    """Resolves each item's raw container/compose-file name to its configured display name
-    (db.get_container_display_names for updates, compose_lookup.subject_display_name for logs/
-    compose findings) -- same rename feature every other table in the app already honors, so an
-    Attention Required row never shows a raw name the operator has renamed everywhere else."""
-    by_feature = db.list_attention_items_by_feature(limit_per_feature=3)
-    updates_names = [i["name"] for i in by_feature["updates"]]
-    display_names = db.get_container_display_names(updates_names) if updates_names else {}
-    for item in by_feature["updates"]:
-        item["display_name"] = display_names.get(item["name"], item["name"])
-    for source in ("logs", "compose"):
-        for item in by_feature[source]:
-            item["display_name"] = compose_lookup.subject_display_name(source, item["name"])
-    return by_feature
-
-
 @app.get("/")
 def overview(request: Request):
     cards = [
@@ -286,8 +288,7 @@ def overview(request: Request):
         _build_card("compose", "Configuration Health", "/compose"),
     ]
     return templates.TemplateResponse(
-        "overview.html",
-        {"request": request, "cards": cards, "attention_by_feature": _attention_by_feature(), "active_tab": "overview"},
+        "overview.html", {"request": request, "cards": cards, "active_tab": "overview"}
     )
 
 

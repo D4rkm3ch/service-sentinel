@@ -1265,11 +1265,11 @@ _FINDING_ATTENTION_TIER = {"critical": "critical", "warning": "warning"}
 _ATTENTION_TIER_RANK = {"critical": 2, "warning": 1}
 
 
-def list_attention_items_by_feature(limit_per_feature: int = 3) -> dict[str, list[dict]]:
-    """Per-module "needs a look" feed for the Overview page's Attention Required panel -- the
-    top few most-severe items for each of Updates/Logs/Compose, kept separate (not merged into
-    one cross-module ranking) so each module gets its own column no matter how noisy the others
-    are. Updates' own 4-tier severity (bugfix/feature/action_needed/breaking) and Logs/Compose's
+def list_attention_items_for_feature(feature: str, limit: int = 3) -> list[dict]:
+    """Top `limit` most-severe currently-actionable items for a single module, shown inside
+    that module's own Overview row (see main._build_card, which calls this once per module on
+    every card render/poll -- scoped to one feature rather than computing all three every time).
+    Updates' own 4-tier severity (bugfix/feature/action_needed/breaking) and Logs/Compose's
     3-tier one (suggestion/warning/critical) don't share a vocabulary, so each maps onto the
     same critical/warning scale here -- a plain bugfix/feature update or a suggestion-level
     finding never appears, since neither is something that actually needs "attention", just
@@ -1279,39 +1279,35 @@ def list_attention_items_by_feature(limit_per_feature: int = 3) -> dict[str, lis
     Ranked by tier first (critical above warning), most-recently-seen within a tier second --
     same actionable-and-not-silenced set _updates_pending_count/list_findings already use, so
     this never surfaces something silenced or already resolved elsewhere on the page."""
-    updates_items: list[dict] = []
-    for row in list_tracked_containers_with_status():
-        if row["status"] not in ("update_available", "error") or row.get("silenced"):
-            continue
-        error = row["status"] == "error"
-        tier = "critical" if error else _UPDATE_ATTENTION_TIER.get(row["severity"])
-        if tier is None:
-            continue
-        updates_items.append({
-            "source": "updates", "tier": tier, "error": error,
-            "name": row["container_name"], "severity": row["severity"],
-            "blurb": "Check failed" if error else "New version available",
-            "url": f"/updates/{row['id']}" if row.get("id") else "/updates",
-            "at": row.get("created_at") or "",
-        })
-    updates_items.sort(key=lambda i: (_ATTENTION_TIER_RANK[i["tier"]], i["at"]), reverse=True)
-
-    result = {"updates": updates_items[:limit_per_feature]}
-    for source in ("logs", "compose"):
-        source_items = []
-        for f in list_findings(source):
+    items: list[dict] = []
+    if feature == "updates":
+        for row in list_tracked_containers_with_status():
+            if row["status"] not in ("update_available", "error") or row.get("silenced"):
+                continue
+            error = row["status"] == "error"
+            tier = "critical" if error else _UPDATE_ATTENTION_TIER.get(row["severity"])
+            if tier is None:
+                continue
+            items.append({
+                "source": "updates", "tier": tier, "error": error,
+                "name": row["container_name"], "severity": row["severity"],
+                "blurb": "Check failed" if error else "New version available",
+                "url": f"/updates/{row['id']}" if row.get("id") else "/updates",
+                "at": row.get("created_at") or "",
+            })
+    else:
+        for f in list_findings(feature):
             tier = _FINDING_ATTENTION_TIER.get(f["severity"])
             if tier is None:
                 continue
-            source_items.append({
-                "source": source, "tier": tier, "error": False,
+            items.append({
+                "source": feature, "tier": tier, "error": False,
                 "name": f["subject"], "severity": f["severity"], "blurb": f["title"],
                 "url": f"/findings/{f['id']}",
                 "at": f["last_seen_at"] or "",
             })
-        source_items.sort(key=lambda i: (_ATTENTION_TIER_RANK[i["tier"]], i["at"]), reverse=True)
-        result[source] = source_items[:limit_per_feature]
-    return result
+    items.sort(key=lambda i: (_ATTENTION_TIER_RANK[i["tier"]], i["at"]), reverse=True)
+    return items[:limit]
 
 
 def _row_silence_state(active: int, total: int) -> str | None:

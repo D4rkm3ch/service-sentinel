@@ -2,36 +2,6 @@
 {% block title %}Overview - Service Sentinel{% endblock %}
 {% block content %}
 
-{% set attention_total = (attention_by_feature.updates|length) + (attention_by_feature.logs|length) + (attention_by_feature.compose|length) %}
-{% if attention_total %}
-<section class="panel attention-panel">
-  <h2 class="attention-heading">Attention Required</h2>
-  <div class="attention-columns">
-    {% for c in cards %}
-    <div class="attention-column">
-      <h3 class="attention-column-title">{{ c.title }}</h3>
-      {% set col_items = attention_by_feature[c.feature] %}
-      {% if col_items %}
-        {% for item in col_items %}
-        <a class="attention-item" href="{{ item.url }}">
-          <span class="attention-item-row">
-            <span class="attention-item-name">{{ item.display_name }}</span>
-            <span class="badge {{ 'badge-sev-critical' if item.error else 'badge-sev-' ~ item.severity }}">
-              {{ 'Check failed' if item.error else severity_label(item.source, item.severity) }}
-            </span>
-          </span>
-          <span class="attention-item-blurb">{{ item.blurb }}</span>
-        </a>
-        {% endfor %}
-      {% else %}
-        <p class="attention-empty">Nothing needs attention</p>
-      {% endif %}
-    </div>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
-
 <section class="feature-cards">
   {% for c in cards %}
     {% with card = c %}{% include "_feature_card.html" %}{% endwith %}

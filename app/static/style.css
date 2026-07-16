@@ -437,17 +437,24 @@ html[data-sidebar="expanded"] .sidebar-label {
 }
 
 /* Hover-peek (see the JS below): while collapsed, hovering the rail after a short delay widens
-   just the rail itself to the expanded width and reveals its labels, as a pure visual overlay --
-   deliberately NOT via --sidebar-width, so body's own padding-left (and therefore the rest of
-   the page) never reflows just from a hover the way a real pin (data-sidebar="expanded") does.
-   Reuses .sidebar's own existing width transition, so this slides exactly like clicking the
-   hamburger would; gone the instant the mouse leaves, with no separate collapse delay. */
+   just the rail itself to the expanded width and reveals its labels. Reuses .sidebar's own
+   existing width transition, so this slides exactly like clicking the hamburger would; gone the
+   instant the mouse leaves, with no separate collapse delay. */
 .sidebar.sidebar-peeking {
   width: var(--sidebar-width-expanded);
   box-shadow: 2px 0 12px rgba(0, 0, 0, 0.25);
 }
 .sidebar.sidebar-peeking .sidebar-label {
   opacity: 1;
+}
+/* body's own padding-left (and so <main>'s centered position, via its plain margin:0 auto)
+   tracks the peek too -- real-world feedback: leaving it planted at the collapsed width while
+   the rail visually grew left main centered against the OLD (narrower) rail edge, so the gap
+   between the now-wider rail and main's left edge read noticeably smaller than the gap between
+   main's right edge and the viewport, instead of the two matching. Reuses body's own existing
+   padding-left transition below, so this animates in lockstep with the rail's own width slide. */
+body:has(.sidebar.sidebar-peeking) {
+  padding-left: var(--sidebar-width-expanded);
 }
 
 main {
@@ -1122,11 +1129,16 @@ tr:hover .row-chevron {
   border-radius: 10px;
   padding: 20px 24px;
   display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 24px;
+}
+.feature-card-main {
+  flex: 1 1 340px;
+  min-width: 300px;
+  display: flex;
   flex-direction: column;
   gap: 14px;
-}
-.feature-card.card-disabled {
-  opacity: 0.55;
 }
 .feature-card-header {
   display: flex;
@@ -1213,72 +1225,66 @@ tr:hover .row-chevron {
   margin: -8px 0 0;
 }
 
-/* Overview's cross-module "Attention Required" panel -- one column per module (see
-   db.list_attention_items_by_feature), each showing its own top 3 most-severe items, sitting
-   above the per-module rows so the handful of things that actually need a look surface before
-   the summary-level hero metrics. */
-.attention-heading {
-  margin: 0 0 16px;
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--title-accent, var(--text));
-  text-transform: none;
-  letter-spacing: normal;
+/* Each module row's own top-issue slots -- fills the spare horizontal space a full-width row
+   leaves once .feature-card-main's own content ends, showing the same top 3 most-severe items
+   (see db.list_attention_items_for_feature) the old standalone Attention Required panel used
+   to show in a column for this module. A CSS container query (scoped to .feature-card-issues'
+   own width, not the viewport's) reveals the 2nd/3rd slot only once there's genuinely room for
+   it -- 1 slot is always guaranteed if any exist, 2-3 depending on how much space the sidebar
+   state and viewport width actually leave this row. */
+.feature-card-issues {
+  flex: 2 1 420px;
+  min-width: 0;
+  display: flex;
+  gap: 12px;
+  container-type: inline-size;
+  container-name: issue-slots;
 }
-.attention-columns {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-}
-.attention-column-title {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.attention-item {
-  display: block;
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
+.feature-card-issue-slot {
+  flex: 1 1 0;
+  min-width: 0;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
   text-decoration: none;
   color: inherit;
 }
-.attention-column .attention-item:first-of-type {
-  border-top: none;
-  padding-top: 0;
-}
-.attention-item-row {
+.feature-card-issue-slot:nth-of-type(1) {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
-.attention-item-name {
+@container issue-slots (min-width: 320px) {
+  .feature-card-issue-slot:nth-of-type(2) {
+    display: flex;
+  }
+}
+@container issue-slots (min-width: 500px) {
+  .feature-card-issue-slot:nth-of-type(3) {
+    display: flex;
+  }
+}
+.issue-slot-name {
   font-size: 13px;
   font-weight: 500;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.attention-item:hover .attention-item-name {
+.feature-card-issue-slot:hover .issue-slot-name {
   text-decoration: underline;
 }
-.attention-item-blurb {
-  display: block;
-  margin-top: 2px;
+.feature-card-issue-slot .badge {
+  width: fit-content;
+}
+.issue-slot-blurb {
   font-size: 12px;
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.attention-empty {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin: 0;
 }
 
 .feature-card-meta {
