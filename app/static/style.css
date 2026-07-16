@@ -1572,7 +1572,7 @@ tr:hover .row-chevron {
    a real Apprise URL (or several, comma-separated) without scrolling inside the box. */
 #apprise_urls_field {
   width: 100%;
-  max-width: 720px;
+  max-width: 360px;
 }
 .schedule-weekday-group {
   display: flex;
