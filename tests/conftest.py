@@ -19,7 +19,17 @@ os.makedirs(os.environ["COMPOSE_ROOT"], exist_ok=True)
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app import main as _main  # noqa: E402
 from app.main import app  # noqa: E402
+
+# RateLimitMiddleware's real, wall-clock-timed per-IP window is fundamentally incompatible with
+# a test suite that legitimately calls the same check-triggering routes many times in quick
+# succession from what TestClient always reports as one single client identity ("testclient") --
+# see main.py's own comment on RATE_LIMITING_ENABLED for why this is a suite-wide bypass rather
+# than a real rate limit tuned to tolerate tests. The limiter logic itself is still exercised
+# directly (not through the full HTTP stack) by test_rate_limiting.py, which flips this back on
+# for its own narrow scope and restores it afterward.
+_main.RATE_LIMITING_ENABLED = False
 
 
 @pytest.fixture(scope="session")

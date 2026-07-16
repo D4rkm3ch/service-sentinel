@@ -33,6 +33,7 @@ every message would just be noise.
 """
 
 import logging
+import re
 
 import apprise
 from apprise import NotifyFormat, NotifyType
@@ -40,6 +41,28 @@ from apprise import NotifyFormat, NotifyType
 from app import db
 
 logger = logging.getLogger("service_sentinel.notifications")
+
+# Security hardening: Discord parses @everyone/@here and <@id>/<@&id>/<#id> mention syntax in
+# plain webhook message content, not just in embeds. A finding's title/subject can ultimately
+# originate from container log content an AI provider was asked to summarize -- if a compromised
+# or misbehaving container wrote one of these into its own logs and the AI echoed enough of it
+# back verbatim, the resulting notification would ping the whole channel, or a specific role/user
+# if the id happens to be a real one. Applied to every _send() call uniformly (title and body),
+# not just the specifically-named finding path, since the same class of risk exists anywhere
+# content that isn't fully operator-authored reaches a notification (container names, check
+# error text) even if less commonly AI-generated than a finding title.
+_DISCORD_MENTION_PATTERN = re.compile(r"@everyone|@here|<@[!&]?\d+>|<#\d+>")
+
+
+def _defuse_discord_mentions(text: str) -> str:
+    """Breaks the match with an invisible zero-width space rather than a visible character (a
+    literal backslash, say), so the text still reads identically to a human on every
+    notification service Apprise supports, not just Discord."""
+    def _defuse(match: re.Match) -> str:
+        matched = match.group(0)
+        return matched[0] + "\u200b" + matched[1:]
+    return _DISCORD_MENTION_PATTERN.sub(_defuse, text)
+
 
 # app_id="" removes the small embed author line entirely (Apprise defaults it to "Apprise").
 # image_url_mask/image_url_logo="" makes Apprise's own asset.image_url() return None for every
@@ -84,6 +107,8 @@ def _send(title: str, body: str, notify_type: str = NotifyType.INFO) -> None:
     urls = db.get_apprise_urls()
     if not urls:
         return
+    title = _defuse_discord_mentions(title)
+    body = _defuse_discord_mentions(body)
     try:
         a = apprise.Apprise(asset=_ASSET)
         for url in urls:

@@ -5,6 +5,7 @@ import hmac
 import logging
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlencode
@@ -48,6 +49,67 @@ class NoStoreMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith("/static"):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+
+# A conservative set of security headers (security_hardening_plan.md finding #8) -- defense in
+# depth for the path-traversal and unsanitized-markdown findings elsewhere in that plan, both
+# already fixed at the source, not a substitute for either fix.
+#
+# The CSP here deliberately still allows 'unsafe-inline' for both script-src and style-src: this
+# app's templates lean heavily on inline <script> blocks and onclick=/onchange= attribute
+# handlers (base.html's theme/sidebar/accent-picker logic, every settings.html row) and on
+# inline style="" attributes -- disallowing either outright would break the UI's own
+# interactivity across most pages, and migrating every inline handler to a nonce- or
+# hash-based scheme is a real refactor, not a header tweak, so it's left for a dedicated pass
+# rather than rushed here. Even with 'unsafe-inline' kept, restricting script-src to 'self' plus
+# the one trusted CDN (rather than leaving it wide open) still blocks the classic
+# <script src="https://evil.example/x.js"> injection pattern -- genuine defense in depth on top
+# of nh3 already stripping <script> tags entirely from AI-rendered content, not instead of it.
+_SECURITY_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' https: data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "object-src 'none'"
+    ),
+}
+
+
+class SecurityHeadersMiddleware:
+    """Plain ASGI middleware, not a BaseHTTPMiddleware subclass -- same reasoning as
+    AuthGateMiddleware/RateLimitMiddleware elsewhere in this file: stacking more than one
+    BaseHTTPMiddleware (this one plus NoStoreMiddleware) was observed to create real gaps in
+    coverage.py's line tracking across BaseHTTPMiddleware's internal task boundary, for code
+    that provably executes (every test using it passes). Wraps `send` to inject the headers into
+    the http.response.start message directly, the standard pattern for a pure ASGI middleware
+    that needs to add response headers without reconstructing the whole response."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_security_headers(message):
+            if message["type"] == "http.response.start":
+                headers = message.setdefault("headers", [])
+                headers.extend(
+                    (name.encode("latin-1"), value.encode("latin-1"))
+                    for name, value in _SECURITY_HEADERS.items()
+                )
+            await send(message)
+
+        await self.app(scope, receive, send_with_security_headers)
 
 
 # Every route in this app -- including ones that read AI provider keys' configured state,
@@ -127,6 +189,85 @@ class AuthGateMiddleware:
         return hmac.compare_digest(password, secret)
 
 
+# Rate limiting for check-triggering routes (security_hardening_plan.md finding #11): combined
+# with the no-authentication finding, anyone who could reach the app could trigger checks
+# repeatedly, which costs real AI provider spend, as fast as the server would accept
+# connections. Matched by URL suffix rather than an explicit per-route list -- every
+# check-triggering route in this app already follows one of these four naming conventions (see
+# the individual routes throughout this file), so a suffix match automatically covers new ones
+# added later the same way, without needing to keep a second, easily-forgotten list in sync.
+_RATE_LIMITED_SUFFIXES = ("/check-now", "/reset-and-recheck", "/regenerate-all", "/regenerate")
+_RATE_LIMITED_EXACT_PATHS = {"/checks/check-all"}
+_RATE_LIMIT_MAX_REQUESTS = 30
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+
+# Disabled by default in the test suite (see tests/conftest.py) -- a real, wall-clock-timed
+# per-IP window is fundamentally incompatible with a test suite that legitimately calls these
+# same routes many times in quick succession from what TestClient always reports as the same
+# single client identity ("testclient"), and making pass/fail depend on how fast the suite
+# happens to run on a given machine would be a genuinely flaky test, not a real bug. The limiter
+# logic itself still gets exercised directly by test_rate_limiting.py, just not through the full
+# HTTP stack for every other test file. A module-level mutable flag (checked fresh on every
+# request, not captured once) rather than an app.state entry -- simpler to flip from a test's own
+# setup/teardown with a plain monkeypatch, no request/app plumbing needed to reach it.
+RATE_LIMITING_ENABLED = True
+
+
+def _is_rate_limited_path(path: str) -> bool:
+    return path in _RATE_LIMITED_EXACT_PATHS or path.endswith(_RATE_LIMITED_SUFFIXES)
+
+
+# Module-level rather than an attribute on the middleware instance -- gives tests a direct,
+# obvious way to reset state between runs (_rate_limit_buckets.clear()) without needing to dig
+# the live middleware instance back out of the ASGI stack Starlette builds internally.
+_rate_limit_buckets: dict[str, list[float]] = {}
+_rate_limit_lock = threading.Lock()
+
+
+class RateLimitMiddleware:
+    """Plain ASGI middleware, same reasoning as AuthGateMiddleware above (avoids
+    BaseHTTPMiddleware's coverage-tracking gap when stacked with the other middleware here)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or not RATE_LIMITING_ENABLED
+            or not _is_rate_limited_path(scope["path"])
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        client = scope.get("client")
+        client_ip = client[0] if client else "unknown"
+        now = time.monotonic()
+        cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+
+        with _rate_limit_lock:
+            bucket = _rate_limit_buckets.setdefault(client_ip, [])
+            while bucket and bucket[0] < cutoff:
+                bucket.pop(0)
+            if len(bucket) >= _RATE_LIMIT_MAX_REQUESTS:
+                allowed = False
+            else:
+                bucket.append(now)
+                allowed = True
+
+        if not allowed:
+            response = Response(
+                status_code=429,
+                content="Too many check requests -- try again shortly.",
+                headers={"Retry-After": str(int(_RATE_LIMIT_WINDOW_SECONDS))},
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
 def _static_asset_version() -> str:
     """A content hash of style.css, appended as a cache-busting query string on its <link> tag
     (see base.html) -- StaticFiles is deliberately excluded from NoStoreMiddleware below so
@@ -139,12 +280,17 @@ def _static_asset_version() -> str:
 
 
 app = FastAPI(title="Service Sentinel")
-# Registered before NoStoreMiddleware so NoStoreMiddleware stays outermost (added last =
-# outermost -- Starlette executes middleware in reverse registration order on the request path)
-# and so its Cache-Control: no-store header still applies to a 401 challenge response, not just
-# to normal ones.
+# Registration order matters here (Starlette executes middleware in REVERSE registration order
+# on the request path -- the last one added is the outermost, so it runs first): RateLimit
+# registered before AuthGate so AuthGate stays more outer and rejects an unauthenticated/wrong-
+# credential request before RateLimit ever spends bookkeeping on it -- a request that was going
+# to 401 regardless shouldn't also consume rate-limit budget. AuthGate in turn is registered
+# before NoStoreMiddleware so NoStoreMiddleware stays outermost of all four, and so its
+# Cache-Control: no-store header still applies to a 401/429 response, not just normal ones.
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(AuthGateMiddleware)
 app.add_middleware(NoStoreMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["app_version"] = APP_VERSION

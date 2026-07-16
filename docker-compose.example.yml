@@ -29,7 +29,16 @@ services:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
     volumes:
-      # Read-only: only needs to list containers and inspect images, never starts/stops/pulls anything.
+      # The app only ever calls list/inspect operations against the Docker API (confirmed by
+      # reading every call site in app/docker_client.py) -- that's the actual reason socket
+      # access is safe, not the :ro flag below. :ro only stops this container from replacing or
+      # deleting the socket special file itself; it does nothing to restrict which Docker Engine
+      # API calls get accepted once a client is connected to it, so a future code change, a
+      # compromised dependency, or a bug that constructs the wrong SDK call could still issue a
+      # destructive command over this same socket without :ro stopping it. If you want a real
+      # enforcement boundary instead of a code-review one, put a Docker socket proxy that
+      # allowlists specific API endpoints in front of it (several small sidecar images exist for
+      # exactly this) rather than relying on this flag alone.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Read-only: point this at wherever Dockge stores your stack compose files.
       - /opt/stacks:/compose:ro
