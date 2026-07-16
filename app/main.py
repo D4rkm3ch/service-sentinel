@@ -9,9 +9,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 import markdown
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import ai_provider, check_state, compose_lookup, compose_reviewer, db, log_watcher, persist, release_notes, stacks
@@ -65,6 +66,22 @@ templates.env.globals["static_asset_version"] = _static_asset_version()
 templates.env.globals["github_url"] = "https://github.com/D4rkm3ch/service-sentinel"
 templates.env.globals["app_timezone"] = db.get_timezone  # a callable, not a value -- Stage 5c
 templates.env.globals["get_uptime_str"] = get_uptime_str
+
+
+@app.exception_handler(StarletteHTTPException)
+async def styled_404_handler(request: Request, exc: StarletteHTTPException):
+    """A real-world report: navigating to a finding that had since been resolved (cleared by a
+    fresh check, see compose_reviewer's auto-resolution) landed on FastAPI's own bare
+    {"detail": "..."} JSON body instead of a page that looks like the rest of the app. Only
+    intercepts a genuine 404 reached by a real browser navigation (no HX-Request header) --
+    htmx's own fragment requests (status polls, scoped actions) and every other status code
+    keep the exact same compact JSON body they've always returned, since those get swapped into
+    a small target element or inspected programmatically, not rendered as a full page."""
+    if exc.status_code == 404 and request.headers.get("hx-request") != "true":
+        return templates.TemplateResponse(
+            "404.html", {"request": request, "detail": exc.detail}, status_code=404,
+        )
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
 # "Suggestion" reads oddly for an update ("this release is a suggestion"?) — "Safe" matches
 # the actual meaning (nothing risky here, safe to update) without changing the underlying

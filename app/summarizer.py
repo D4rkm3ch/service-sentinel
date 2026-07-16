@@ -2,6 +2,8 @@ import json
 import logging
 import re
 
+import yaml
+
 from app import ai_provider
 from app.ai_json import extract_json
 
@@ -506,6 +508,45 @@ FIX_INSTRUCTION_COMPOSE = "a concrete suggested compose file change — the spec
 FIX_FIELD_COMPOSE = f', "fix": "{FIX_INSTRUCTION_COMPOSE}"'
 
 
+_DOCKER_SOCKET_PATH = "/var/run/docker.sock"
+
+
+def _docker_socket_mounts_are_all_read_only(redacted_yaml: str) -> bool | None:
+    """Deterministically checks every service's docker.sock volume mount (if any) in this
+    file, rather than trusting the AI to have read the suffix correctly -- a real, recurring
+    report: the reviewer has twice claimed the socket was mounted read-write ("no explicit
+    :ro suffix") on a file that plainly had :ro right there in the text it was given. Since
+    this is the single highest-severity, most security-sensitive check this reviewer makes,
+    and it's mechanically checkable (one path, one suffix), it gets a code-level guard instead
+    of relying on prompt compliance alone -- see review_compose_file's own use of this.
+
+    Returns True if every docker.sock mount found is :ro, False if at least one isn't, None if
+    the file mentions no docker.sock mount at all (nothing to check or suppress)."""
+    try:
+        data = yaml.safe_load(redacted_yaml)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    found_any = False
+    for service_def in (data.get("services") or {}).values():
+        if not isinstance(service_def, dict):
+            continue
+        for volume in service_def.get("volumes") or []:
+            if not isinstance(volume, str) or _DOCKER_SOCKET_PATH not in volume:
+                continue
+            found_any = True
+            if not volume.rstrip().endswith(":ro"):
+                return False
+    return True if found_any else None
+
+
+def _mentions_docker_socket(finding: dict) -> bool:
+    text = " ".join(str(finding.get(k, "")) for k in ("title", "description", "fix")).lower()
+    return "docker socket" in text or "docker.sock" in text
+
+
 def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = False) -> list[dict]:
     """Sends a secret-redacted compose file to Claude for a structural review. Returns a list
     of finding dicts, or an empty list if the file looks fine.
@@ -523,7 +564,18 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
         system=system_prompt, user_message=user_message, max_tokens=2000 if include_fix else 1500,
     )
     data = extract_json(text)
-    return data if isinstance(data, list) else []
+    findings = data if isinstance(data, list) else []
+
+    if _docker_socket_mounts_are_all_read_only(redacted_yaml) is True:
+        dropped = [f for f in findings if _mentions_docker_socket(f)]
+        if dropped:
+            logger.warning(
+                "Dropped %d AI finding(s) about an already-:ro docker.sock mount for %s (misread despite correct input)",
+                len(dropped), file_path,
+            )
+        findings = [f for f in findings if not _mentions_docker_socket(f)]
+
+    return findings
 
 
 FINDINGS_OVERVIEW_SYSTEM_PROMPT = """You are summarizing a set of findings for a homelab \
