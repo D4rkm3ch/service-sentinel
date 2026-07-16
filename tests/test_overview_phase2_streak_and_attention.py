@@ -77,14 +77,15 @@ def test_attention_items_excludes_low_severity_and_ranks_critical_first():
     fid_critical, _ = db.upsert_finding("compose", "attn-subject-3", "Docker socket exposed",
                                          "security", "critical", "d")
     try:
-        items = db.list_attention_items(limit=10)
-        titles = [i["title"] for i in items]
-        assert "Docker socket exposed" in titles
-        assert "Elevated memory" in titles
+        by_feature = db.list_attention_items_by_feature(limit_per_feature=10)
+        logs_blurbs = [i["blurb"] for i in by_feature["logs"]]
+        compose_blurbs = [i["blurb"] for i in by_feature["compose"]]
+        assert "Elevated memory" in logs_blurbs
+        assert "Docker socket exposed" in compose_blurbs
         # Suggestion-tier findings never count as "needing attention".
-        assert "Consider adding healthcheck" not in titles
-        # Critical ranks above warning.
-        assert titles.index("Docker socket exposed") < titles.index("Elevated memory")
+        assert "Consider adding healthcheck" not in compose_blurbs
+        # Critical ranks above warning within its own column.
+        assert compose_blurbs.index("Docker socket exposed") == 0
     finally:
         _cleanup_findings("logs", "attn-subject")
         _cleanup_findings("compose", "attn-subject-2")
@@ -97,17 +98,28 @@ def test_attention_items_excludes_silenced_and_low_severity_updates():
     _seed_container_with_update("attn-update-silenced", "breaking")
     db.set_container_silenced("attn-update-silenced", True)
     try:
-        items = db.list_attention_items(limit=10)
-        titles = [i["title"] for i in items]
-        assert "attn-update-breaking" in titles
+        names = [i["name"] for i in db.list_attention_items_by_feature(limit_per_feature=10)["updates"]]
+        assert "attn-update-breaking" in names
         # A plain bugfix update isn't something that needs "attention".
-        assert "attn-update-bugfix" not in titles
+        assert "attn-update-bugfix" not in names
         # Silenced containers never surface here either, same as the Updates page itself.
-        assert "attn-update-silenced" not in titles
+        assert "attn-update-silenced" not in names
     finally:
         _cleanup_container("attn-update-breaking")
         _cleanup_container("attn-update-bugfix")
         _cleanup_container("attn-update-silenced")
+
+
+def test_attention_items_by_feature_caps_each_column_independently():
+    names = [f"attn-cap-{i}" for i in range(5)]
+    for name in names:
+        _seed_container_with_update(name, "breaking")
+    try:
+        updates_items = db.list_attention_items_by_feature(limit_per_feature=3)["updates"]
+        assert len(updates_items) == 3
+    finally:
+        for name in names:
+            _cleanup_container(name)
 
 
 def test_overview_attention_panel_renders_with_display_names_and_links(client):
@@ -120,3 +132,25 @@ def test_overview_attention_panel_renders_with_display_names_and_links(client):
         assert f'href="/findings/{fid}"' in resp.text
     finally:
         _cleanup_findings("compose", "attn-render-subject")
+
+
+def test_overview_hero_color_reflects_worst_severity_present(client):
+    """A breaking-change update must read as critical (red), not just "not healthy" -- the
+    same amber every other issue used to get regardless of how severe it actually was."""
+    _seed_container_with_update("attn-hero-breaking", "breaking")
+    try:
+        resp = client.get("/")
+        card = resp.text[resp.text.index('id="card-updates"'):resp.text.index('id="card-logs"')]
+        assert "hero-critical" in card
+    finally:
+        _cleanup_container("attn-hero-breaking")
+
+
+def test_overview_hero_color_is_neutral_for_a_plain_bugfix_update(client):
+    _seed_container_with_update("attn-hero-bugfix", "bugfix")
+    try:
+        resp = client.get("/")
+        card = resp.text[resp.text.index('id="card-updates"'):resp.text.index('id="card-logs"')]
+        assert "hero-neutral" in card
+    finally:
+        _cleanup_container("attn-hero-bugfix")

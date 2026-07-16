@@ -946,7 +946,6 @@ tr:hover .row-chevron {
 .status-dot-ok { background: var(--accent); }
 .status-dot-warn { background: var(--warn); }
 .status-dot-idle { background: var(--text-dim); }
-.status-dot-critical { background: var(--error); }
 
 .htmx-request button { opacity: 0.6; cursor: default; }
 
@@ -1146,9 +1145,9 @@ tr:hover .row-chevron {
   color: var(--text);
 }
 .feature-card-title {
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 500;
-  color: var(--text-dim);
+  color: var(--title-accent, var(--text-dim));
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1164,7 +1163,12 @@ tr:hover .row-chevron {
 }
 
 /* Hero metric -- the single large "12 pending" / "3 Issues" / "Up to date" line each module
-   row leads with, colored the same semantic ok/warn as the status dots elsewhere in the app. */
+   row leads with. Colored by the worst severity actually present (main._updates_hero_tier /
+   _findings_hero_tier) rather than a flat ok/not-ok, using the exact same palette the severity
+   badges elsewhere in the app already use -- critical/breaking red, warning/action_needed
+   amber, a plain new feature the app's own accent, and bugfix/suggestion (or anything not yet
+   classified) the same neutral grey as everywhere else, so the color alone says how urgent
+   this actually is, not just whether it's zero. */
 .feature-card-hero {
   display: flex;
   align-items: baseline;
@@ -1187,9 +1191,21 @@ tr:hover .row-chevron {
 .feature-card-hero.hero-ok .feature-card-hero-text {
   color: var(--accent);
 }
-.feature-card-hero.hero-warn .feature-card-hero-icon,
-.feature-card-hero.hero-warn .feature-card-hero-text {
+.feature-card-hero.hero-critical .feature-card-hero-icon,
+.feature-card-hero.hero-critical .feature-card-hero-text {
+  color: var(--error);
+}
+.feature-card-hero.hero-warning .feature-card-hero-icon,
+.feature-card-hero.hero-warning .feature-card-hero-text {
   color: var(--warn);
+}
+.feature-card-hero.hero-info .feature-card-hero-icon,
+.feature-card-hero.hero-info .feature-card-hero-text {
+  color: var(--accent);
+}
+.feature-card-hero.hero-neutral .feature-card-hero-icon,
+.feature-card-hero.hero-neutral .feature-card-hero-text {
+  color: var(--text-dim);
 }
 .feature-card-streak {
   font-size: 12px;
@@ -1197,45 +1213,72 @@ tr:hover .row-chevron {
   margin: -8px 0 0;
 }
 
-/* Overview's cross-module "Attention Required" panel -- a flat, severity-ranked feed spanning
-   all three modules (see db.list_attention_items), sitting above the per-module rows so the
-   handful of things that actually need a look surface before the summary-level hero metrics. */
-.attention-panel h2 {
-  margin-bottom: 12px;
+/* Overview's cross-module "Attention Required" panel -- one column per module (see
+   db.list_attention_items_by_feature), each showing its own top 3 most-severe items, sitting
+   above the per-module rows so the handful of things that actually need a look surface before
+   the summary-level hero metrics. */
+.attention-heading {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--title-accent, var(--text));
+  text-transform: none;
+  letter-spacing: normal;
 }
-.attention-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.attention-columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
 }
-.attention-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 4px;
-  border-radius: 6px;
+.attention-column-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.attention-item {
+  display: block;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
   text-decoration: none;
   color: inherit;
 }
-.attention-row:hover {
-  background: var(--bg);
+.attention-column .attention-item:first-of-type {
+  border-top: none;
+  padding-top: 0;
 }
-.attention-title {
-  flex: 1;
-  min-width: 0;
+.attention-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.attention-item-name {
   font-size: 13px;
+  font-weight: 500;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.attention-detail {
-  color: var(--text-dim);
-  font-weight: 400;
+.attention-item:hover .attention-item-name {
+  text-decoration: underline;
 }
-.attention-source {
-  font-size: 11px;
+.attention-item-blurb {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
   color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.attention-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
 }
 
 .feature-card-meta {

@@ -173,13 +173,42 @@ _CARD_TITLES = {"updates": "Updates", "logs": "Runtime Health", "compose": "Conf
 _CARD_TAB_URLS = {"updates": "/updates", "logs": "/logs", "compose": "/compose"}
 
 
-def _updates_pending_count() -> int:
+def _updates_pending_rows() -> list[dict]:
     """Exactly the same actionable-and-not-silenced filter the Updates page's own count badge
     uses (see _sort_and_filter_rows's updates_only path) -- the Overview hero metric needs to
     match what actually shows up on a click into that tab, not some other slice of the same
     data (e.g. counting only unread rows undercounts the moment they've been viewed once)."""
     rows = db.list_tracked_containers_with_status()
-    return sum(1 for r in rows if r["status"] in ("update_available", "error") and not r.get("silenced"))
+    return [r for r in rows if r["status"] in ("update_available", "error") and not r.get("silenced")]
+
+
+_UPDATE_SEVERITY_RANK = {"bugfix": 0, "feature": 1, "action_needed": 2, "breaking": 3}
+_UPDATE_RANK_TIER = {0: "neutral", 1: "info", 2: "warning", 3: "critical"}
+
+
+def _updates_hero_tier(rows: list[dict]) -> str:
+    """Worst-severity tier among currently pending updates, driving the hero metric's color --
+    red for a breaking change or an outright check failure, amber for action-needed, the app's
+    own accent for a plain new feature, grey for a routine bugfix (or anything AI classification
+    hasn't reached yet -- an unknown severity is never shown as more urgent than that)."""
+    best_rank = -1
+    for r in rows:
+        if r["status"] == "error":
+            return "critical"
+        rank = _UPDATE_SEVERITY_RANK.get(r["severity"])
+        if rank is not None and rank > best_rank:
+            best_rank = rank
+    return _UPDATE_RANK_TIER.get(best_rank, "neutral")
+
+
+_FINDING_RANK_TIER = {"suggestion": "neutral", "warning": "warning", "critical": "critical"}
+
+
+def _findings_hero_tier(rows: list[dict]) -> str:
+    """rows are list_subjects_with_findings() output, each already carrying its own top_severity
+    (critical/warning/suggestion) -- reuses that rather than re-deriving it from raw findings."""
+    worst = max((r["top_severity"] for r in rows), key=lambda s: db.SEVERITY_ORDER.get(s, 0), default="suggestion")
+    return _FINDING_RANK_TIER.get(worst, "neutral")
 
 
 def _health_streak_text(since_iso: str, healthy: bool) -> str:
@@ -195,18 +224,22 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
     enabled = db.get_feature_enabled(feature)
     if feature == "updates":
         summary = db.latest_update_summary()
-        count = _updates_pending_count()
+        rows = _updates_pending_rows()
+        count = len(rows)
         headline = f"{count} pending update{'s' if count != 1 else ''}" if count else "Up to date"
         last_at = summary["last_at"]
+        hero_tier = "ok" if count == 0 else _updates_hero_tier(rows)
     else:
         summary = db.findings_health_summary(feature)
         # Same subject-level, non-silenced set list_subjects_with_findings feeds the feature's
         # own Issues table/heading-count badge (_feature_header.html) -- findings_health_summary
         # counts individual finding rows regardless of silenced state, which disagrees with what
         # the page itself shows the moment a subject has more than one finding or any silenced.
-        count = len(db.list_subjects_with_findings(feature))
+        rows = db.list_subjects_with_findings(feature)
+        count = len(rows)
         headline = f"{count} Issue{'s' if count != 1 else ''}" if count else "All clean"
         last_at = summary["last_at"]
+        hero_tier = "ok" if count == 0 else _findings_hero_tier(rows)
     detail = f"Last checked {local_dt(last_at)}" if last_at else "Never checked"
     running = is_running(feature)
     use_master = db.get_feature_uses_master_schedule(feature)
@@ -216,7 +249,7 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
     return {
         "feature": feature, "title": title, "enabled": enabled,
         "headline": headline, "detail": detail, "tab_url": tab_url,
-        "running": running, "count": count, "healthy": healthy,
+        "running": running, "count": count, "healthy": healthy, "hero_tier": hero_tier,
         "streak_text": _health_streak_text(streak_since, healthy),
         # Reuses the exact same live progress text the feature's own status badge shows (e.g.
         # "Checking for updates (3/59)…" for Updates, "Checking container logs (3/59)…" for
@@ -229,22 +262,20 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
     }
 
 
-def _attention_items() -> list[dict]:
-    """Resolves each cross-module item's raw container/compose-file name to its configured
-    display name (db.get_container_display_names for updates, compose_lookup.subject_display_name
-    for logs/compose findings) -- same rename feature every other table in the app already
-    honors, so an Attention Required row never shows a raw name the operator has renamed
-    everywhere else."""
-    items = db.list_attention_items(limit=5)
-    updates_names = [i["title"] for i in items if i["source"] == "updates"]
+def _attention_by_feature() -> dict:
+    """Resolves each item's raw container/compose-file name to its configured display name
+    (db.get_container_display_names for updates, compose_lookup.subject_display_name for logs/
+    compose findings) -- same rename feature every other table in the app already honors, so an
+    Attention Required row never shows a raw name the operator has renamed everywhere else."""
+    by_feature = db.list_attention_items_by_feature(limit_per_feature=3)
+    updates_names = [i["name"] for i in by_feature["updates"]]
     display_names = db.get_container_display_names(updates_names) if updates_names else {}
-    for item in items:
-        item["source_title"] = _CARD_TITLES[item["source"]]
-        if item["source"] == "updates":
-            item["display_title"] = display_names.get(item["title"], item["title"])
-        else:
-            item["display_title"] = compose_lookup.subject_display_name(item["source"], item["subject"])
-    return items
+    for item in by_feature["updates"]:
+        item["display_name"] = display_names.get(item["name"], item["name"])
+    for source in ("logs", "compose"):
+        for item in by_feature[source]:
+            item["display_name"] = compose_lookup.subject_display_name(source, item["name"])
+    return by_feature
 
 
 @app.get("/")
@@ -256,7 +287,7 @@ def overview(request: Request):
     ]
     return templates.TemplateResponse(
         "overview.html",
-        {"request": request, "cards": cards, "attention_items": _attention_items(), "active_tab": "overview"},
+        {"request": request, "cards": cards, "attention_by_feature": _attention_by_feature(), "active_tab": "overview"},
     )
 
 

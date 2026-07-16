@@ -9,7 +9,7 @@
     </a>
   </div>
 
-  <a class="feature-card-hero {{ 'hero-ok' if card.healthy else 'hero-warn' }}" href="{{ card.tab_url }}">
+  <a class="feature-card-hero hero-{{ card.hero_tier }}" href="{{ card.tab_url }}">
     <span class="feature-card-hero-icon" aria-hidden="true">{{ '✓' if card.healthy else '●' }}</span>
     <span class="feature-card-hero-text">{{ card.headline }}</span>
   </a>
