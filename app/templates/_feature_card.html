@@ -19,11 +19,11 @@
     <div class="feature-card-meta">
       <span class="feature-card-meta-row">
         <span class="meta-label">Last run</span>
-        <span class="meta-value">{{ card.detail }}</span>
+        <span class="meta-value" title="{{ card.detail }}">{{ card.detail }}</span>
       </span>
       <a class="feature-card-meta-row meta-label-link" href="/settings#{{ card.feature }}_schedule_section">
         <span class="meta-label">Schedule</span>
-        <span class="meta-value">{{ card.schedule_text }}</span>
+        <span class="meta-value" title="{{ card.schedule_text }}">{{ card.schedule_text }}</span>
       </a>
       <a class="feature-card-meta-row meta-label-link" href="/settings#{{ card.feature }}_notify_section">
         <span class="meta-label">Notifications</span>
@@ -48,8 +48,8 @@
     </div>
   </div>
 
-  {% if card.top_issues %}
   <div class="feature-card-issues">
+    {% if card.top_issues %}
     {% for item in card.top_issues %}
     <a class="feature-card-issue-slot" href="{{ item.url }}">
       <span class="badge {{ 'badge-sev-critical' if item.error else 'badge-sev-' ~ item.severity }}">
@@ -62,6 +62,13 @@
       <span class="issue-slot-cta">View details →</span>
     </a>
     {% endfor %}
+    {% else %}
+    <div class="feature-card-issue-slot feature-card-issue-slot-empty">
+      <span class="issue-slot-empty-message">
+        <span class="issue-slot-empty-icon" aria-hidden="true">✓</span>
+        No issues detected
+      </span>
+    </div>
+    {% endif %}
   </div>
-  {% endif %}
 </div>

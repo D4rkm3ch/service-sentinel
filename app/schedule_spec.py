@@ -46,6 +46,17 @@ def _ordinal(day: int) -> str:
     return f"{day}{suffix}"
 
 
+def _format_time_12h(hour: int, minute: int) -> str:
+    """describe()'s times read in 12h AM/PM -- the actual picker in Settings is a native
+    <input type="time">, which always renders in whatever 12h/24h format the operator's own OS
+    is set to (not something this app can override), so this keeps the Overview card's own
+    schedule summary consistent with what most people see in that picker rather than showing a
+    24h time next to a 12h one."""
+    period = "AM" if hour < 12 else "PM"
+    display_hour = hour % 12 or 12
+    return f"{display_hour}:{minute:02d} {period}"
+
+
 def build_trigger(spec: dict, tz: str | None = None) -> CronTrigger:
     """tz is an IANA zone name (e.g. "Australia/Sydney") the times in `spec` are meant in —
     left as None here (this module stays a pure, database-free translation function, like
@@ -76,20 +87,20 @@ def build_trigger(spec: dict, tz: str | None = None) -> CronTrigger:
 
 
 def describe(spec: dict) -> str:
-    """Human-readable one-liner for the settings page."""
+    """Human-readable one-liner for the Overview card's own schedule summary."""
     mode = spec.get("mode", "daily")
 
     if mode == "hourly":
         interval, start_hour = _hourly_params(spec)
-        return f"Every {interval} hour{'s' if interval != 1 else ''}, starting at {start_hour:02d}:00"
+        return f"Every {interval} hour{'s' if interval != 1 else ''}, starting at {_format_time_12h(start_hour, 0)}"
 
     if mode == "weekly":
         days = _valid_days(spec.get("days_of_week"))
         labels = ", ".join(DAY_LABELS[d] for d in days)
-        return f"Weekly on {labels} at {int(spec.get('hour', 6)):02d}:{int(spec.get('minute', 0)):02d}"
+        return f"Weekly on {labels} at {_format_time_12h(int(spec.get('hour', 6)), int(spec.get('minute', 0)))}"
 
     if mode == "monthly":
         day = max(1, min(31, int(spec.get("day_of_month", 1))))
-        return f"Monthly on the {_ordinal(day)} at {int(spec.get('hour', 6)):02d}:{int(spec.get('minute', 0)):02d}"
+        return f"Monthly on the {_ordinal(day)} at {_format_time_12h(int(spec.get('hour', 6)), int(spec.get('minute', 0)))}"
 
-    return f"Daily at {int(spec.get('hour', 6)):02d}:{int(spec.get('minute', 0)):02d}"
+    return f"Daily at {_format_time_12h(int(spec.get('hour', 6)), int(spec.get('minute', 0)))}"

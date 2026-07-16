@@ -1228,13 +1228,39 @@ tr:hover .row-chevron {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
   transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
-.feature-card-issue-slot:hover {
+/* Tag-qualified (a.*, not just .*) -- the empty-state box below shares this same class for its
+   border/shadow/sizing but is a plain non-interactive <div>, not a link, so it shouldn't imply
+   clickability with a hover lift it doesn't act on. */
+a.feature-card-issue-slot:hover {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
   transform: translateY(-2px);
 }
 .feature-card-issue-slot:nth-of-type(1),
 .feature-card-issue-slot:nth-of-type(2) {
   display: flex;
+}
+/* The no-issues state -- rendered in place of the real issue slots (see _feature_card.html)
+   rather than omitting .feature-card-issues entirely, which is what this fixes: leaving that
+   whole region out of the DOM let .feature-card-main grow to the row's full width once it was
+   the only flex child, pushing the footer's Check Now/toggle pair apart to feel disjointed from
+   every other module row. Keeping this box in the layout (even empty of real issues) holds
+   .feature-card-main to the same width whether the module is healthy or not. */
+.feature-card-issue-slot-empty {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.issue-slot-empty-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.issue-slot-empty-icon {
+  font-size: 22px;
+  line-height: 1;
 }
 @container issue-slots (min-width: 480px) {
   .feature-card-issue-slot:nth-of-type(3) {
@@ -1299,7 +1325,18 @@ tr:hover .row-chevron {
 .feature-card-meta-row.meta-label-link:hover .meta-value {
   text-decoration: underline;
 }
+/* max-width + ellipsis: a real-world report -- a weekly schedule with several days selected
+   ("Weekly on Monday, Wednesday, Thursday, Friday at 06:00") ran long enough to widen this whole
+   row past its column, pushing every other row's content right along with it. Capped uniformly
+   (not just on the Schedule row) so any future long value in Last run/Notifications gets the
+   same protection rather than needing its own fix later. The full text is still one hover away
+   via the matching title attribute in _feature_card.html. */
 .meta-value {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
 }
 .feature-card-footer {

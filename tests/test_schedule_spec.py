@@ -106,27 +106,38 @@ def test_unrecognized_mode_falls_back_to_daily_instead_of_crashing():
 
 
 def test_describe_hourly():
+    """12h AM/PM, not 24h -- the Settings picker itself is a native <input type="time">, which
+    always renders in the operator's own OS-level 12h/24h format (not something this app can
+    override, see _format_time_12h's own docstring), so the Overview card's summary matches
+    what most people already see in that picker rather than showing an inconsistent 24h time."""
     assert schedule_spec.describe({"mode": "hourly", "interval_hours": 6, "start_hour": 21}) == \
-        "Every 6 hours, starting at 21:00"
+        "Every 6 hours, starting at 9:00 PM"
 
 
 def test_describe_weekly_multi_day():
     assert schedule_spec.describe({"mode": "weekly", "days_of_week": ["fri", "mon", "wed"], "hour": 14, "minute": 0}) == \
-        "Weekly on Monday, Wednesday, Friday at 14:00"
+        "Weekly on Monday, Wednesday, Friday at 2:00 PM"
 
 
 def test_describe_monthly_ordinals():
     assert schedule_spec.describe({"mode": "monthly", "day_of_month": 1, "hour": 6, "minute": 0}) == \
-        "Monthly on the 1st at 06:00"
+        "Monthly on the 1st at 6:00 AM"
     assert schedule_spec.describe({"mode": "monthly", "day_of_month": 2, "hour": 6, "minute": 0}) == \
-        "Monthly on the 2nd at 06:00"
+        "Monthly on the 2nd at 6:00 AM"
     assert schedule_spec.describe({"mode": "monthly", "day_of_month": 3, "hour": 6, "minute": 0}) == \
-        "Monthly on the 3rd at 06:00"
+        "Monthly on the 3rd at 6:00 AM"
     assert schedule_spec.describe({"mode": "monthly", "day_of_month": 11, "hour": 6, "minute": 0}) == \
-        "Monthly on the 11th at 06:00"
+        "Monthly on the 11th at 6:00 AM"
     assert schedule_spec.describe({"mode": "monthly", "day_of_month": 21, "hour": 6, "minute": 0}) == \
-        "Monthly on the 21st at 06:00"
+        "Monthly on the 21st at 6:00 AM"
 
 
 def test_describe_daily_unchanged():
-    assert schedule_spec.describe({"mode": "daily", "hour": 6, "minute": 0}) == "Daily at 06:00"
+    assert schedule_spec.describe({"mode": "daily", "hour": 6, "minute": 0}) == "Daily at 6:00 AM"
+
+
+def test_describe_12h_edge_cases_midnight_and_noon():
+    assert schedule_spec.describe({"mode": "daily", "hour": 0, "minute": 0}) == "Daily at 12:00 AM"
+    assert schedule_spec.describe({"mode": "daily", "hour": 12, "minute": 0}) == "Daily at 12:00 PM"
+    assert schedule_spec.describe({"mode": "daily", "hour": 23, "minute": 59}) == "Daily at 11:59 PM"
+    assert schedule_spec.describe({"mode": "daily", "hour": 1, "minute": 5}) == "Daily at 1:05 AM"
