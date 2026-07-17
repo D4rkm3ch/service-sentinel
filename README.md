@@ -131,3 +131,7 @@ see `app/registry.py` for current gaps.
 Built by one person for their own homelab, with heavy use of AI-assisted coding throughout.
 Issues and pull requests are welcome, but treat this as a personal project rather than a
 supported product.
+
+## License
+
+[MIT](LICENSE)
