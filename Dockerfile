@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # Under docker-compose.example.yml's read_only root filesystem, Python's own .pyc bytecode
 # cache write would silently fail anyway (Python already tolerates an unwritable source tree),
