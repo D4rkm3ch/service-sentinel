@@ -1245,7 +1245,8 @@ a.feature-card-issue-slot:hover {
    the only flex child, pushing the footer's Check Now/toggle pair apart to feel disjointed from
    every other module row. Keeping this box in the layout (even empty of real issues) holds
    .feature-card-main to the same width whether the module is healthy or not. */
-.feature-card-issue-slot-empty {
+.feature-card-issue-slot-empty,
+.feature-card-issue-slot-filler {
   align-items: center;
   justify-content: center;
   text-align: center;
@@ -1268,7 +1269,11 @@ a.feature-card-issue-slot:hover {
    of staying the same size they'd be alongside a full 3. This renders in the remaining slot(s)
    instead (see _feature_card.html), sized via flex-grow to visually read as the same "1 unit"
    width as a real slot -- or 2 units combined into one box, not two separate empty boxes, when
-   only a single real issue exists. */
+   only a single real issue exists. Reuses .issue-slot-empty-message's own 19px/22px text/icon
+   sizing rather than a smaller variant scaled to fit the narrower box -- a report that shrinking
+   the text to fit made the two flavors of this same message ("No issues detected" /
+   "No further issues detected") read as different weight/importance. Text wraps onto multiple
+   lines in the 1-unit case instead. */
 .feature-card-issue-slot-filler {
   align-items: center;
   justify-content: center;
@@ -1276,18 +1281,6 @@ a.feature-card-issue-slot:hover {
 }
 .feature-card-issue-slot-filler-wide {
   flex-grow: 2;
-}
-.issue-slot-filler-message {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--accent);
-}
-.issue-slot-filler-icon {
-  font-size: 16px;
-  line-height: 1;
 }
 @container issue-slots (min-width: 480px) {
   .feature-card-issue-slot:nth-of-type(3) {
@@ -1328,10 +1321,14 @@ a.feature-card-issue-slot:hover {
   color: var(--accent);
 }
 
+/* width: 100% -- without it this row (a flex row that's otherwise just as wide as its own
+   content) falls short of .feature-card-header's full width above it, so Notifications' right
+   edge landed short of Check Now's rather than lining up with it. */
 .feature-card-meta {
   display: flex;
   flex-wrap: nowrap;
   gap: 20px;
+  width: 100%;
 }
 .feature-card-meta-row {
   display: flex;
@@ -1340,23 +1337,25 @@ a.feature-card-issue-slot:hover {
   text-decoration: none;
   color: inherit;
   min-width: 0;
-  flex-shrink: 0;
 }
-/* Fixed per-column widths, not just a shared max-width -- a report that a shorter Schedule
-   value (e.g. "Daily at 6:00 AM" vs "Weekly on Friday at ...") left Notifications sitting at a
-   different x-position card to card, since a plain max-width only caps the longest case and
-   otherwise lets each row shrink-wrap to its own content. Last run and Notifications have
-   naturally bounded content (a fixed date/time format, "On"/"Off") so their width just needs to
-   fit that comfortably; Schedule is the one column that can genuinely run long, so it gets the
-   most room of the three but is still capped so it can never push Notifications off its mark. */
+/* Last run and Notifications have naturally bounded content (a fixed date/time format,
+   "On"/"Off") so they get a plain max-width sized to that and never grow past it. Schedule is
+   the one column that can genuinely run long, so instead of its own fixed share it grows
+   (flex: 1 1 auto) to soak up whatever space the other two don't need -- which, combined with
+   .feature-card-meta's own full-width sizing above, is also what pins Notifications to the
+   row's right edge (flush with Check Now) rather than floating wherever Schedule's content
+   happens to end. */
 .feature-card-meta-row:nth-child(1) {
-  width: 132px;
+  flex: 0 0 auto;
+  max-width: 132px;
 }
 .feature-card-meta-row:nth-child(2) {
-  width: 160px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .feature-card-meta-row:nth-child(3) {
-  width: 100px;
+  flex: 0 0 auto;
+  max-width: 100px;
 }
 .meta-label {
   font-size: 11px;
