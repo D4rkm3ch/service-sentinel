@@ -52,6 +52,12 @@
   --hover-tint: rgba(255, 255, 255, 0.03);
   --icon-hover-tint: rgba(255, 255, 255, 0.05);
   --code-bg: rgba(255, 255, 255, 0.06);
+  /* A modal backdrop dims the whole viewport regardless of theme -- unlike --hover-tint (which
+     has to flip color to stay visible against its own theme's surface), black-at-60% reads as
+     "dimmed" correctly in both, so light theme's own block below repeats the same value rather
+     than inverting it. Still routed through a variable, not a literal in the rule itself, so it
+     stays out of the "no bare rgba(0,0,0,...) backgrounds outside the theme blocks" rule below. */
+  --modal-scrim: rgba(0, 0, 0, 0.6);
   /* The toggle switch's off-state knob -- same as --text here (a light knob reads fine against
      the dark track), but light theme's own block below softens this instead of reusing its
      near-black --text, which read as too bold/heavy a dot against that theme's pale track. */
@@ -84,6 +90,7 @@
   --hover-tint: rgba(0, 0, 0, 0.035);
   --icon-hover-tint: rgba(0, 0, 0, 0.05);
   --code-bg: rgba(0, 0, 0, 0.05);
+  --modal-scrim: rgba(0, 0, 0, 0.6);
   --toggle-knob: #9aa1ab;
   color-scheme: light;
 }
@@ -1540,6 +1547,29 @@ a.feature-card-issue-slot:hover {
 }
 .severity-group.faded input:checked + .severity-btn {
   opacity: 0.55;
+}
+
+/* First-launch access-control onboarding modal -- deliberately not dismissable except by
+   choosing one of its two buttons (no close icon, no click-outside-to-close), matching its own
+   forced-decision purpose: an operator either sets a login now or explicitly opts out, rather
+   than the modal getting reflexively dismissed and the decision left unmade. z-index comfortably
+   above everything else in the app (the accent picker menu, the highest existing one, is 50). */
+.onboarding-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.onboarding-modal {
+  max-width: 440px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  margin: 0;
 }
 
 /* Settings page — unified bubble sections */

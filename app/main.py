@@ -2,6 +2,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import ipaddress
 import logging
 import os
 import re
@@ -129,7 +130,8 @@ class SecurityHeadersMiddleware:
 # sit behind a private homelab network, but not everyone's deployment stays inside one (a reverse
 # proxy without its own auth layer, a port-forwarded instance), so this is an optional gate: off
 # by default (db.get_auth_secret() empty), on automatically the moment an operator sets a secret
-# in Settings, no restart required either way.
+# in Settings (or via the first-launch onboarding modal, see the onboarding-modal route below),
+# no restart required either way.
 #
 # HTTP Basic Auth rather than a custom login page/session cookie: this app is browser- and
 # htmx-driven, and Basic Auth is the one scheme browsers handle entirely natively -- the browser
@@ -165,13 +167,17 @@ class AuthGateMiddleware:
             await self.app(scope, receive, send)
             return
 
+        if db.get_auth_lan_bypass() and self._is_lan_client(scope):
+            await self.app(scope, receive, send)
+            return
+
         header_value = None
         for name, value in scope.get("headers", ()):
             if name == b"authorization":
                 header_value = value.decode("latin-1")
                 break
 
-        if not self._credential_matches(header_value, secret):
+        if not self._credential_matches(header_value, db.get_auth_username(), secret):
             response = Response(
                 status_code=401,
                 headers={"WWW-Authenticate": 'Basic realm="Service Sentinel"'},
@@ -182,21 +188,42 @@ class AuthGateMiddleware:
         await self.app(scope, receive, send)
 
     @staticmethod
-    def _credential_matches(header_value: str | None, secret: str) -> bool:
+    def _is_lan_client(scope) -> bool:
+        """Reads the direct TCP peer address off the ASGI scope -- the same source the rate
+        limiter above already uses for its own per-IP buckets, with the same caveat: behind a
+        reverse proxy this is the proxy's own address, not the original visitor's, so LAN bypass
+        combined with a reverse proxy in front of this app effectively bypasses the gate for
+        everyone. That's a real limitation to be aware of, not a bug -- fixing it would mean
+        trusting X-Forwarded-For, which this app doesn't do anywhere today because a header any
+        client can set is not a safe substitute for the actual connection's own source address."""
+        client = scope.get("client")
+        if not client:
+            return False
+        try:
+            return ipaddress.ip_address(client[0]).is_private
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _credential_matches(header_value: str | None, expected_username: str, expected_password: str) -> bool:
         if not header_value or not header_value.startswith("Basic "):
             return False
         try:
             decoded = base64.b64decode(header_value[len("Basic "):]).decode("utf-8")
         except (binascii.Error, UnicodeDecodeError):
             return False
-        # Only the password half is checked -- this is a single shared secret, not real
-        # multi-user accounts (see the plan's own note that real accounts are a different scope
-        # of project), so the username the browser prompts for is arbitrary and never inspected.
-        _, _, password = decoded.partition(":")
+        username, _, password = decoded.partition(":")
+        # An install that configured a password before the username field existed has no
+        # username on record at all -- expected_username is "" -- and must keep working exactly
+        # as before (password-only) rather than suddenly rejecting every request until someone
+        # notices and sets one. The check only starts requiring a username match once one has
+        # actually been configured.
+        username_ok = (not expected_username) or hmac.compare_digest(username, expected_username)
         # Constant-time comparison -- a naive == here would let a network attacker recover the
         # secret one byte at a time via response-timing differences, defeating the point of the
         # gate it's supposed to be enforcing.
-        return hmac.compare_digest(password, secret)
+        password_ok = hmac.compare_digest(password, expected_password)
+        return username_ok and password_ok
 
 
 # Rate limiting for check-triggering routes (security_hardening_plan.md finding #11): combined
@@ -1476,6 +1503,8 @@ def settings_page(request: Request):
             "ai_concurrency_max": db.AI_CONCURRENCY_MAX,
             "github_token_configured": bool(db.get_github_token()),
             "auth_secret_configured": bool(db.get_auth_secret()),
+            "auth_username": db.get_auth_username(),
+            "auth_lan_bypass": db.get_auth_lan_bypass(),
             "active_tab": "settings",
         },
     )
@@ -1605,20 +1634,58 @@ async def save_github_token(request: Request):
 _AUTH_SECRET_MIN_LENGTH = 8
 
 
-@app.post("/settings/auth-secret")
-async def save_auth_secret(request: Request):
+@app.post("/settings/access-control/credentials")
+async def save_auth_credentials(request: Request):
+    """Saves both halves of the pair together (unlike every other Settings secret, which is a
+    single field) -- Basic Auth needs a matched username+password to mean anything, so there's no
+    useful intermediate state where only one half is configured. Also used by the first-launch
+    onboarding modal's own "Enable" action, not just the Settings page -- either caller marking
+    onboarding done is correct, since both represent the same deliberate choice."""
     form = await request.form()
+    username = (form.get("username") or "").strip()
     secret = (form.get("secret") or "").strip()
+    if not username:
+        return {"ok": False, "message": "Choose a username."}
     if len(secret) < _AUTH_SECRET_MIN_LENGTH:
         return {"ok": False, "message": f"Use at least {_AUTH_SECRET_MIN_LENGTH} characters."}
+    db.set_auth_username(username)
     db.set_auth_secret(secret)
+    db.set_auth_onboarding_done(True)
     return {"ok": True, "message": "Saved"}
 
 
-@app.post("/settings/auth-secret/remove")
-def remove_auth_secret():
+@app.post("/settings/access-control/disable")
+def disable_auth_gate():
+    """Clears the whole configured pair plus the LAN bypass, rather than just the password --
+    leaving a stale username or bypass flag behind after "disabling" access control would be a
+    confusing half-off state to land back in if it's ever turned on again later."""
     db.clear_auth_secret()
+    db.set_auth_username("")
+    db.set_auth_lan_bypass(False)
+    db.set_auth_onboarding_done(True)
     return {"ok": True}
+
+
+@app.post("/settings/access-control/lan-bypass")
+async def save_auth_lan_bypass(request: Request):
+    form = await request.form()
+    db.set_auth_lan_bypass(form.get("enabled") == "on")
+    return _saved(request)
+
+
+@app.get("/settings/access-control/onboarding-modal")
+def access_control_onboarding_modal(request: Request):
+    """Auto-loaded (hx-trigger="load") from a slot in base.html on every single page, rather than
+    threaded through every route's own template context -- this app has dozens of routes that
+    render a full page, and adding one more context key to all of them individually would be easy
+    to miss on the next new route. Renders nothing once the operator has made a real decision
+    either way: an explicit onboarding choice (db.get_auth_onboarding_done()), or -- for an
+    install upgrading from before this modal existed -- a secret it already finds configured, so
+    upgrading never re-interrupts someone who set this up long ago."""
+    needs_onboarding = not (db.get_auth_onboarding_done() or bool(db.get_auth_secret()))
+    if not needs_onboarding:
+        return Response(content="", media_type="text/html")
+    return templates.TemplateResponse("_access_control_onboarding_modal.html", {"request": request})
 
 
 @app.post("/settings/ai/gemini-model")

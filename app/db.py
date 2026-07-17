@@ -1828,6 +1828,45 @@ def clear_auth_secret() -> None:
     _set_setting("auth_secret", "")
 
 
+# Username sits alongside the shared password rather than replacing it (AuthGateMiddleware still
+# checks both against a single configured pair, not per-user accounts -- that's a different scope
+# of project, per the note above). Not run through secrets_crypto like the password: a username
+# isn't sensitive on its own, and the Settings page shows it back in plain text so an operator can
+# see what they configured.
+def get_auth_username() -> str:
+    return _get_setting("auth_username", "")
+
+
+def set_auth_username(username: str) -> None:
+    _set_setting("auth_username", username)
+
+
+# Lets an operator exempt their own LAN from the gate entirely while still requiring it from
+# anywhere else (a port forward, a reverse proxy) -- AuthGateMiddleware checks the request's
+# source address against this before ever asking for credentials. Off by default: opting out of
+# the gate for part of the network is a deliberate choice, not a default weakening of it.
+def get_auth_lan_bypass() -> bool:
+    return _get_setting("auth_lan_bypass", "") == "1"
+
+
+def set_auth_lan_bypass(enabled: bool) -> None:
+    _set_setting("auth_lan_bypass", "1" if enabled else "")
+
+
+# Tracks whether the operator has ever made an explicit access-control decision (either flavor --
+# enabling it with credentials, or deliberately leaving it off) so the first-launch onboarding
+# modal (see main.py's onboarding-modal route) knows not to keep interrupting every page load
+# once that decision has been made. Separate from "is a secret configured": an operator who
+# explicitly chose "no login" has a real, deliberate decision on record with an empty secret,
+# which needs to read differently from "never asked yet."
+def get_auth_onboarding_done() -> bool:
+    return _get_setting("auth_onboarding_done", "") == "1"
+
+
+def set_auth_onboarding_done(done: bool = True) -> None:
+    _set_setting("auth_onboarding_done", "1" if done else "")
+
+
 # ---------------------------------------------------------------------------
 # Stacks — grouping containers that share a compose file. Names are AI-generated
 # by default but can be manually overridden; a manual name never gets auto-regenerated.

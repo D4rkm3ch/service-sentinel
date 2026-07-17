@@ -7,6 +7,45 @@
 {% block content %}
 
 <section class="panel">
+  <h2 class="settings-heading-lg">Access Control</h2>
+
+  <div class="settings-subsection settings-subsection-first">
+    <p class="meta">Service Sentinel has no login by default - it assumes you're running it on a
+private network. If you're exposing it beyond that (a reverse proxy without its own
+sign-in, a port forward), set a username and password here. Your browser will prompt for them
+using its own standard sign-in dialog.</p>
+    <div class="api-key-row" style="margin-bottom:8px">
+      <input type="text" id="auth_username_field" class="mono field-input" autocomplete="off"
+             placeholder="Username" value="{{ auth_username if auth_secret_configured else '' }}"
+             {{ 'disabled' if auth_secret_configured else '' }}>
+    </div>
+    <div class="api-key-row">
+      <input type="password" id="auth_secret_field" class="mono field-input" autocomplete="off"
+             data-placeholder-new="Choose a password"
+             placeholder="{{ '•••••••• (configured)' if auth_secret_configured else 'Choose a password' }}"
+             {{ 'disabled' if auth_secret_configured else '' }}>
+      <button type="button" id="auth_secret_action_btn" onclick="handleAuthSecretButtonClick()">
+        {{ 'Change' if auth_secret_configured else 'Save' }}
+      </button>
+      <button type="button" id="auth_secret_cancel_btn" class="button-danger"
+              onclick="cancelAuthSecretEdit()" style="{{ 'display:none' if auth_secret_configured else '' }}">
+        Cancel
+      </button>
+      {% if auth_secret_configured %}
+      <button type="button" id="auth_secret_remove_btn" class="button-danger" onclick="removeAuthSecret()">
+        Disable
+      </button>
+      {% endif %}
+      <span id="auth_secret_result">{% if auth_secret_configured %}<span class="key-configured-badge">✓ Enabled</span>{% endif %}</span>
+    </div>
+    <div id="auth_lan_bypass_wrapper" class="{{ '' if auth_secret_configured else 'hidden' }}" style="margin-top:12px">
+      {{ ts.toggle_switch('auth_lan_bypass', auth_lan_bypass, '/settings/access-control/lan-bypass',
+                           'Skip login for devices on the local network') }}
+    </div>
+  </div>
+</section>
+
+<section class="panel">
   <h2 class="settings-heading-lg">AI Provider</h2>
 
   <div class="settings-subsection settings-subsection-first">
@@ -270,36 +309,6 @@ capped by your last actual check</p>
   {% endfor %}
 </section>
 
-<section class="panel">
-  <h2 class="settings-heading-lg">Access Control</h2>
-
-  <div class="settings-subsection settings-subsection-first">
-    <p class="meta">Service Sentinel has no login by default - it assumes you're running it on a
-private network. If you're exposing it beyond that (a reverse proxy without its own
-sign-in, a port forward), set a shared password here. Your browser will prompt for it using
-its own standard sign-in dialog.</p>
-    <div class="api-key-row">
-      <input type="password" id="auth_secret_field" class="mono field-input" autocomplete="off"
-             data-placeholder-new="Choose a password"
-             placeholder="{{ '•••••••• (configured)' if auth_secret_configured else 'Choose a password' }}"
-             {{ 'disabled' if auth_secret_configured else '' }}>
-      <button type="button" id="auth_secret_action_btn" onclick="handleAuthSecretButtonClick()">
-        {{ 'Change' if auth_secret_configured else 'Save' }}
-      </button>
-      <button type="button" id="auth_secret_cancel_btn" class="button-danger"
-              onclick="cancelAuthSecretEdit()" style="{{ 'display:none' if auth_secret_configured else '' }}">
-        Cancel
-      </button>
-      {% if auth_secret_configured %}
-      <button type="button" id="auth_secret_remove_btn" class="button-danger" onclick="removeAuthSecret()">
-        Remove
-      </button>
-      {% endif %}
-      <span id="auth_secret_result">{% if auth_secret_configured %}<span class="key-configured-badge">✓ Enabled</span>{% endif %}</span>
-    </div>
-  </div>
-</section>
-
 <script>
 function toggleAiProvider(active) {
   document.getElementById('anthropic-provider-section').classList.toggle('hidden', active !== 'anthropic');
@@ -381,52 +390,63 @@ function handleAuthSecretButtonClick() {
 }
 
 function unlockAuthSecret() {
+  const usernameField = document.getElementById('auth_username_field');
   const field = document.getElementById('auth_secret_field');
+  usernameField.disabled = false;
+  usernameField.value = '';
+  usernameField.focus();
   field.disabled = false;
   field.placeholder = field.dataset.placeholderNew;
   field.value = '';
-  field.focus();
   document.getElementById('auth_secret_action_btn').textContent = 'Save';
   document.getElementById('auth_secret_cancel_btn').style.display = '';
   document.getElementById('auth_secret_result').innerHTML = '';
 }
 
 function cancelAuthSecretEdit() {
+  const usernameField = document.getElementById('auth_username_field');
   const field = document.getElementById('auth_secret_field');
   const resultSlot = document.getElementById('auth_secret_result');
   const wasConfigured = document.getElementById('auth_secret_remove_btn') !== null || field.placeholder === '•••••••• (configured)';
-  field.value = '';
   if (wasConfigured) {
+    usernameField.disabled = true;
+    field.value = '';
     field.disabled = true;
     field.placeholder = '•••••••• (configured)';
     document.getElementById('auth_secret_action_btn').textContent = 'Change';
     document.getElementById('auth_secret_cancel_btn').style.display = 'none';
     resultSlot.innerHTML = '<span class="key-configured-badge">✓ Enabled</span>';
   } else {
+    usernameField.value = '';
+    field.value = '';
     field.placeholder = field.dataset.placeholderNew;
     resultSlot.innerHTML = '';
   }
 }
 
 function saveAuthSecret() {
+  const usernameField = document.getElementById('auth_username_field');
+  const username = usernameField.value.trim();
   const field = document.getElementById('auth_secret_field');
   const value = field.value.trim();
   const resultSlot = document.getElementById('auth_secret_result');
-  if (!value) return;
-  fetch('/settings/auth-secret', {
+  if (!username || !value) return;
+  fetch('/settings/access-control/credentials', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'secret=' + encodeURIComponent(value),
+    body: 'username=' + encodeURIComponent(username) + '&secret=' + encodeURIComponent(value),
   }).then(r => r.json()).then(data => {
     if (data.ok) {
+      usernameField.disabled = true;
       field.value = '';
       field.disabled = true;
       field.placeholder = '•••••••• (configured)';
       document.getElementById('auth_secret_action_btn').textContent = 'Change';
       document.getElementById('auth_secret_cancel_btn').style.display = 'none';
       resultSlot.innerHTML = '<span class="key-configured-badge">✓ Enabled</span>';
-      // A page reload picks up the Remove button (server-rendered, not built client-side here)
-      // and primes the browser to start sending Basic Auth on its very next request.
+      // A page reload picks up the Disable button and the LAN-bypass toggle (both server-
+      // rendered, not built client-side here) and primes the browser to start sending Basic
+      // Auth on its very next request.
       window.location.reload();
     } else {
       resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
@@ -438,11 +458,11 @@ function saveAuthSecret() {
 
 function removeAuthSecret() {
   const ok = confirm(
-    'This disables the password gate entirely -- Service Sentinel will be reachable by anyone ' +
-    'who can reach this address, with no sign-in required.\n\nRemove the password?'
+    'This disables access control entirely -- Service Sentinel will be reachable by anyone ' +
+    'who can reach this address, with no sign-in required.\n\nDisable it?'
   );
   if (!ok) return;
-  fetch('/settings/auth-secret/remove', { method: 'POST' }).then(() => {
+  fetch('/settings/access-control/disable', { method: 'POST' }).then(() => {
     window.location.reload();
   });
 }

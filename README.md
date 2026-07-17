@@ -66,11 +66,16 @@ starts off.
 ## Security
 
 **Access control.** There is no login by default — the app assumes it's running on a trusted
-private network. If you're exposing it beyond that (a reverse proxy without its own sign-in, a
-port forward), set a password in Settings → Access Control. Your browser will prompt for it
-with its own standard sign-in dialog, and every request requires it until you remove it. For
-anything internet-facing, still prefer your own layer in front (a reverse proxy with auth, a
-VPN, or similar) rather than relying on any single gate.
+private network. The first time you open it, an onboarding prompt asks you to either set a
+username and password or explicitly turn this off; you can change that choice later in
+Settings → Access Control, which sits at the top of the page. Once set, your browser will
+prompt for the credentials with its own standard sign-in dialog, and every request requires
+them until you disable it. There's also an optional "skip login on the local network" toggle,
+for keeping the gate off for your own LAN while still requiring it from anywhere else — note
+this checks the direct connection's own source address, so it isn't meaningful if the app sits
+behind a reverse proxy (the proxy's address is what it would see, not the original visitor's).
+For anything internet-facing, still prefer your own layer in front (a reverse proxy with auth,
+a VPN, or similar) rather than relying on any single gate.
 
 **Secrets at rest.** API keys, the Apprise notification URL, and the Access Control password
 are stored in the SQLite database under `DATA_DIR` — as plain text by default, so treat that

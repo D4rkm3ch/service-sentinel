@@ -196,6 +196,11 @@
     · {{ app_timezone() }}
     · uptime {{ get_uptime_str() }}
   </footer>
+  <!-- Auto-loaded on every page rather than threaded through every route's own template context
+       (see the route's own docstring for why) -- renders nothing once the operator has made a
+       real access-control decision, the first-launch "set a username/password or turn this off"
+       modal otherwise. -->
+  <div id="onboarding-modal-slot" hx-get="/settings/access-control/onboarding-modal" hx-trigger="load" hx-swap="innerHTML"></div>
   <script>
     // Dims every Check now / Regenerate / Reset & re-check button sitewide (class
     // "{feature}-action-btn" for feature in updates/logs/compose) while ANY feature's check --

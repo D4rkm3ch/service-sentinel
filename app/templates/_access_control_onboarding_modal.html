@@ -1,0 +1,61 @@
+{% import "_toggle_switch.html" as ts %}
+<div class="onboarding-modal-overlay">
+  <div class="onboarding-modal panel">
+    <h2 class="settings-heading-lg">Set up access control</h2>
+    <p class="meta">Service Sentinel has no login by default - anyone who can reach this address
+can use it. Set a username and password now, or explicitly turn this off if you're comfortable
+running without one (e.g. a private network you trust). You can change this later in
+Settings.</p>
+
+    <div class="settings-subsection settings-subsection-first">
+      <input type="text" id="onboarding_username_field" class="mono field-input" autocomplete="off"
+             placeholder="Username" style="width:100%; margin-bottom:8px">
+      <input type="password" id="onboarding_password_field" class="mono field-input" autocomplete="off"
+             placeholder="Password (min. 8 characters)" style="width:100%">
+      <div style="margin-top:12px">
+        {{ ts.toggle_switch('onboarding_lan_bypass', false, '/settings/access-control/lan-bypass',
+                             'Skip login for devices on the local network') }}
+      </div>
+      <div class="api-key-row" style="margin-top:16px">
+        <button type="button" onclick="onboardingEnable()">Enable Access Control</button>
+        <button type="button" class="button-danger" onclick="onboardingDisable()">Don't require a login</button>
+      </div>
+      <span id="onboarding_result"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+function onboardingEnable() {
+  const username = document.getElementById('onboarding_username_field').value.trim();
+  const password = document.getElementById('onboarding_password_field').value.trim();
+  const resultSlot = document.getElementById('onboarding_result');
+  if (!username || !password) {
+    resultSlot.innerHTML = '<span class="test-result-error">Enter a username and password.</span>';
+    return;
+  }
+  fetch('/settings/access-control/credentials', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'username=' + encodeURIComponent(username) + '&secret=' + encodeURIComponent(password),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      // A page reload rather than just hiding the overlay client-side -- enabling access
+      // control means the very next request needs a Basic Auth credential the browser doesn't
+      // have cached yet; reloading immediately prompts for it instead of leaving the operator
+      // to discover that on whatever they happen to click next.
+      window.location.reload();
+    } else {
+      resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+    }
+  }).catch(() => {
+    resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  });
+}
+
+function onboardingDisable() {
+  fetch('/settings/access-control/disable', { method: 'POST' }).then(() => {
+    window.location.reload();
+  });
+}
+</script>
