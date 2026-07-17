@@ -3,15 +3,15 @@ lets automatic scheduled checks and manual UI checks share one "only one at a ti
 Stage 7 adds AI summarization: a per-service summary_markdown + severity classification,
 generated from Stage 6's fetched release notes plus the operator's own compose config for
 that service, for the exact same set of genuinely-new/changed updates that get fresh release
-notes. Deliberately no toggle for this one — it's the "single path" base tier, unlike the
+notes. Deliberately no toggle for this one -- it's the "single path" base tier, unlike the
 optional stack-level cross-service analysis (see stacks.run_stack_analysis_pass(), also called
 from here, once the write transaction commits, gated by its own Deep Analysis toggle). Stage 10
 wires up real notifications: every write that's genuinely new/changed (not a repeat of the
 exact same pending transition) is collected into a candidate list, and offered to
 notifications.notify_updates_digest() as a single batched call once the write transaction has
-committed — see persist_check_outcome()'s to_notify list. Stage 11 deduplicates release notes
+committed -- see persist_check_outcome()'s to_notify list. Stage 11 deduplicates release notes
 fetching: containers sharing an image:tag (see reconcile.py's matching registry-check dedup)
-fetch notes once between them, not once each — see _fetch_release_notes_deduped().
+fetch notes once between them, not once each -- see _fetch_release_notes_deduped().
 
 Wraps reconcile.run_check() and writes its outcome into SQLite, so the Tracked Containers
 table and per-update/per-stack detail pages survive restarts and get real database ids to
@@ -20,11 +20,11 @@ rather than folded into reconcile.py, so reconcile.py stays exactly what its own
 promises: a pure, database-free check function.
 
 An update record exists in the database if and only if that container currently needs
-attention (a pending update or a check error) — there's no separate "resolved" flag. Once a
+attention (a pending update or a check error) -- there's no separate "resolved" flag. Once a
 container catches up to the digest a record was tracking, or that record gets superseded by a
 newer transition, the old row is deleted rather than marked done. This mirrors exactly what
 Stage 1/2's in-memory outcome already showed on every check (current state, not a history
-log) — just made durable across restarts, with at most one update row per container at a
+log) -- just made durable across restarts, with at most one update row per container at a
 time.
 """
 
@@ -46,13 +46,13 @@ ProgressFunc = Callable[[str, int, int], None]
 
 
 def run_and_persist_check(on_progress: ProgressFunc | None = None) -> dict:
-    """Runs one check and persists its outcome, unconditionally — no running-flag guard, no
+    """Runs one check and persists its outcome, unconditionally -- no running-flag guard, no
     exception handling. This is the low-level building block; almost every real caller should
     use run_updates_check_if_not_running() below instead, which adds both.
 
-    on_progress(stage, done, total), if given, is called for every phase of the pipeline — the
+    on_progress(stage, done, total), if given, is called for every phase of the pipeline -- the
     registry check itself (stage="checking"), release notes fetching (stage="release_notes"),
-    and AI summarization (stage="summarizing") — each skipped entirely (never announced) if
+    and AI summarization (stage="summarizing") -- each skipped entirely (never announced) if
     there's nothing for that phase to do this round. See persist_check_outcome()'s docstring
     for why a phase that doesn't report progress here looks exactly like a hang."""
     reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
@@ -67,8 +67,8 @@ def try_start_updates_check() -> bool:
     was already in progress, meaning the caller should do nothing further.
 
     Split out from run_updates_check_if_not_running() specifically so the UI's Check now
-    button can claim the slot synchronously in the request-handling thread — before the HTTP
-    response is even built — so that response deterministically shows "running" instead of
+    button can claim the slot synchronously in the request-handling thread -- before the HTTP
+    response is even built -- so that response deterministically shows "running" instead of
     racing a background thread that might not have claimed it yet by the time the response
     renders (see main.py's _launch_check_if_not_running). The actual check work still happens
     on a background thread; only the claim itself needs to be synchronous."""
@@ -84,7 +84,7 @@ def run_claimed_updates_check() -> None:
     partway through, check_state ends up "not running" regardless, so a single bad run (a DB
     error, a bug in a later stage's code, anything) can never wedge the app the way the
     pre-rebuild version did ("ran all night and was still checking"). A failed check just
-    reports itself as failed and lets the next trigger — scheduled or manual — try again."""
+    reports itself as failed and lets the next trigger -- scheduled or manual -- try again."""
     ai_provider.reset_rate_limited_count()
     try:
         outcome = run_and_persist_check(
@@ -109,7 +109,7 @@ def run_claimed_updates_check() -> None:
 
 def run_updates_check_if_not_running() -> bool:
     """Combines try_start_updates_check() + run_claimed_updates_check() into one synchronous
-    call — the right shape for the automatic schedule (Stage 5), which already runs on
+    call -- the right shape for the automatic schedule (Stage 5), which already runs on
     APScheduler's own worker thread and has no HTTP response that needs to return immediately,
     unlike the UI's Check now button. Returns True if a check actually ran, False if one was
     already in progress and this call was skipped."""
@@ -123,43 +123,43 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
                            force_stack_analysis: bool = False) -> None:
     """Writes one check's results into container_state/updates. An empty container list is
     always treated as "the check itself didn't complete" (Docker socket unreachable, etc.)
-    rather than "there are genuinely zero containers" — existing persisted state is left
+    rather than "there are genuinely zero containers" -- existing persisted state is left
     completely untouched rather than risking a wipe from a transient failure.
 
     Stage 6/7 add a read-fetch-summarize-write shape: first a read-only pass figures out which
     containers are genuinely new (or changed) update_available transitions, then release notes
     are fetched for just those (real GitHub API calls), then an AI summary + severity is
     generated for whichever of those actually got real notes text back (a real AI provider
-    call) — all done with no database transaction open, each phase fanned out across its own
+    call) -- all done with no database transaction open, each phase fanned out across its own
     thread pool via _run_concurrent_phase() (ai_provider.concurrency_limit() caps both; lower
     than the registry check concurrency since these are meaningfully more expensive,
-    rate-limited calls) — and only then does the actual write batch run. This keeps the
+    rate-limited calls) -- and only then does the actual write batch run. This keeps the
     "one transaction for the whole write batch" property described below while never holding a
     SQLite transaction open across however long a batch of these calls takes.
     on_progress(stage, done, total) is called once per completion during each of the two fetch
     phases (stage="release_notes", stage="summarizing"; done-count updated under a lock, safe
-    to call from multiple worker threads at once — same approach as reconcile.run_check()'s
-    progress callback), exactly like reconcile.run_check() already does for stage="checking" —
+    to call from multiple worker threads at once -- same approach as reconcile.run_check()'s
+    progress callback), exactly like reconcile.run_check() already does for stage="checking" --
     each skipped entirely (never called with that stage) if there's nothing to do this round,
     so the caller never has to render a meaningless "0/0". A phase that fetches or generates
     things but never reports progress here is exactly the "hangs at N/N" bug Stage 6 initially
     reintroduced.
 
     Holds a single connection/transaction for the whole write batch rather than letting each
-    db.py call open and commit its own — with 59 containers and up to four db.py calls each,
+    db.py call open and commit its own -- with 59 containers and up to four db.py calls each,
     that was ~200 separate connect+commit+close cycles (each a real fsync in WAL mode)
     happening silently after the progress bar already showed the check as finished, which is
     what a "hangs for several seconds after reaching N/N" report traced back to. One
     transaction also means a check that fails partway through leaves the database exactly as
-    it was — readers never see a half-applied check, and there's nothing to reconcile after
+    it was -- readers never see a half-applied check, and there's nothing to reconcile after
     the retry the Stage 4 safety net triggers.
 
-    prune=False skips prune_removed_containers() — required for a scoped single-container
+    prune=False skips prune_removed_containers() -- required for a scoped single-container
     outcome (see run_and_persist_single_check below), since that outcome's container list
     legitimately contains just the one container being re-checked, not every tracked
     container; pruning against it would wrongly delete every other container's state.
 
-    force_stack_analysis=True threads straight through to stacks.run_stack_analysis_pass() —
+    force_stack_analysis=True threads straight through to stacks.run_stack_analysis_pass() --
     used by the stack page's own Reset & re-check button (see run_and_persist_many_reset_and_
     check and run_claimed_stack_reset_and_recheck below) so an explicit "start over" click
     always gets a fresh cross-service blurb, not just whenever a member's digest happens to
@@ -264,11 +264,11 @@ def persist_check_outcome(outcome: dict, on_progress: ProgressFunc | None = None
 def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[dict], object],
                            on_progress: ProgressFunc | None) -> dict[str, object]:
     """Shared shape for every fan-out phase in the pipeline (release notes fetching, AI
-    summarization) — a thread pool capped by ai_provider.concurrency_limit() (per-provider,
+    summarization) -- a thread pool capped by ai_provider.concurrency_limit() (per-provider,
     UI-editable in Settings -- see that function's docstring), progress reported once per completion under a lock
     (safe from multiple worker threads at once, same approach reconcile.run_check() uses), and
     the stage never announced at all (on_progress is never called with this stage name) if
-    there's nothing to do this round — see persist_check_outcome()'s docstring for why a phase
+    there's nothing to do this round -- see persist_check_outcome()'s docstring for why a phase
     that goes quiet without reporting anything looks exactly like a hang."""
     results: dict[str, object] = {}
     if not containers:
@@ -575,16 +575,16 @@ def _persist_one(container: dict, existing, release_notes_result, summary_result
 
 
 # ---------------------------------------------------------------------------
-# Scoped single-container re-check — backs the per-update "Check now" and "Reset & re-check"
+# Scoped single-container re-check -- backs the per-update "Check now" and "Reset & re-check"
 # buttons (Stage 6). Both share the exact same "only one check at a time" mutex as the full
 # check above (claimed via try_start_updates_check()) so neither can ever run concurrently
 # with a full check and race on the same rows, but must NOT overwrite the full check's
-# "Last checked: N checked, M found" summary with its own single-container result — see
+# "Last checked: N checked, M found" summary with its own single-container result -- see
 # check_state.release_running() vs set_finished() for how that's kept separate.
 # ---------------------------------------------------------------------------
 
 def run_and_persist_single_check(container_name: str, on_progress: ProgressFunc | None = None) -> dict:
-    """Single-container equivalent of run_and_persist_check() — re-checks just container_name
+    """Single-container equivalent of run_and_persist_check() -- re-checks just container_name
     against the registry and, if it's a genuinely new/changed update, fetches its release
     notes and generates an AI summary fresh, exactly like a full check would for that one
     container. Non-destructive: the row is only touched if the digest actually moved, exactly
@@ -604,7 +604,7 @@ def run_and_persist_single_reset_and_check(container_name: str, on_progress: Pro
     run_and_persist_single_check() above. Deleting first is what makes this force a fresh
     release notes fetch and AI summary even when the digest hasn't actually changed since the
     last check (_is_new_or_changed_update() in persist_check_outcome() only fetches for a
-    container with no existing row, or one whose recorded digests don't match) — useful for
+    container with no existing row, or one whose recorded digests don't match) -- useful for
     retrying a notes fetch or summary that failed without waiting for the image to genuinely
     update again. Mirrors the global Reset & re-check's "wipe history, then check" shape,
     scoped to one container.
@@ -657,7 +657,7 @@ def run_claimed_single_check(item_key: str, container_name: str) -> None:
     shared running slot via try_start_updates_check(). Mirrors run_claimed_updates_check()'s
     Stage 4 safety net (a failed scoped check still releases the mutex, never wedges future
     checks) but reports progress on the item's own channel and releases the shared mutex
-    without touching the feature-level last_result — see check_state.py."""
+    without touching the feature-level last_result -- see check_state.py."""
     try:
         run_and_persist_single_check(
             container_name,
@@ -671,7 +671,7 @@ def run_claimed_single_check(item_key: str, container_name: str) -> None:
 
 
 def run_claimed_single_reset_and_check(item_key: str, container_name: str) -> None:
-    """Reset & re-check's counterpart to run_claimed_single_check() above — identical shape
+    """Reset & re-check's counterpart to run_claimed_single_check() above -- identical shape
     and safety net, wired to the force-fresh variant instead."""
     try:
         run_and_persist_single_reset_and_check(
@@ -686,12 +686,12 @@ def run_claimed_single_reset_and_check(item_key: str, container_name: str) -> No
 
 
 # ---------------------------------------------------------------------------
-# Regenerate AI Response (Stage 7) — re-runs summarization for an update's already-stored
+# Regenerate AI Response (Stage 7) -- re-runs summarization for an update's already-stored
 # release_notes_raw in place: no registry check, no fresh notes fetch, just a new attempt at
 # turning the same notes into a summary + severity. Shares run_claimed_single_check's exact
 # (item_key, container_name) -> None shape, so main.py can launch it through the very same
 # _launch_scoped_check helper, and the poll route's "look the container back up by name, land
-# on whatever id it currently has" redirect logic works unmodified here too — the id never
+# on whatever id it currently has" redirect logic works unmodified here too -- the id never
 # actually changes for this action, it just resolves back to itself.
 # ---------------------------------------------------------------------------
 

@@ -5,8 +5,8 @@ import re
 def extract_json(text: str):
     """Strips markdown code fences if present and parses the remaining text as JSON.
     Falls back to locating the first complete {...} or [...] substring if the text doesn't
-    parse cleanly on its own — models occasionally add a stray word of narration despite
-    being told not to. Returns None if nothing usable can be found, rather than raising —
+    parse cleanly on its own -- models occasionally add a stray word of narration despite
+    being told not to. Returns None if nothing usable can be found, rather than raising --
     callers should treat that as 'the model didn't give us usable structure' and fail
     gracefully."""
     cleaned = text.strip()

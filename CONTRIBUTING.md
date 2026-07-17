@@ -1,7 +1,7 @@
 # Contributing / Architecture Overview
 
 A short orientation for anyone (future you included) opening this codebase cold. This is a
-FastAPI + Jinja2 + htmx app with SQLite storage — no frontend build step, no ORM, no message
+FastAPI + Jinja2 + htmx app with SQLite storage -- no frontend build step, no ORM, no message
 queue. Server-rendered pages, htmx for partial swaps and polling, and a handful of inline
 scripts in `base.html`.
 
@@ -9,7 +9,7 @@ scripts in `base.html`.
 
 **Runtime configuration lives in the database, not env vars.** Schedules, notification
 settings, AI provider keys and models, severity thresholds, feature on/off toggles, the
-lookback window, the auth password — all of it is in the `app_settings` table, written by the
+lookback window, the auth password -- all of it is in the `app_settings` table, written by the
 Settings page and read at call time, so everything is changeable from a running instance
 without a redeploy. Env vars (`app/config.py`, read once at import) only cover things that
 genuinely can't change at runtime: paths, the Docker socket, the port-level stuff in
@@ -40,18 +40,18 @@ report.
 
 ## Module map
 
-- `main.py` — every route, the middleware stack (security headers, no-store, auth gate, rate
-  limit — all plain ASGI or noted otherwise), markdown rendering/sanitization, and the
+- `main.py` -- every route, the middleware stack (security headers, no-store, auth gate, rate
+  limit -- all plain ASGI or noted otherwise), markdown rendering/sanitization, and the
   Overview-page card assembly. Large by design; split only if a real seam appears.
-- `db.py` — schema, migrations (inline in `init_db`), and every query. Parameterized SQL
+- `db.py` -- schema, migrations (inline in `init_db`), and every query. Parameterized SQL
   throughout; dynamic `ORDER BY` only from allowlisted column names.
-- `ai_provider.py` — the Anthropic/Gemini abstraction; retry and concurrency logic lives here,
+- `ai_provider.py` -- the Anthropic/Gemini abstraction; retry and concurrency logic lives here,
   not in callers. `ai_json.py` parses imperfect LLM output.
-- `compose_lookup.py` — compose-file indexing (cached + request-coalesced, see its comments)
+- `compose_lookup.py` -- compose-file indexing (cached + request-coalesced, see its comments)
   and secret redaction (key-name + value-shape).
-- `stacks.py` / `reconcile.py` — grouping containers by compose file, and reconciling DB state
+- `stacks.py` / `reconcile.py` -- grouping containers by compose file, and reconciling DB state
   against what's actually running.
-- `secrets_crypto.py` — optional at-rest encryption for stored secrets.
+- `secrets_crypto.py` -- optional at-rest encryption for stored secrets.
 
 ## Tests
 
@@ -59,12 +59,12 @@ report.
 `pyproject.toml`). Conventions the suite relies on:
 
 - **One shared session-scoped `client` fixture** (`tests/conftest.py`). Never open a second
-  `TestClient` against the app — the startup event starts APScheduler, and starting it twice in
+  `TestClient` against the app -- the startup event starts APScheduler, and starting it twice in
   one process raises.
 - Tests are behavior-named, usually with a docstring explaining the bug or feature that
-  motivated them — keep doing that; it's the project's changelog-of-record.
+  motivated them -- keep doing that; it's the project's changelog-of-record.
 - Anything that mutates shared state (settings keys, the auth secret, rate-limit buckets) must
-  reset it in setup/teardown — the fixtures are session-scoped, so leaks poison other files.
+  reset it in setup/teardown -- the fixtures are session-scoped, so leaks poison other files.
 - Lint is `ruff check app/ tests/` (config in `pyproject.toml`), enforced in CI before tests.
 
 ## Style notes

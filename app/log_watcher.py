@@ -68,7 +68,7 @@ def run_log_check() -> dict:
     try:
         containers = list_running_containers_for_logs()
     except Exception:
-        logger.exception("Could not reach the Docker socket — skipping this log check")
+        logger.exception("Could not reach the Docker socket -- skipping this log check")
         result = {"checked": 0, "findings_found": 0, "errors": 1, "rate_limited": 0, "cancelled": False}
         set_finished("logs", result)
         return result
@@ -90,9 +90,9 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     """The actual fetch/filter/triage pass, scoped to whichever container names are given --
     pull logs since each one's last checkpoint (or the configured lookback window, for a
     container with none, or for every container if db.get_logs_use_checkpoint() is off), keep
-    only lines that matched a suspicious keyword locally, and —
+    only lines that matched a suspicious keyword locally, and --
     only for containers that actually had something worth showing, OR that have an already-
-    open finding needing a resolution check (see below) — send those excerpts to Claude for
+    open finding needing a resolution check (see below) -- send those excerpts to Claude for
     triage in bounded-size chunks (see _chunk_excerpts), dispatched concurrently (capped by
     ai_provider.concurrency_limit()) rather than one after another -- several chunks run in
     parallel instead of each one waiting for the last to finish. A container with clean logs and

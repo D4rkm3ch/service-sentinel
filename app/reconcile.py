@@ -7,7 +7,7 @@ which of your containers is asking and would just answer the identical question 
 Lists tracked Docker containers, then checks each *unique* image:tag's registry digest in
 parallel via a thread pool (registry checks are almost pure network wait, so this is the one
 part of the pipeline worth parallelizing). No AI anywhere in this file, and still no persistence
-*here* — every call re-checks everything from scratch against the real Docker socket and real
+*here* -- every call re-checks everything from scratch against the real Docker socket and real
 registries. This module stays a pure, database-free function on purpose (see app/persist.py,
 which wraps it for Stage 3) so it stays simple to test by mocking Docker/registry calls and
 asserting on the returned dict, with no DB side effects to also mock or reason about. Listing
@@ -15,7 +15,7 @@ containers itself stays a single sequential call to the Docker socket; only the 
 registry lookups are fanned out.
 
 This file will grow one capability at a time in later stages (release notes, AI summarization,
-notifications, deduplication, stacks) — each introduced and tested in isolation, so if
+notifications, deduplication, stacks) -- each introduced and tested in isolation, so if
 something is ever slow or breaks, we know exactly which piece did it.
 """
 
@@ -138,14 +138,14 @@ def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
     per Docker inspect), latest_digest (what the registry currently serves for that tag, or
     None if the check failed), and the two servicesentinel.* label overrides (source,
     changelog_url) as plain strings or None. All of these exist here purely for app/persist.py
-    (Stage 3) and app/release_notes.py (Stage 6) to use — this module itself does nothing with
+    (Stage 3) and app/release_notes.py (Stage 6) to use -- this module itself does nothing with
     them beyond reading them off the container; no severity, no AI, no history of what was
     seen before. This module still only ever answers "what does a fresh check show right now."
 
     If given, on_progress(done, total) is called once with (0, total) right after the
-    container list is known, then again after each container finishes — safe to call from
+    container list is known, then again after each container finishes -- safe to call from
     multiple worker threads at once, since the done-count itself is updated under a lock
-    before firing the callback. Purely a UI hook (the "Checking (N/59)" progress text) — the
+    before firing the callback. Purely a UI hook (the "Checking (N/59)" progress text) -- the
     check's own result doesn't depend on it, and callers that don't need live progress can
     just leave it as None."""
     checked_at = datetime.now(timezone.utc).isoformat()
@@ -161,13 +161,13 @@ def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
 
 def run_check_one(container_name: str, on_progress: Callable[[int, int], None] | None = None) -> dict:
     """Same shape and semantics as run_check() above, scoped to a single already-tracked
-    container by name — backs the per-update "Reset & re-check" button (Stage 6), which needs
+    container by name -- backs the per-update "Reset & re-check" button (Stage 6), which needs
     to re-check just the one container a user clicked into rather than the whole fleet. Nothing
     to deduplicate against with only one container, so this stays its own simple path rather
     than routing through _run_checks()'s grouping machinery.
 
     Returns {"containers": [], "errors": 1, ...} if the named container isn't found (removed
-    since the page was loaded) — same "couldn't check anything" shape run_check() returns for
+    since the page was loaded) -- same "couldn't check anything" shape run_check() returns for
     an unreachable Docker socket, so callers can treat both the same way."""
     checked_at = datetime.now(timezone.utc).isoformat()
 

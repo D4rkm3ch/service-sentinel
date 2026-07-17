@@ -6,7 +6,7 @@ whatever realm/service/scope it specifies and retry. This is what every complian
 registry (Docker Hub, GHCR, lscr.io, Quay, etc.) expects, and means we don't need to
 special-case each registry by hostname.
 
-For registries we already know always challenge (Docker Hub, GHCR, lscr.io — which is a
+For registries we already know always challenge (Docker Hub, GHCR, lscr.io -- which is a
 front for GHCR), we skip straight to requesting a token instead of wasting a round trip on
 a request we know will get a 401. Unknown/self-hosted registries still go through the full
 try-then-challenge flow, since we can't assume they require auth at all.
@@ -16,7 +16,7 @@ TODO / known gaps (fine for a homelab MVP, flag before relying on this more broa
   natural place to add this).
 - Manifest list (multi-arch) handling picks the list digest, which is correct for detecting
   "did anything change" but doesn't try to resolve a specific platform.
-- No semver-aware "is there a newer tag" check yet — only "does the digest behind this exact
+- No semver-aware "is there a newer tag" check yet -- only "does the digest behind this exact
   tag differ from what's running", which covers rolling tags (:latest, :4) but not "new major
   version tag exists and you're pinned to an old one". Worth adding if you pin exact version tags.
 """
@@ -106,7 +106,7 @@ def get_latest_digest(image_repo: str, tag: str) -> str | None:
 
             known = KNOWN_REALMS.get(registry_host)
             if known:
-                # Skip the wasted "try unauthenticated first" round trip — we already know
+                # Skip the wasted "try unauthenticated first" round trip -- we already know
                 # this host always challenges.
                 realm, service = known
                 token = _token_from_realm(realm, service, repo_path, client)
@@ -123,7 +123,7 @@ def get_latest_digest(image_repo: str, tag: str) -> str | None:
                         resp = client.head(manifest_url, headers=headers)
 
             if resp.status_code == 401 and known:
-                # Our hardcoded realm assumption was wrong for this host after all —
+                # Our hardcoded realm assumption was wrong for this host after all --
                 # fall back to discovering it from the actual challenge instead of giving up.
                 challenge = resp.headers.get("WWW-Authenticate", "")
                 token = _bearer_token_for_challenge(challenge, client)

@@ -2,7 +2,7 @@
 Claude what's actually configured (env var names, volumes, ports, labels) rather than
 sending a generic 'here's a changelog' prompt.
 
-Secret-looking values are redacted before anything leaves the network — we only need
+Secret-looking values are redacted before anything leaves the network -- we only need
 env var *names* to check relevance (e.g. "does this release note affect DATABASE_URL"),
 never the actual values.
 """
@@ -245,7 +245,7 @@ def build_stack_index() -> list[dict]:
 
 
 def match_container_to_stack(container_name: str, index: list[dict]) -> dict | None:
-    """Matches a container against an already-built index (see build_stack_index) — no file
+    """Matches a container against an already-built index (see build_stack_index) -- no file
     I/O or YAML parsing here, just an in-memory comparison."""
     for entry in index:
         for service_name, service_def in entry["services"].items():
@@ -256,12 +256,12 @@ def match_container_to_stack(container_name: str, index: list[dict]) -> dict | N
 
 def get_stack_info(container_name: str) -> dict | None:
     """Resolves which compose file (stack) a container belongs to, and who else lives in
-    that same file. The stack's identity is the compose file's own path — stable as long
+    that same file. The stack's identity is the compose file's own path -- stable as long
     as the file isn't moved, and naturally shared by every service defined in it. Returns
     None for containers Service Sentinel can't match to any compose file (not Dockge-managed,
-    or the compose file lives somewhere it can't see) — these are left ungrouped.
+    or the compose file lives somewhere it can't see) -- these are left ungrouped.
 
-    This does a fresh directory walk — for annotating many rows at once (e.g. a whole
+    This does a fresh directory walk -- for annotating many rows at once (e.g. a whole
     table), use build_stack_index() once and match_container_to_stack() per row instead."""
     config = find_service_config(container_name)
     if not config:
@@ -281,7 +281,7 @@ _names_cache: dict[str, tuple[tuple, list[str]]] = {}
 
 
 def get_service_names_for_file(file_path: str) -> list[str]:
-    """Returns the service names defined in a compose file, for display purposes — a raw
+    """Returns the service names defined in a compose file, for display purposes -- a raw
     absolute path isn't as meaningful to read as 'sonarr' or 'sonarr, sonarr-config'.
     Cached per file against its (mtime, size), so repeated calls (one per table row per
     render) only cost a stat until the file actually changes."""

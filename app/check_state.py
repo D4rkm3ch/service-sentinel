@@ -8,7 +8,7 @@ FEATURES = ("updates", "logs", "compose")
 
 _lock = threading.Lock()
 _state = {name: {"running": False, "last_result": None, "last_run_at": None} for name in FEATURES}
-# Only "updates" wires this up so far (Stage 2, extended Stage 6) — logs/compose never call
+# Only "updates" wires this up so far (Stage 2, extended Stage 6) -- logs/compose never call
 # set_progress, so their progress stays {"stage": None, "done": 0, "total": 0} and the status
 # template's "if progress.total" guard means their rendered "Checking…" text is unaffected.
 #
@@ -17,11 +17,11 @@ _state = {name: {"running": False, "last_result": None, "last_run_at": None} for
 # of a single generic "Checking (N/M)" that silently freezes once a later phase with its own
 # item count starts. Any future stage that adds another phase (Stage 7's AI summarization,
 # most likely) MUST call set_progress with its own stage name and report its own progress the
-# same way — a phase that never calls set_progress looks exactly like a hang, which is the
+# same way -- a phase that never calls set_progress looks exactly like a hang, which is the
 # bug this fixes.
 _progress = {name: {"stage": None, "done": 0, "total": 0} for name in FEATURES}
 
-# Item-scoped state for a single update's own "Reset & re-check" button (Stage 6) — separate
+# Item-scoped state for a single update's own "Reset & re-check" button (Stage 6) -- separate
 # from the feature-level state above on purpose: a scoped one-container recheck must not
 # stomp the Updates page's "Last checked: N checked, M found" summary with "1 checked", and
 # each update's button needs its own independent running/progress/done signal rather than
@@ -62,7 +62,7 @@ def try_start(feature: str) -> bool:
 
 
 def release_running(feature: str) -> None:
-    """Clears the running flag without touching last_result/last_run_at — for a caller (a
+    """Clears the running flag without touching last_result/last_run_at -- for a caller (a
     scoped item-level recheck) that shares the same "only one check at a time" mutex as a
     full check but must not overwrite the full check's last summary with its own partial
     result. See set_finished() below for the full-check equivalent that does update it."""
@@ -111,7 +111,7 @@ def set_finished(feature: str, result: dict) -> None:
         _state[feature]["last_run_at"] = now_iso
         _progress[feature] = {"stage": None, "done": 0, "total": 0}
     # Persisted separately from the in-memory dict above so "last checked" survives a
-    # container restart — the in-memory value is just a faster path while the process
+    # container restart -- the in-memory value is just a faster path while the process
     # is still alive.
     db.set_last_check_result(feature, result, now_iso)
 
@@ -182,8 +182,8 @@ def get_all_states() -> dict:
 
 
 def _local_timestamp(iso_utc: str) -> str:
-    """Converts a stored UTC ISO timestamp (every timestamp in the database is UTC — see
-    db.now_iso()) into the configured TZ (db.get_timezone() — Stage 5c: the Settings page,
+    """Converts a stored UTC ISO timestamp (every timestamp in the database is UTC -- see
+    db.now_iso()) into the configured TZ (db.get_timezone() -- Stage 5c: the Settings page,
     seeded from the TZ env var on first boot) for display, as "HH:MM, DD Mon YYYY". Falls
     back to UTC if the configured TZ name isn't a real IANA zone rather than crashing the
     status line over it."""
@@ -199,7 +199,7 @@ def _local_timestamp(iso_utc: str) -> str:
 
 def format_summary(feature: str, state: dict) -> str:
     """Turns a feature's last_result dict into a short human-readable line for the status
-    badge — each feature's result dict has slightly different keys, so this is the one
+    badge -- each feature's result dict has slightly different keys, so this is the one
     place that knows how to read all three."""
     result = state.get("last_result")
     if result is None:

@@ -7,7 +7,7 @@ A spec is a small dict, one of:
   {"mode": "monthly", "day_of_month": 1, "hour": 6, "minute": 0}
 
 Keeping this as structured data rather than raw cron strings is what lets the UI offer a
-plain frequency picker (Hourly/Daily/Weekly/Monthly) with no cron entry anywhere — the
+plain frequency picker (Hourly/Daily/Weekly/Monthly) with no cron entry anywhere -- the
 "appropriate step" the Stage 5 UI redesign replaced the old cron text box with.
 """
 
@@ -35,7 +35,7 @@ def _hourly_params(spec: dict) -> tuple[int, int]:
 def _hours_for(start_hour: int, interval: int) -> list[int]:
     """The set of hours-of-day an "every N hours, anchored at start_hour" schedule fires at.
     APScheduler's cron hour field can't express "start/step" when start+step would exceed 23
-    (e.g. hour="21/6" is rejected outright — the step can't run past the field's own max), so
+    (e.g. hour="21/6" is rejected outright -- the step can't run past the field's own max), so
     this computes the explicit wrapped-around hour list instead, which works for any interval."""
     count = max(1, 24 // interval)
     return sorted({(start_hour + i * interval) % 24 for i in range(count)})
@@ -58,7 +58,7 @@ def _format_time_12h(hour: int, minute: int) -> str:
 
 
 def build_trigger(spec: dict, tz: str | None = None) -> CronTrigger:
-    """tz is an IANA zone name (e.g. "Australia/Sydney") the times in `spec` are meant in —
+    """tz is an IANA zone name (e.g. "Australia/Sydney") the times in `spec` are meant in --
     left as None here (this module stays a pure, database-free translation function, like
     reconcile.py) rather than reading the configured timezone itself; the caller
     (scheduler.py's apply_schedules(), which does own a database connection) passes
@@ -81,7 +81,7 @@ def build_trigger(spec: dict, tz: str | None = None) -> CronTrigger:
         return CronTrigger(day=day, hour=int(spec.get("hour", 6)), minute=int(spec.get("minute", 0)), **kwargs)
 
     # "daily" and any unrecognized/legacy mode (e.g. a stale "custom" cron spec saved before
-    # this redesign removed that option) fall back to a plain daily time — never crash on an
+    # this redesign removed that option) fall back to a plain daily time -- never crash on an
     # old stored spec.
     return CronTrigger(hour=int(spec.get("hour", 6)), minute=int(spec.get("minute", 0)), **kwargs)
 

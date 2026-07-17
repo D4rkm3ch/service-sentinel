@@ -143,7 +143,7 @@ def test_registry_checks_run_concurrently_not_sequentially():
 
 
 def test_concurrency_capped_at_container_count_when_fewer_containers_than_limit():
-    """max_workers should never exceed len(containers) — mostly a guard against
+    """max_workers should never exceed len(containers) -- mostly a guard against
     ThreadPoolExecutor being asked for 0 or negative workers on edge-case configs."""
     containers = [_container("only-one", repo="owner/only-one")]
 

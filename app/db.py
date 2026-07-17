@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS subject_summaries (
 CREATE TABLE IF NOT EXISTS stacks (
     stack_id TEXT PRIMARY KEY,          -- the compose file's own path, stable identifier
     display_name TEXT NOT NULL,
-    name_source TEXT NOT NULL DEFAULT 'ai',  -- 'ai' or 'manual' — manual names never auto-regenerate
+    name_source TEXT NOT NULL DEFAULT 'ai',  -- 'ai' or 'manual' -- manual names never auto-regenerate
     services_hash TEXT,                 -- hash of the service list the AI name was based on
     updated_at TEXT NOT NULL
 );
@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS release_notes_cache (
 );
 """
 
-# All three features ship off by default — nothing runs, nothing spends tokens, until the
+# All three features ship off by default -- nothing runs, nothing spends tokens, until the
 # person turns each one on from the Overview page.
 DEFAULT_FEATURE_STATE = {
     "updates": "false",
@@ -302,7 +302,7 @@ def init_db() -> None:
             "UPDATE stack_analyses SET stack_id = stack_id || ':updates' WHERE stack_id NOT LIKE '%:updates' AND stack_id NOT LIKE '%:logs'"
         )
 
-        # Explicitly seed defaults rather than relying only on read-time fallbacks — this is
+        # Explicitly seed defaults rather than relying only on read-time fallbacks -- this is
         # the same belt-and-suspenders approach as the feature toggles above, and avoids any
         # ambiguity in what a fresh install's severity pickers show on first load.
         # Updates uses its own 4-tier scale (bugfix/feature/action_needed/breaking), separate
@@ -323,7 +323,7 @@ def init_db() -> None:
             )
 
         # Migration: the AI provider key/model used to live only in the compose file's
-        # ANTHROPIC_API_KEY/CLAUDE_MODEL env vars (see app/ai_provider.py) — one-time carry
+        # ANTHROPIC_API_KEY/CLAUDE_MODEL env vars (see app/ai_provider.py) -- one-time carry
         # those into the database on an install that still has them set, so upgrading doesn't
         # silently lose a working key. INSERT OR IGNORE means this only ever seeds an empty
         # slot; it never overwrites a key already saved from the Settings page.
@@ -350,7 +350,7 @@ def init_db() -> None:
             )
 
         # Migration: an existing install may already have notify_severity_updates seeded with
-        # a value from the old shared 3-tier scale — correct it to the new scale's default.
+        # a value from the old shared 3-tier scale -- correct it to the new scale's default.
         row = conn.execute(
             "SELECT value FROM app_settings WHERE key = 'notify_severity_updates'"
         ).fetchone()
@@ -369,7 +369,7 @@ def get_conn(existing: sqlite3.Connection | None = None):
     # exception the caller can catch) rather than either racing incorrectly or hanging.
     #
     # Accepts an already-open connection to reuse instead of opening/committing/closing a new
-    # one — every one of those steps is a real syscall (and a WAL commit means an fsync), so a
+    # one -- every one of those steps is a real syscall (and a WAL commit means an fsync), so a
     # loop calling several db.py functions per iteration (see app/persist.py) was paying for
     # hundreds of connect+commit+close cycles on what's conceptually one batch of writes. When
     # reusing an existing connection, the caller who opened it owns committing/closing it.
@@ -389,7 +389,7 @@ def get_conn(existing: sqlite3.Connection | None = None):
 def open_conn() -> sqlite3.Connection:
     """Opens a connection with the same setup get_conn() uses, for a caller that wants to
     hold it across several db.py calls as one transaction (pass it as `conn=` to each) instead
-    of every call opening/committing/closing its own — see app/persist.py. The caller owns
+    of every call opening/committing/closing its own -- see app/persist.py. The caller owns
     calling commit() and close() when done."""
     conn = sqlite3.connect(settings.db_path, timeout=30.0)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -424,7 +424,7 @@ def get_all_feature_states() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Timezone — one global setting (there's only one scheduler/system clock, so unlike
+# Timezone -- one global setting (there's only one scheduler/system clock, so unlike
 # schedules there's no per-feature override concept here). Seeded from the TZ env var on
 # first boot so existing deployments keep behaving the same until someone changes it from
 # the Settings page; from then on the database is authoritative.
@@ -439,7 +439,7 @@ def set_timezone(tz: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Release notes lookback — how far back Updates will compile missed releases from when a
+# Release notes lookback -- how far back Updates will compile missed releases from when a
 # container's digest has moved past more than one release since the last check. Always
 # bounded by the container's own last-checked time first (see persist._release_notes_since);
 # this setting only ever tightens that further, as a ceiling on prompt size/AI cost for a
@@ -470,7 +470,7 @@ def get_release_notes_lookback_days(conn: sqlite3.Connection | None = None) -> i
 
 
 # ---------------------------------------------------------------------------
-# Logs lookback — how far back a container's log fetch reaches when it isn't using its
+# Logs lookback -- how far back a container's log fetch reaches when it isn't using its
 # checkpoint (see get_logs_use_checkpoint below) for that fetch. Always a concrete hour count on
 # purpose -- an earlier "no limit, since last reset" option was removed after a real-world
 # concern: a container with weeks of verbose logs and no recent checkpoint could make Docker
@@ -521,7 +521,7 @@ def set_logs_use_checkpoint(value: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Schedules — a "master" schedule everything uses by default, with an optional
+# Schedules -- a "master" schedule everything uses by default, with an optional
 # per-feature override. Stored as small JSON specs (see schedule_spec.py) rather
 # than raw cron strings, so the UI can offer a plain Hourly/Daily/Weekly/Monthly
 # frequency picker with no cron entry anywhere.
@@ -589,7 +589,7 @@ def set_feature_schedule(feature: str, spec: dict) -> None:
 
 
 def get_effective_schedule(feature: str) -> dict:
-    """What actually governs this feature's timing right now — its own override if it has
+    """What actually governs this feature's timing right now -- its own override if it has
     one enabled, otherwise the master schedule."""
     if get_feature_uses_master_schedule(feature):
         return get_master_schedule()
@@ -597,9 +597,9 @@ def get_effective_schedule(feature: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Notifications — Apprise only. A master on/off, a single set of Apprise URLs,
+# Notifications -- Apprise only. A master on/off, a single set of Apprise URLs,
 # a per-feature on/off, and each feature's own severity threshold (no shared/general severity
-# to fall back to — every feature always uses its own value directly, same as Updates already
+# to fall back to -- every feature always uses its own value directly, same as Updates already
 # did; a general severity with per-feature overrides used to exist here but added a layer of
 # indirection that mostly just meant "the button that looks selected right now is the wrong
 # one" whenever a feature was quietly still following the general value).
@@ -625,7 +625,7 @@ def set_apprise_urls(raw: str) -> None:
 
 def get_feature_notify_enabled(feature: str) -> bool:
     # Defaults to on: once someone's turned the master switch on, the least surprising
-    # default is "notify for everything" — they can dial a specific tab back from there.
+    # default is "notify for everything" -- they can dial a specific tab back from there.
     return _get_setting(f"notify_{feature}_enabled", "true") == "true"
 
 
@@ -668,7 +668,7 @@ def set_notify_compose_include_errors(enabled: bool) -> None:
 
 def get_feature_severity(feature: str) -> str:
     # Updates uses its own 4-tier scale (bugfix/feature/action_needed/breaking); Logs and
-    # Compose share a 3-tier scale (suggestion/warning/critical) — each feature's default is
+    # Compose share a 3-tier scale (suggestion/warning/critical) -- each feature's default is
     # its own scale's lowest tier, so a fresh install always has a real, valid value selected
     # rather than falling back to a default from the wrong scale (which would match none of
     # that feature's buttons and look like nothing was ever chosen).
@@ -761,9 +761,9 @@ def all_container_states(sort: str = "container", direction: str = "asc") -> lis
 
 def prune_removed_containers(seen_container_names: list[str], conn: sqlite3.Connection | None = None) -> None:
     """Deletes container_state/updates rows for containers that no longer exist (removed or
-    renamed since the last check) — keeps persisted state in sync with what's actually
+    renamed since the last check) -- keeps persisted state in sync with what's actually
     running rather than accumulating stale entries forever. Only ever called with a non-empty
-    list (see app/persist.py) — a check that found zero containers almost always means the
+    list (see app/persist.py) -- a check that found zero containers almost always means the
     Docker socket itself was unreachable, not that everything was genuinely decommissioned,
     so callers deliberately never prune off an empty result."""
     if not seen_container_names:
@@ -775,7 +775,7 @@ def prune_removed_containers(seen_container_names: list[str], conn: sqlite3.Conn
 
 
 def list_tracked_containers_with_status() -> list[dict]:
-    """The persisted equivalent of a fresh reconcile.run_check() outcome's "containers" list —
+    """The persisted equivalent of a fresh reconcile.run_check() outcome's "containers" list --
     every tracked container, each annotated with its current status ("update_available",
     "error", or "up_to_date") and, when relevant, the real database id of its pending update
     record. Backed by a single LEFT JOIN rather than N+1 queries, and safe to call on every
@@ -904,7 +904,7 @@ def list_recent_updates(limit: int = 100, sort: str = "importance", direction: s
     dir_sql = "DESC" if direction == "desc" else "ASC"
 
     if sort in ("container", "image"):
-        # Sorting by the column itself is already a full ordering — no separate alpha
+        # Sorting by the column itself is already a full ordering -- no separate alpha
         # tiebreak needed, just a stable secondary sort by recency.
         order_clause = f"{sort_expr} {dir_sql}, created_at DESC"
     elif sort == "detected":
@@ -932,7 +932,7 @@ def reset_updates_data() -> None:
     Updates history and the tracked-container digest baseline, so the next check treats every
     currently-installed container as fresh. This is also what cleans up any stale rows left
     over from before Stage 3 introduced real persistence (e.g. old severity values from a
-    since-replaced classification scheme) — a container with a mismatched or unrecognized
+    since-replaced classification scheme) -- a container with a mismatched or unrecognized
     prior state gets its old row replaced on the very next check regardless (see
     app/persist.py), so this button isn't strictly required for that, but it's the fastest
     way to force a fully clean slate on demand."""
@@ -959,7 +959,7 @@ def get_latest_update_for_container(container_name: str, conn: sqlite3.Connectio
 def update_existing_update(update_id: int, summary_markdown: str | None, severity: str,
                            error: str | None, source_url: str | None,
                            upgrade_guidance: str | None = None) -> None:
-    """Regenerates an existing update record in place (used by the manual Retry button) —
+    """Regenerates an existing update record in place (used by the manual Retry button) --
     keeps the same id, container, tag, and digests, just refreshes the AI-generated content
     and clears/resets status back to unread so the fresh content gets seen. upgrade_guidance
     defaults to None (cleared) rather than preserving whatever was there before -- a
@@ -995,7 +995,7 @@ def mark_update_status(update_id: int, status: str) -> None:
 
 
 def delete_update(update_id: int, conn: sqlite3.Connection | None = None) -> None:
-    """Removes one update record outright — there's no separate "resolved" flag. An update
+    """Removes one update record outright -- there's no separate "resolved" flag. An update
     row existing at all means that container currently needs attention (a pending update or a
     check error); once it's resolved (digest catches up) or gets superseded by a newer
     transition, app/persist.py deletes it rather than marking it done, so at most one row per
@@ -1034,9 +1034,9 @@ def upsert_finding(
 ) -> tuple[int, bool]:
     """Inserts a new finding, or if the same (source, fingerprint) already exists, bumps its
     occurrence count and last-seen time instead of creating a duplicate. A silenced finding
-    stays silenced even if it recurs — recurrence updates it quietly rather than reviving it.
+    stays silenced even if it recurs -- recurrence updates it quietly rather than reviving it.
 
-    Returns (finding_id, is_new) — is_new is what callers use to decide whether to notify.
+    Returns (finding_id, is_new) -- is_new is what callers use to decide whether to notify.
     """
     fingerprint = make_fingerprint(source, subject, title)
     now = now_iso()
@@ -1213,7 +1213,7 @@ def resolve_finding(source: str, subject: str, title: str) -> bool:
 
 def list_subjects_with_findings(source: str, include_silenced: bool = False) -> list[dict]:
     """One row per subject (container or compose file) with aggregate counts and the highest
-    severity present — used for the grouped 'Issues' list at the top of the Logs/Compose tabs,
+    severity present -- used for the grouped 'Issues' list at the top of the Logs/Compose tabs,
     so you see one line per container rather than one line per individual finding.
 
     include_silenced is a swap, not an additive reveal: False (default) shows only subjects
@@ -1363,7 +1363,7 @@ def clear_log_check_errors(container_names: list[str]) -> None:
 
 def all_log_watch_states_with_status() -> list[dict]:
     """Every container the log watcher has ever checked OR ever failed to check, with a
-    healthy/issue/error status — used for the 'All containers' list at the bottom of the Logs
+    healthy/issue/error status -- used for the 'All containers' list at the bottom of the Logs
     tab. "silence_state" is derived from the findings themselves (see _row_silence_state) rather
     than an explicit per-container toggle like Updates has -- Logs/Compose silence at the
     finding, service (subject), or stack level, all ultimately just bulk actions over these same
@@ -1426,7 +1426,7 @@ def clear_compose_check_errors(file_paths: list[str]) -> None:
 
 def all_compose_file_states_with_status() -> list[dict]:
     """Every compose file the reviewer has ever checked OR ever failed to check, with a
-    healthy/issue/error status — used for the 'All files' list at the bottom of the Compose
+    healthy/issue/error status -- used for the 'All files' list at the bottom of the Compose
     tab. See all_log_watch_states_with_status above for why "silence_state" is derived rather
     than an explicit toggle, and why "error" wins over "issue"/"healthy" regardless of finding
     count -- a file that can't even be read needs attention just as much as one with active
@@ -1699,7 +1699,7 @@ def set_subject_summary(source: str, subject: str, findings_hash: str, summary_m
 
 
 # ---------------------------------------------------------------------------
-# Deep Analysis — opt-in, per-feature (Logs and Compose only), off by default.
+# Deep Analysis -- opt-in, per-feature (Logs and Compose only), off by default.
 # When on, findings get an AI-suggested fix in addition to the problem report,
 # which costs more tokens per finding.
 # ---------------------------------------------------------------------------
@@ -1713,7 +1713,7 @@ def set_deep_analysis_enabled(feature: str, enabled: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Cross-Service Analysis — a distinct opt-in toggle from Deep Analysis above, off by
+# Cross-Service Analysis -- a distinct opt-in toggle from Deep Analysis above, off by
 # default, for "updates" and "logs" only ("compose" doesn't need it -- a compose file's
 # services are already grouped together in the same file, there's no separate cross-file
 # stack concept for Compose the way there is for Updates/Logs, which key off container
@@ -1732,7 +1732,7 @@ def set_cross_service_analysis_enabled(feature: str, enabled: bool) -> None:
 
 # ---------------------------------------------------------------------------
 # AI provider (moved off compose-file env vars and into Settings so a provider/model/key can
-# be changed without a redeploy — the whole point being able to switch away from a provider
+# be changed without a redeploy -- the whole point being able to switch away from a provider
 # that's temporarily out of credits without touching the compose file at all). Only one
 # provider is ever active at a time; see app/ai_provider.py for how everything that used to
 # call anthropic.Anthropic() directly now goes through this instead.
@@ -1868,7 +1868,7 @@ def set_auth_onboarding_done(done: bool = True) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Stacks — grouping containers that share a compose file. Names are AI-generated
+# Stacks -- grouping containers that share a compose file. Names are AI-generated
 # by default but can be manually overridden; a manual name never gets auto-regenerated.
 # ---------------------------------------------------------------------------
 
@@ -2013,7 +2013,7 @@ def set_stack_analysis(stack_id: str, content_hash: str, analysis_markdown: str,
 
 
 # ---------------------------------------------------------------------------
-# Release notes source cache — remembers where we successfully found real
+# Release notes source cache -- remembers where we successfully found real
 # release notes for an image last time, so future checks try that exact
 # location first instead of re-discovering it from scratch (guessing, then
 # web search) every single time. Only updated on genuine success; a stale
@@ -2045,7 +2045,7 @@ def set_release_notes_source(image_repo: str, method: str, location: str) -> Non
 
 
 # ---------------------------------------------------------------------------
-# Last check result — persisted so "last checked" survives a container restart,
+# Last check result -- persisted so "last checked" survives a container restart,
 # not just kept in memory (which was resetting to "no check has run yet" on
 # every restart even though checks had genuinely run before).
 # ---------------------------------------------------------------------------

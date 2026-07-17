@@ -80,7 +80,7 @@ updates"). Two operators in an identical situation should never end up with diff
 just because one bullet happened to state the requirement plainly and the other only implied it.
 
 For all three sections: use a bullet list only when there are two or more distinct points to \
-make. If there's exactly one point, or none, write a plain sentence instead — a bullet list \
+make. If there's exactly one point, or none, write a plain sentence instead -- a bullet list \
 with a single item, or a single item padded out to look like a list, reads worse than just \
 saying it.
 
@@ -91,25 +91,25 @@ After the three sections above, add one final line with nothing else on it, in e
 format: `SEVERITY: X` where X is one of: bugfix, feature, action_needed, breaking.
 
 If multiple releases are covered, this reflects the HIGHEST severity found across any of them \
-individually, not just the most recent one — a breaking change three releases back still makes \
-the whole batch "breaking." Determine X using this exact order — stop at the first line that \
+individually, not just the most recent one -- a breaking change three releases back still makes \
+the whole batch "breaking." Determine X using this exact order -- stop at the first line that \
 applies, don't judge it separately from what you already wrote above:
-1. breaking — the Breaking Changes section above says anything other than "None found" -- since \
+1. breaking -- the Breaking Changes section above says anything other than "None found" -- since \
 that section is itself now restricted to confirmed-applicable, setup-actually-stops-working \
 items (see its own instructions above), anything listed there earns this automatically.
-2. action_needed — nothing rose to Breaking Changes above (their setup keeps running), but the \
+2. action_needed -- nothing rose to Breaking Changes above (their setup keeps running), but the \
 Relevant to your Setup section above concludes the operator must still actually change \
 something in their own configuration (an env var, a volume, a port, a label) for this update to \
 work correctly, or to keep working the same way. This is not for optional new configuration \
-they could choose to use, or for anything you couldn't confirm applies to their actual setup — \
+they could choose to use, or for anything you couldn't confirm applies to their actual setup -- \
 only for something confirmed and required.
-3. feature — New Features above describes at least one genuinely new, added capability or \
+3. feature -- New Features above describes at least one genuinely new, added capability or \
 enhancement (something the operator couldn't do before), and neither of the above applies. A \
 line that only describes existing behavior being corrected, adjusted, or removed -- "X now \
 correctly does Y," "fixed an issue where...," "Z has been removed" -- does not by itself count \
 as new content for this rule, even though it belongs in the New Features section above (see \
 that section's own instructions) and even though it's not "Nothing notable" either.
-4. bugfix — everything else: New Features above is either "Nothing notable," or entirely made \
+4. bugfix -- everything else: New Features above is either "Nothing notable," or entirely made \
 up of fixes/corrections/removals/internal changes/dependency bumps with no newly added \
 capability, and nothing the operator needs to act on. Two releases that both amount to "a \
 handful of behavior corrections, nothing new added" must land on the same bugfix severity, \
@@ -170,7 +170,7 @@ def summarize_update(
     compose_block = (
         json.dumps(compose_config, indent=2, default=str)
         if compose_config
-        else "(no matching compose service found — general summary only, "
+        else "(no matching compose service found -- general summary only, "
         "can't assess relevance to a specific config)"
     )
 
@@ -207,7 +207,7 @@ Operator's compose configuration for this service:
             container_name, attempt + 1,
         )
 
-    # The model returned essentially nothing beyond the severity line, twice in a row —
+    # The model returned essentially nothing beyond the severity line, twice in a row --
     # treat this as a real failure rather than silently storing a blank "successful" record
     # with no content for the operator to read. Raising here routes it into reconcile.py's
     # existing error-handling path (visible notice, action_needed severity), same as any
@@ -287,12 +287,12 @@ Operator's compose configuration for this service:
 
 LOG_TRIAGE_SYSTEM_PROMPT_BASE = """You are triaging pre-filtered log excerpts from a homelab \
 operator's self-hosted Docker containers. Each excerpt already only contains lines that matched \
-suspicious keywords (error, exception, failed, etc.) plus a little surrounding context — most \
+suspicious keywords (error, exception, failed, etc.) plus a little surrounding context -- most \
 routine noise has already been stripped out before it reached you.
 
 Your job: separate genuine problems from false positives. A lot of software logs the word \
 "error" or "warning" for routine, expected situations (a health check retry during startup, an \
-SSL renegotiation, a client disconnect) — do not report those. Only report things that indicate \
+SSL renegotiation, a client disconnect) -- do not report those. Only report things that indicate \
 an actual problem worth a human's attention, or a clear, concrete optimization opportunity you \
 can see directly in the excerpt (e.g. a container repeatedly restarting, an obvious \
 misconfiguration visible in the error text).
@@ -338,7 +338,7 @@ just "could be better"). Two containers hitting the same underlying kind of issu
 misconfigured indexer categories yielding no results) should land on the same category AND the \
 same severity, not just one or the other.
 
-Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
+Respond with ONLY a JSON array and nothing else -- no markdown fences, no preamble. Each element:
 {{"container": "the container name from the excerpt's header", "title": "a short, specific title \
 (under 8 words) that would let someone recognize this same issue if it recurred", "category": \
 one of "error", "reliability", "optimization", "severity": one of "critical", "warning", \
@@ -356,7 +356,7 @@ resolved issue as its own element in the same JSON array as your findings above,
 like this instead: {{"container": "the container name", "resolved_title": "its exact title as \
 given below"}}."""
 
-FIX_INSTRUCTION_LOG = "a concrete, specific suggestion for how to resolve this — commands, " \
+FIX_INSTRUCTION_LOG = "a concrete, specific suggestion for how to resolve this -- commands, " \
     "config changes, or what to check, not generic advice"
 FIX_FIELD_LOG = f', "fix": "{FIX_INSTRUCTION_LOG}"'
 
@@ -364,13 +364,13 @@ FIX_FIELD_LOG = f', "fix": "{FIX_INSTRUCTION_LOG}"'
 def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool = False,
                         active_findings_by_container: dict[str, list[dict]] | None = None) -> list[dict]:
     """Sends pre-filtered log excerpts (already keyword-matched locally) to Claude for triage.
-    Returns a list of dicts, or an empty list if nothing real was found — callers should treat
+    Returns a list of dicts, or an empty list if nothing real was found -- callers should treat
     an empty list as a clean, quiet result, not an error. Each element is either a new finding
     (has "title"/"category"/"severity"/"description") or, when active_findings_by_container
     named that container, possibly a resolved-issue marker instead (has "resolved_title") --
     see the system prompt's own instructions on that below.
 
-    include_fix requests an additional "fix" field (Deep Analysis) — left off by default since
+    include_fix requests an additional "fix" field (Deep Analysis) -- left off by default since
     asking the model to actually work out a remediation costs meaningfully more output tokens
     than just naming the problem.
 
@@ -411,7 +411,7 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
 
 COMPOSE_REVIEW_SYSTEM_PROMPT_BASE = """You are reviewing a docker-compose file from a homelab \
 operator's self-hosted setup. Secret-looking values have already been redacted before you see \
-this — you're reviewing structure and configuration, not credentials.
+this -- you're reviewing structure and configuration, not credentials.
 
 Look for:
 - Security issues: unnecessarily exposed ports, containers running as root when they don't need \
@@ -424,18 +424,18 @@ misconfiguration.
 
 Before flagging a volume mount's read/write mode in either direction, re-read its actual current \
 suffix character by character, directly from the line in the file as written (:ro, :rw, or no \
-suffix at all, which defaults to read-write) — never describe a mount as read-write if it \
+suffix at all, which defaults to read-write) -- never describe a mount as read-write if it \
 already ends in :ro, and never recommend a change the file has already made. Quote the exact \
 current suffix to yourself before deciding there's a finding here at all: if what you just \
 quoted already matches the value you'd otherwise recommend, there is no finding -- not even one \
 that says it's already correct or that no change is needed. A correctly-configured mount doesn't \
 get a JSON object; it gets nothing.
 
-Do NOT flag any of the following — this homelab operator has explicitly decided none of these \
+Do NOT flag any of the following -- this homelab operator has explicitly decided none of these \
 are worth reporting, even as a low-severity suggestion:
 - Missing resource limits (CPU/memory limits).
 - Image tag/version-pinning choice in either direction (floating :latest vs. a pinned version, \
-or recommending one floating tag over another) — assume it's a deliberate choice, not an \
+or recommending one floating tag over another) -- assume it's a deliberate choice, not an \
 oversight, and never invent a specific version number to suggest since you don't have real \
 release data for these images.
 - network_mode: host, in any form -- not as an optimization/convenience suggestion, and not as \
@@ -448,7 +448,7 @@ or any other "this would be more robust with a healthcheck" observation. This op
 knows and has decided it's not worth the added compose-file complexity; do not raise it, at any \
 severity, framed any way.
 - An environment value that's a `${{VARIABLE}}` or `${{VARIABLE:-default}}` reference to a name not \
-otherwise defined in this same file. This is completely normal and expected — the operator \
+otherwise defined in this same file. This is completely normal and expected -- the operator \
 supplies these separately at deploy time (a Docker secret, a `.env` file, the shell environment), \
 not inside the compose file itself. Never describe this as missing, undefined, broken, or likely \
 to fail; always assume it resolves correctly wherever it's used.
@@ -489,10 +489,10 @@ noticing partway through that it doesn't hold up. Once you've started a finding 
 tend to finish it even when your own reasoning no longer supports it -- so the discipline has to \
 happen at the decision to start one, not at the end.
 
-Only report things with real substance — skip purely stylistic nitpicks or preferences with no \
+Only report things with real substance -- skip purely stylistic nitpicks or preferences with no \
 functional difference. If the file looks fine, say so by returning an empty array.
 
-Respond with ONLY a JSON array and nothing else — no markdown fences, no preamble. Each element:
+Respond with ONLY a JSON array and nothing else -- no markdown fences, no preamble. Each element:
 {{"title": "a short, specific title (under 8 words) naming the exact setting, service, or mount \
 this finding is actually about -- it must match what the description and fix describe, never a \
 different one (e.g. don't title something \"Docker socket mount\" when the finding is really \
@@ -500,7 +500,7 @@ about an unrelated volume)", "category": one of "security", \
 "reliability", "optimization", "severity": one of "critical", "warning", "suggestion", \
 "description": "1-3 sentences explaining the issue"{fix_field}}}"""
 
-FIX_INSTRUCTION_COMPOSE = "a concrete suggested compose file change — the specific key(s) to " \
+FIX_INSTRUCTION_COMPOSE = "a concrete suggested compose file change -- the specific key(s) to " \
     "add or edit, not generic advice. State it as a from-the-actual-current-value " \
     "to-the-recommended-value edit (e.g. \"change ':rw' to ':ro'\"), matching what the file " \
     "actually has right now -- re-read the current value from the file before writing the fix " \
@@ -551,7 +551,7 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
     """Sends a secret-redacted compose file to Claude for a structural review. Returns a list
     of finding dicts, or an empty list if the file looks fine.
 
-    include_fix requests an additional "fix" field (Deep Analysis) — off by default for the
+    include_fix requests an additional "fix" field (Deep Analysis) -- off by default for the
     same token-cost reason as the log triage function.
     """
     user_message = f"File: {file_path}\n\n{redacted_yaml}"
@@ -580,7 +580,7 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
 
 FINDINGS_OVERVIEW_SYSTEM_PROMPT = """You are summarizing a set of findings for a homelab \
 operator, all belonging to the same container or compose file. The individual findings are \
-already listed separately below where this appears — your job is a short combined overview, \
+already listed separately below where this appears -- your job is a short combined overview, \
 not a restatement of each one.
 
 Write 2-4 sentences of plain prose: lead with the most important issue, note anything that's \
@@ -590,7 +590,7 @@ the current state is. No markdown headers, no bullet list, no restating every ti
 
 def summarize_findings_overview(subject_display: str, findings: list[dict]) -> str:
     """Short combined AI overview shown above a subject's findings list. Only meaningful for
-    2+ findings — callers should skip calling this for 0 or 1."""
+    2+ findings -- callers should skip calling this for 0 or 1."""
     if not findings:
         return ""
 
@@ -612,7 +612,7 @@ def summarize_findings_overview(subject_display: str, findings: list[dict]) -> s
 def generate_stack_name(service_names: list[str]) -> str:
     """Picks the most central/important service in a compose stack to use as its short
     display label. Falls back to the first service name (alphabetically, for stability)
-    if the API isn't configured or the model's answer doesn't match anything we gave it —
+    if the API isn't configured or the model's answer doesn't match anything we gave it --
     never invents a name outside the actual service list."""
     if not service_names:
         return "Unnamed stack"
@@ -622,7 +622,7 @@ def generate_stack_name(service_names: list[str]) -> str:
     prompt = (
         f"These services run together in one docker-compose stack: {', '.join(service_names)}.\n\n"
         "Reply with ONLY the name of the single most important or central service, exactly as "
-        "written above — no extra text, no punctuation, nothing else."
+        "written above -- no extra text, no punctuation, nothing else."
     )
     try:
         # 30 used to be the starting budget here, on the assumption a single echoed service
@@ -647,28 +647,28 @@ def generate_stack_name(service_names: list[str]) -> str:
 
 
 STACK_ANALYSIS_SYSTEM_PROMPT = """You are looking at one docker-compose stack for a homelab \
-operator — several services that run together and can affect each other, defined in the same \
+operator -- several services that run together and can affect each other, defined in the same \
 file. You'll be given the full list of services in the stack, and for each one that has a \
 pending update, its actual release notes or summary.
 
 Read the release notes for anything that names a concrete requirement or effect on another \
-service in the same stack — a minimum version of another service/database it now needs, a \
+service in the same stack -- a minimum version of another service/database it now needs, a \
 required migration or config/env var change, a changed port or API contract another service \
 in this stack calls, breaking changes to a shared volume or data format. Only real, specific \
-findings from the text you were given — never guess or speculate about services just because \
+findings from the text you were given -- never guess or speculate about services just because \
 they happen to be in the same stack, and never comment on networking, "they share a network," \
 or anything else that's true of every compose stack by definition.
 
 In AT MOST 2 short sentences: if you found something concrete, name the specific requirement \
 and which service(s) it affects. If nothing in the notes points to a real cross-service effect, \
 respond with exactly: "No cross-service issues found." Do not restate the update itself, do not \
-describe how each service works, do not explain your reasoning — only state the conclusion.
+describe how each service works, do not explain your reasoning -- only state the conclusion.
 
 No markdown, no headers, no bullet list."""
 
 
 def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], changed_summary_text: str) -> str:
-    """Cross-service analysis for a compose stack — only meaningful for stacks with 2+
+    """Cross-service analysis for a compose stack -- only meaningful for stacks with 2+
     services. Deliberately separate from the per-service summary: this is about whether a
     change in one service could ripple into its stack-mates, not a restatement of the change
     itself. changed_summary_text should carry the actual release notes/summary text for each
@@ -697,22 +697,22 @@ def analyze_stack_impact(stack_display_name: str, all_service_names: list[str], 
 
 
 LOG_STACK_ANALYSIS_SYSTEM_PROMPT = """You are looking at one docker-compose stack for a \
-homelab operator — several services that run together and can affect each other, defined in \
+homelab operator -- several services that run together and can affect each other, defined in \
 the same file. You'll be given the full list of services in the stack, and for each one with \
 active log findings, those findings (crashes, errors, reliability issues, etc.).
 
 Read the findings for anything that suggests one service's problem is causing or being caused \
-by another service in the same stack — a database connection failure in one service matching a \
+by another service in the same stack -- a database connection failure in one service matching a \
 crash in another that depends on it, a shared resource (disk, memory, network) being exhausted \
 by one service and starving others, a cascading restart loop. Only real, specific connections \
-grounded in the actual findings you were given — never guess or speculate about services just \
+grounded in the actual findings you were given -- never guess or speculate about services just \
 because they happen to be in the same stack, and never comment on networking, "they share a \
 network," or anything else that's true of every compose stack by definition.
 
 In AT MOST 2 short sentences: if you found a real connection, name the specific services and \
 what links their issues. If nothing in the findings points to a real cross-service effect, \
 respond with exactly: "No cross-service issues found." Do not restate each finding, do not \
-describe how each service works, do not explain your reasoning — only state the conclusion.
+describe how each service works, do not explain your reasoning -- only state the conclusion.
 
 No markdown, no headers, no bullet list."""
 

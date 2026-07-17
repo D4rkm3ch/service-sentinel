@@ -5,7 +5,7 @@ whole check, still holds now that Stage 2 changed what happens inside run_check(
 wrapped it in persist.run_and_persist_check(); and (2) the Stage 2 live-progress text and
 faster poll cadence for the updates status badge.
 
-Uses the shared `client` fixture from conftest.py rather than opening its own TestClient —
+Uses the shared `client` fixture from conftest.py rather than opening its own TestClient --
 see that file's docstring for why."""
 
 import time
@@ -56,7 +56,7 @@ def test_check_now_returns_immediately_while_check_runs_in_background(client):
 def test_status_poll_shows_live_progress_and_polls_faster_for_updates(client):
     """The new Stage 2 feature: while a check runs, /updates/status-poll should render
     "Checking (N/total)" text (not just a bare spinner) and use the faster 500ms poll
-    delay — logs/compose keep the original 2s cadence, proven separately below."""
+    delay -- logs/compose keep the original 2s cadence, proven separately below."""
     check_state._state["updates"] = {"running": False, "last_result": None, "last_run_at": None}
 
     with patch("app.main.persist.run_and_persist_check", side_effect=_slow_run_check_with_progress):

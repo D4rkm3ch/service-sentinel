@@ -11,7 +11,8 @@ your logs is genuinely broken, and whether your compose configuration has real s
 reliability issues.
 
 Three independent features, each off by default. Nothing runs and no AI tokens are spent until
-you turn a feature on from the Overview page.
+you enable a feature's schedule in Settings (or trigger a check yourself from the Overview
+page).
 
 ## What it does
 
@@ -60,38 +61,39 @@ rename don't need updating.
 ## Running it
 
 See `docker-compose.example.yml`. Copy it into your stacks folder, fill in `.env`, and deploy.
-Once it's up, visit the Overview page and turn on whichever features you want. Everything
-starts off.
+Once it's up, enable scheduling for whichever features you want under Settings → Scheduling
+(each feature's card on the Overview page also has a Check Now button for a one-off run).
+Everything starts off.
 
 ## Security
 
-**Access control.** There is no login by default — the app assumes it's running on a trusted
+**Access control.** There is no login by default -- the app assumes it's running on a trusted
 private network. The first time you open it, an onboarding prompt asks you to either set a
 username and password or explicitly turn this off; you can change that choice later in
 Settings → Access Control, which sits at the top of the page. Once set, your browser will
 prompt for the credentials with its own standard sign-in dialog, and every request requires
 them until you disable it. There's also an optional "skip login on the local network" toggle,
-for keeping the gate off for your own LAN while still requiring it from anywhere else — note
+for keeping the gate off for your own LAN while still requiring it from anywhere else -- note
 this checks the direct connection's own source address, so it isn't meaningful if the app sits
 behind a reverse proxy (the proxy's address is what it would see, not the original visitor's).
 For anything internet-facing, still prefer your own layer in front (a reverse proxy with auth,
 a VPN, or similar) rather than relying on any single gate.
 
 **Secrets at rest.** API keys, the Apprise notification URL, and the Access Control password
-are stored in the SQLite database under `DATA_DIR` — as plain text by default, so treat that
+are stored in the SQLite database under `DATA_DIR` -- as plain text by default, so treat that
 volume (and any backup of it) as holding secrets. Optionally, set `SECRETS_ENCRYPTION_KEY` in
 your `.env` to encrypt those values at rest; see `.env.example` for the details and the
 key-loss caveat.
 
 **Secret redaction is best-effort.** Compose files sent for Configuration health review get
-secret-looking values redacted first — by key name (`PASSWORD`, `TOKEN`, and similar), by value
+secret-looking values redacted first -- by key name (`PASSWORD`, `TOKEN`, and similar), by value
 shape (connection-string passwords, long token-shaped strings), and across the `environment:`,
 `labels:`, `command:`, and `secrets:` sections. Heuristics can't catch everything, though. If a
 value is genuinely sensitive, keep it out of the compose file entirely (Docker secrets files or
 an external secrets manager) rather than trusting redaction alone.
 
 **The Docker socket.** The example compose file mounts the socket `:ro`, but know what that
-does and doesn't do: it stops the container replacing the socket file itself, and nothing more —
+does and doesn't do: it stops the container replacing the socket file itself, and nothing more --
 it does not restrict which Docker Engine API calls are accepted over it. The real protection is
 that this app's code only ever issues list/inspect calls. If you want an enforced boundary
 rather than a code-review one, put a Docker socket proxy that allowlists specific API endpoints
@@ -100,8 +102,8 @@ in front of it.
 ## Backup and restore
 
 Everything Service Sentinel knows lives in one SQLite database inside the `service-sentinel-data`
-volume (`/data/service_sentinel.db` in the container). To back it up, stop the container first —
-SQLite files copied mid-write can be inconsistent — then copy the file out:
+volume (`/data/service_sentinel.db` in the container). To back it up, stop the container first --
+SQLite files copied mid-write can be inconsistent -- then copy the file out:
 
 ```bash
 docker compose stop service-sentinel
@@ -110,7 +112,7 @@ docker compose start service-sentinel
 ```
 
 To restore, stop the container, copy the backup over the same path, and start it again. If you
-use `SECRETS_ENCRYPTION_KEY`, back that up too, somewhere separate from the database file — an
+use `SECRETS_ENCRYPTION_KEY`, back that up too, somewhere separate from the database file -- an
 encrypted backup without its key is unrecoverable.
 
 ## Status

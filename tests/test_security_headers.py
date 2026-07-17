@@ -8,8 +8,9 @@ templates lean heavily on inline <script> blocks, onclick=/onchange= attribute h
 inline style="" attributes throughout base.html and settings.html, and disallowing either
 outright would break the UI's own interactivity. Verified against a live server with Playwright
 (not part of this suite) that inline JS (theme toggle, accent picker) and same-origin fetch()
-calls still work under this CSP, and that the one external script host (the htmx CDN) is
-explicitly allowlisted."""
+calls still work under this CSP. script-src used to also allowlist the htmx CDN
+(cdnjs.cloudflare.com) as its one external host; htmx is vendored into /static now (see
+base.html for why), so script-src is fully self-contained."""
 
 
 def test_x_frame_options_is_deny(client):
@@ -36,13 +37,25 @@ def test_content_security_policy_is_present_and_restrictive():
     assert "base-uri 'self'" in csp
 
 
-def test_csp_allowlists_only_the_one_trusted_cdn_for_scripts():
+def test_csp_script_src_allows_no_external_hosts():
+    """htmx is vendored into /static (see base.html), so script-src needs no CDN allowance --
+    'self' plus the documented 'unsafe-inline' exception is the complete list."""
     from app.main import _SECURITY_HEADERS
     csp = _SECURITY_HEADERS["Content-Security-Policy"]
     script_src = next(part for part in csp.split("; ") if part.startswith("script-src"))
-    assert "https://cdnjs.cloudflare.com" in script_src
-    # Not wide open -- a plain '*' would defeat the point of restricting it at all.
-    assert "*" not in script_src or "cdnjs.cloudflare.com" in script_src
+    assert script_src == "script-src 'self' 'unsafe-inline'"
+
+
+def test_htmx_is_served_from_static_not_a_cdn(client):
+    """The whole UI is htmx-driven -- loading it from a CDN meant an isolated/egress-restricted
+    network silently lost every button, toggle, and poll. Vendored file must exist, be served,
+    and be what base.html actually references."""
+    page = client.get("/")
+    assert "cdnjs.cloudflare.com" not in page.text
+    assert "/static/htmx.min.js" in page.text
+    resp = client.get("/static/htmx.min.js")
+    assert resp.status_code == 200
+    assert "htmx" in resp.text[:2000]
 
 
 def test_security_headers_apply_to_every_response_client(client):

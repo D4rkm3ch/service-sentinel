@@ -45,7 +45,13 @@
     })();
   </script>
   <link rel="stylesheet" href="/static/style.css?v={{ static_asset_version }}">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js"></script>
+  <!-- Vendored (htmx 1.9.12, byte-identical to the cdnjs copy -- verified against its published
+       SRI hash) rather than loaded from a CDN: the entire UI is htmx-driven, so on an isolated
+       or egress-restricted network the CDN being unreachable used to mean every button, toggle,
+       and status poll silently died. Serving it from /static makes the app fully self-contained
+       -- consistent with the private-network deployment this app assumes everywhere else -- and
+       lets the CSP drop its one external script-src allowance (see _SECURITY_HEADERS). -->
+  <script src="/static/htmx.min.js?v={{ static_asset_version }}"></script>
 </head>
 <body data-tab="{{ active_tab }}">
   <!-- Icon sprite: every icon used anywhere in the chrome below is a <use href="#icon-*">

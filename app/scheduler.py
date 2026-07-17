@@ -15,7 +15,7 @@ logger = logging.getLogger("service_sentinel.scheduler")
 # used for the brief window before apply_schedules() first runs (which happens immediately
 # after this, inside start_scheduler(), once the database is available). Every individual
 # job's trigger is built with its own explicit timezone from db.get_timezone() from then on,
-# so this module-level default becomes irrelevant in practice — real jobs never fall back to
+# so this module-level default becomes irrelevant in practice -- real jobs never fall back to
 # it. Reading db.get_timezone() here directly isn't safe: this runs at import time, before
 # db.init_db() has created the app_settings table.
 _scheduler = BackgroundScheduler(timezone=settings.tz)
@@ -27,7 +27,7 @@ def run_updates_check() -> None:
     persist.run_and_persist_check() directly, so a scheduled firing that happens to land
     while a manual Check now (or another scheduled firing that ran long) is still in
     progress gets skipped instead of running two overlapping checks. Runs directly on
-    APScheduler's own worker thread — no extra threading.Thread needed, unlike the UI's
+    APScheduler's own worker thread -- no extra threading.Thread needed, unlike the UI's
     Check now button, which backgrounds itself specifically so the HTTP response can return
     immediately; a scheduled job has no request waiting on it."""
     persist.run_updates_check_if_not_running()
@@ -65,7 +65,7 @@ def _run_chain(funcs) -> None:
 def apply_schedules() -> None:
     """(Re)schedules the periodic jobs using whatever the database currently says each
     feature's effective schedule is (its own override, or the master schedule), and whatever
-    timezone is currently configured (Stage 5c — also called right after the Settings page
+    timezone is currently configured (Stage 5c -- also called right after the Settings page
     saves a timezone change, so a running job's times reinterpret immediately rather than
     waiting for the next restart). Safe to call at any time since replace_existing means it
     just updates the existing job's trigger rather than duplicating it.

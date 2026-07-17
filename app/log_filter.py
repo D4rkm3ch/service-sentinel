@@ -1,5 +1,5 @@
 """Filters raw container logs down to the lines actually worth showing an AI, before any
-API call happens. Most of any day's logs are routine noise — this is what keeps the log
+API call happens. Most of any day's logs are routine noise -- this is what keeps the log
 watcher cheap regardless of how chatty a container is.
 """
 
@@ -22,7 +22,7 @@ CLEAN_TAIL_CHARS = 4000
 def extract_suspicious_excerpt(log_text: str) -> str | None:
     """Returns a trimmed excerpt containing only lines that matched a suspicious keyword,
     each with a couple of lines of surrounding context, or None if nothing matched at all
-    (the common case — this is what lets a clean container skip the AI call entirely)."""
+    (the common case -- this is what lets a clean container skip the AI call entirely)."""
     if not log_text:
         return None
 
@@ -41,7 +41,7 @@ def extract_suspicious_excerpt(log_text: str) -> str | None:
 
     if len(excerpt) > MAX_EXCERPT_CHARS:
         excerpt = excerpt[-MAX_EXCERPT_CHARS:]
-        excerpt = "(truncated — showing the most recent matches)\n" + excerpt
+        excerpt = "(truncated -- showing the most recent matches)\n" + excerpt
 
     return excerpt
 
@@ -56,5 +56,5 @@ def recent_tail(log_text: str) -> str | None:
         return None
     tail = log_text[-CLEAN_TAIL_CHARS:]
     if len(tail) < len(log_text):
-        tail = "(truncated — showing the most recent log output)\n" + tail
+        tail = "(truncated -- showing the most recent log output)\n" + tail
     return tail

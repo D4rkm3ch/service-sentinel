@@ -54,7 +54,7 @@ def _split_image_ref(image_ref: str) -> tuple[str, str]:
 
     Handles registry hosts with ports, e.g. 'registry.example.com:5000/owner/repo:tag', and
     images pinned by both tag and digest (e.g. 'valkey/valkey:8-bookworm@sha256:...', which
-    Immich's own compose recommendations use) by dropping the '@sha256:...' suffix first —
+    Immich's own compose recommendations use) by dropping the '@sha256:...' suffix first --
     otherwise the digest's own colon gets mistaken for the tag separator.
     """
     image_ref = _DIGEST_SUFFIX.sub("", image_ref)
@@ -102,7 +102,7 @@ def list_tracked_containers() -> list[TrackedContainer]:
 
 def list_running_containers_for_logs() -> list[TrackedContainer]:
     """Like list_tracked_containers, but only excludes containers via LOGS_IGNORE_LABEL
-    rather than IGNORE_LABEL — a container can be excluded from update-checking without
+    rather than IGNORE_LABEL -- a container can be excluded from update-checking without
     being excluded from log watching, or vice versa."""
     client = docker.DockerClient(base_url=settings.docker_socket)
     try:

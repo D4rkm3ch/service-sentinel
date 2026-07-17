@@ -104,8 +104,8 @@ def test_local_dt_converts_utc_to_a_fixed_offset_zone():
 def test_local_dt_handles_a_missing_value():
     from app.main import local_dt
 
-    assert local_dt(None) == "—"
-    assert local_dt("") == "—"
+    assert local_dt(None) == "--"
+    assert local_dt("") == "--"
 
 
 def test_local_dt_falls_back_to_utc_for_an_unrecognized_zone():

@@ -24,7 +24,7 @@ class Settings:
         self.tz: str = os.environ.get("TZ", "UTC")
 
         # Base URL this app is reachable at (e.g. http://192.168.4.59:8420), used to build
-        # clickable links in notifications. Optional — links just won't be clickable without it.
+        # clickable links in notifications. Optional -- links just won't be clickable without it.
         self.public_url: str = os.environ.get("PUBLIC_URL", "").rstrip("/")
 
         # How many registries to check at once. Registry checks are almost pure network
@@ -39,7 +39,7 @@ class Settings:
         # deploy-time constant could fit, and operators need to be able to change it without a
         # redeploy the same way the provider/model/key already can.
 
-        # Log watcher tuning — the lookback window itself now lives in the database (Settings
+        # Log watcher tuning -- the lookback window itself now lives in the database (Settings
         # tab, see db.get_logs_lookback), not here, but this still controls how much log data
         # gets pulled and pre-filtered per container.
         self.log_max_lines_per_container: int = int(os.environ.get("LOG_MAX_LINES_PER_CONTAINER", "5000"))

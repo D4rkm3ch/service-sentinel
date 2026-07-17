@@ -73,7 +73,7 @@ def test_multiple_matches_merge_their_context_windows():
 def test_oversized_excerpt_is_truncated_keeping_the_most_recent_matches():
     lines = [f"ERROR: repeated failure number {i} " + "x" * 200 for i in range(100)]
     excerpt = extract_suspicious_excerpt("\n".join(lines))
-    assert len(excerpt) <= MAX_EXCERPT_CHARS + len("(truncated — showing the most recent matches)\n")
+    assert len(excerpt) <= MAX_EXCERPT_CHARS + len("(truncated -- showing the most recent matches)\n")
     assert excerpt.startswith("(truncated")
     # The most recent (last) match survives; the oldest doesn't.
     assert "number 99" in excerpt

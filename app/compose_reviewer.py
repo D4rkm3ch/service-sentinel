@@ -28,7 +28,7 @@ def run_compose_check() -> dict:
     try:
         files = list_compose_files()
     except Exception:
-        logger.exception("Could not list compose files — skipping this compose check")
+        logger.exception("Could not list compose files -- skipping this compose check")
         result = {"checked": 0, "reviewed": 0, "findings_found": 0, "errors": 1, "rate_limited": 0, "cancelled": False}
         set_finished("compose", result)
         return result

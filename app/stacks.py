@@ -1,5 +1,5 @@
 """Ties together stack naming and cross-service analysis with their caching rules, so the
-AI only gets called when something about a stack has actually changed — never on every
+AI only gets called when something about a stack has actually changed -- never on every
 page view or every check cycle for an unchanged stack.
 """
 
@@ -14,7 +14,7 @@ logger = logging.getLogger("service_sentinel.stacks")
 
 
 def get_or_generate_stack_name(stack_id: str, service_names: list[str]) -> str:
-    """Returns the stack's display name — a manual override if one's been set (never
+    """Returns the stack's display name -- a manual override if one's been set (never
     auto-regenerated), the cached AI name if the service list hasn't changed since it was
     generated, or a freshly generated one otherwise."""
     services_hash = hashlib.sha256(",".join(sorted(service_names)).encode()).hexdigest()[:16]
@@ -100,22 +100,22 @@ def _group_containers_by_stack(containers: list[dict]) -> dict[str, list[dict]]:
 
 
 def run_stack_analysis_pass(containers: list[dict], force: bool = False) -> None:
-    """Called once per persisted check outcome (see persist.persist_check_outcome) — a full
+    """Called once per persisted check outcome (see persist.persist_check_outcome) -- a full
     check naturally covers every stack, a stack-scoped Reset & re-check covers exactly one, and
     a single-container scoped check never has 2+ members of the same stack present so this is
     always a no-op there, with no special-casing needed to make that true (see
     _group_containers_by_stack above). Only runs at all if the Cross-Service Analysis toggle is
-    on — this is the automatic, scheduled path.
+    on -- this is the automatic, scheduled path.
 
     force=True (the stack page's own Reset & re-check button, via persist.run_claimed_stack_
     reset_and_recheck) always regenerates regardless of whether the digest fingerprint actually
     moved, same "an explicit click always gets a fresh take" semantics as the Retry button
     (regenerate_stack_analysis) uses directly. Still gated behind the Cross-Service Analysis
-    toggle like everything else here — force only means "skip the content-hash cache," not
+    toggle like everything else here -- force only means "skip the content-hash cache," not
     "ignore the opt-in setting entirely" (regenerate_stack_analysis itself also checks the
-    toggle now, so Retry can't bypass it either — see that function's own docstring).
+    toggle now, so Retry can't bypass it either -- see that function's own docstring).
 
-    Stacks are processed concurrently with each other too — with many multi-service stacks,
+    Stacks are processed concurrently with each other too -- with many multi-service stacks,
     processing them one at a time would just recreate the same sequential bottleneck that
     per-container summarization had."""
     if not db.get_cross_service_analysis_enabled("updates"):
@@ -141,12 +141,12 @@ _MAX_NOTES_CHARS = 1000
 
 
 def _build_changed_summary(members: list[dict]) -> str:
-    """Builds the actual substance the AI reasons about — real release notes/summary text for
+    """Builds the actual substance the AI reasons about -- real release notes/summary text for
     every member with a pending update, not just their bare image:tag. Passing only image:tag
     (the original implementation) gave the model nothing concrete to reason about beyond service
     names, so it reliably fell back to generic, useless observations true of every compose stack
     ("yes, there is a network") rather than anything grounded in what actually changed. Members
-    without a pending update are listed by name only — the model already has their names via
+    without a pending update are listed by name only -- the model already has their names via
     all_service_names, and there's nothing to summarize for something that hasn't changed."""
     lines = []
     for m in members:
@@ -166,7 +166,7 @@ def _build_changed_summary(members: list[dict]) -> str:
 
 
 def regenerate_stack_analysis(stack_id: str, members: list[dict], force: bool = False) -> None:
-    """The actual cache-aware regeneration logic — for each stack with 2+ members, only calls
+    """The actual cache-aware regeneration logic -- for each stack with 2+ members, only calls
     the AI if the set of (member, latest known digest) pairs has actually changed since last
     time, unless force=True (manual retry always regenerates, cache or not). members are plain
     check-outcome-shaped dicts (container_name, image_repo, tag, current_digest, latest_digest)

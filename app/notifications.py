@@ -1,8 +1,8 @@
-"""Notification dispatch — Apprise only. All settings (enabled, URLs, per-feature toggles,
+"""Notification dispatch -- Apprise only. All settings (enabled, URLs, per-feature toggles,
 severity thresholds) live in the database and are configured from the Settings tab, not env
 vars, matching the pattern the rest of the app's runtime configuration follows.
 
-No emojis anywhere in this product, ever — severity is communicated through text labels and
+No emojis anywhere in this product, ever -- severity is communicated through text labels and
 each message's own accent color (the vertical bar Discord shows down the left edge of an
 embed), never symbols.
 
@@ -147,7 +147,7 @@ def _send_error_group(group: list[dict]) -> None:
     count = len(group)
     title = f"Check errors ({count})"
     lines = [
-        f"- **{err['container_name']}** — {err['error']}"
+        f"- **{err['container_name']}** -- {err['error']}"
         for err in sorted(group, key=lambda e: e["container_name"].lower())
     ]
     body = "\n".join(lines)
@@ -299,12 +299,12 @@ def notify_findings_digest(source: str, items: list[dict]) -> None:
 
 
 def send_test_notification(urls: list[str] | None = None) -> tuple[bool, str]:
-    """Used by the 'Send test notification' button on the Settings page — reports back
+    """Used by the 'Send test notification' button on the Settings page -- reports back
     whether it actually worked rather than silently succeeding either way, since a
     misconfigured Apprise URL is otherwise invisible until a real notification fails.
 
     Accepts an explicit URL list so the caller can test whatever's currently typed in the
-    box, whether or not it's been saved yet — the route only persists it if this succeeds.
+    box, whether or not it's been saved yet -- the route only persists it if this succeeds.
     """
     if urls is None:
         urls = db.get_apprise_urls()
@@ -318,14 +318,14 @@ def send_test_notification(urls: list[str] | None = None) -> tuple[bool, str]:
             if not a.add(url):
                 all_valid = False
         if not all_valid:
-            return False, "One or more Apprise URLs look malformed — check the format against https://github.com/caronc/apprise."
+            return False, "One or more Apprise URLs look malformed -- check the format against https://github.com/caronc/apprise."
         success = a.notify(
             title="Service Sentinel test notification",
             body="If you're seeing this, your Apprise URL is configured correctly.",
         )
         if success:
             return True, "Test notification sent successfully."
-        return False, "Apprise reported the send failed — double check the URL and the target service."
+        return False, "Apprise reported the send failed -- double check the URL and the target service."
     except Exception as exc:
         logger.exception("Test notification failed")
         return False, f"Error: {exc}"

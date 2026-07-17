@@ -500,7 +500,7 @@ table {
 }
 
 /* Combined with table-layout: fixed, max-width: 0 on cells is a standard trick that makes
-   ellipsis truncation actually reliable in table cells across browsers — without it, cells
+   ellipsis truncation actually reliable in table cells across browsers -- without it, cells
    containing inline-block content (badges, links) can refuse to shrink below their content's
    natural width even with overflow:hidden set. */
 .updates-table td, .containers-table td, .findings-table td,
@@ -1393,7 +1393,7 @@ a.feature-card-issue-slot:hover {
   white-space: nowrap;
   font-size: 13px;
 }
-/* Toggle switch — same simple pill style already used on Settings page toggles */
+/* Toggle switch -- same simple pill style already used on Settings page toggles */
 .toggle-switch {
   position: relative;
   display: inline-block;
@@ -1482,7 +1482,7 @@ a.feature-card-issue-slot:hover {
 .badge-partially-silenced { background: rgba(91, 147, 217, 0.08); color: var(--info); border: 1px dashed rgba(91, 147, 217, 0.4); }
 .badge-healthy { background: var(--accent-wash); color: var(--accent); }
 
-/* Severity segmented buttons — replaces the old dropdown */
+/* Severity segmented buttons -- replaces the old dropdown */
 .severity-group-row {
   display: inline-flex;
   align-items: center;
@@ -1572,7 +1572,7 @@ a.feature-card-issue-slot:hover {
   margin: 0;
 }
 
-/* Settings page — unified bubble sections */
+/* Settings page -- unified bubble sections */
 .panel {
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -1728,7 +1728,7 @@ textarea {
 .test-result-ok { color: var(--accent); font-size: 12px; margin-left: 10px; }
 .test-result-error { color: var(--error); font-size: 12px; margin-left: 10px; }
 
-/* Saved confirmation — fades out after showing */
+/* Saved confirmation -- fades out after showing */
 .saved-indicator-slot {
   display: inline-block;
   min-width: 40px;

@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -37,7 +38,7 @@ from app.scheduler import (
 )
 from app.uptime import get_uptime_str
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 
 # LOG_LEVEL was previously hardcoded to INFO with no override (test_improvement_plan.md section
 # 6) -- an env var rather than a Settings-page toggle since logging is configured once at import
@@ -72,17 +73,18 @@ class NoStoreMiddleware(BaseHTTPMiddleware):
 # inline style="" attributes -- disallowing either outright would break the UI's own
 # interactivity across most pages, and migrating every inline handler to a nonce- or
 # hash-based scheme is a real refactor, not a header tweak, so it's left for a dedicated pass
-# rather than rushed here. Even with 'unsafe-inline' kept, restricting script-src to 'self' plus
-# the one trusted CDN (rather than leaving it wide open) still blocks the classic
-# <script src="https://evil.example/x.js"> injection pattern -- genuine defense in depth on top
-# of nh3 already stripping <script> tags entirely from AI-rendered content, not instead of it.
+# rather than rushed here. Even with 'unsafe-inline' kept, restricting script-src to 'self'
+# (htmx is vendored into /static now -- see base.html -- so not even a CDN allowance remains)
+# still blocks the classic <script src="https://evil.example/x.js"> injection pattern --
+# genuine defense in depth on top of nh3 already stripping <script> tags entirely from
+# AI-rendered content, not instead of it.
 _SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "same-origin",
     "Content-Security-Policy": (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' https: data:; "
         "connect-src 'self'; "
@@ -306,17 +308,36 @@ class RateLimitMiddleware:
 
 
 def _static_asset_version() -> str:
-    """A content hash of style.css, appended as a cache-busting query string on its <link> tag
-    (see base.html) -- StaticFiles is deliberately excluded from NoStoreMiddleware below so
+    """A content hash of the app's own CSS/JS, appended as a cache-busting query string on their
+    tags (see base.html) -- StaticFiles is deliberately excluded from NoStoreMiddleware below so
     browsers can cache CSS/JS long-term, but that means a plain unversioned /static/style.css
-    URL keeps serving an old cached copy after a deploy changes it. Hashing the file instead of
-    just using APP_VERSION means this bumps automatically on every CSS change, not only on
-    releases that remembered to bump the version string."""
-    css_path = Path(__file__).parent / "static" / "style.css"
-    return hashlib.sha256(css_path.read_bytes()).hexdigest()[:10]
+    URL keeps serving an old cached copy after a deploy changes it. Hashing the files instead of
+    just using APP_VERSION means this bumps automatically on every change, not only on releases
+    that remembered to bump the version string. htmx.min.js (vendored -- see base.html for why
+    it's served from here rather than a CDN) is folded into the same hash so a future htmx
+    upgrade busts caches through the same one mechanism."""
+    static_dir = Path(__file__).parent / "static"
+    digest = hashlib.sha256()
+    for name in ("style.css", "htmx.min.js"):
+        digest.update((static_dir / name).read_bytes())
+    return digest.hexdigest()[:10]
 
 
-app = FastAPI(title="Service Sentinel")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Replaces the deprecated @app.on_event("startup") hook (removed in a deprecation-cleanup
+    pass -- FastAPI's own warning says lifespan handlers are the supported form). Same behavior:
+    runs once when the server (or a TestClient context) starts. Nothing after the yield on
+    purpose -- there was never a shutdown hook; the scheduler just dies with the process."""
+    for problem in settings.validate():
+        logger.warning(problem)
+    db.init_db()
+    start_scheduler()
+    logger.info("Service Sentinel started")
+    yield
+
+
+app = FastAPI(title="Service Sentinel", lifespan=_lifespan)
 # Registration order matters here (Starlette executes middleware in REVERSE registration order
 # on the request path -- the last one added is the outermost, so it runs first): RateLimit
 # registered before AuthGate so AuthGate stays more outer and rejects an unauthenticated/wrong-
@@ -348,11 +369,11 @@ async def styled_404_handler(request: Request, exc: StarletteHTTPException):
     a small target element or inspected programmatically, not rendered as a full page."""
     if exc.status_code == 404 and request.headers.get("hx-request") != "true":
         return templates.TemplateResponse(
-            "404.html", {"request": request, "detail": exc.detail}, status_code=404,
+            request, "404.html", {"detail": exc.detail}, status_code=404,
         )
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
-# "Suggestion" reads oddly for an update ("this release is a suggestion"?) — "Safe" matches
+# "Suggestion" reads oddly for an update ("this release is a suggestion"?) -- "Safe" matches
 # the actual meaning (nothing risky here, safe to update) without changing the underlying
 # severity value used for storage, sorting, and notification thresholds everywhere else.
 SEVERITY_LABELS = {
@@ -389,7 +410,7 @@ def local_dt(iso_utc: str | None) -> str:
     _local_timestamp helper, just a different display format (this one matches what the tables
     already looked like before, so this change is a TZ fix, not a format change)."""
     if not iso_utc:
-        return "—"
+        return "--"
     dt = datetime.fromisoformat(iso_utc)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
@@ -445,15 +466,6 @@ TRIGGER_FUNCS = {
     "logs": trigger_log_check_now,
     "compose": trigger_compose_check_now,
 }
-
-
-@app.on_event("startup")
-def on_startup():
-    for problem in settings.validate():
-        logger.warning(problem)
-    db.init_db()
-    start_scheduler()
-    logger.info("Service Sentinel started")
 
 
 def _database_reachable() -> bool:
@@ -608,7 +620,7 @@ def overview(request: Request):
         _build_card("compose", "Configuration Health", "/compose"),
     ]
     return templates.TemplateResponse(
-        "overview.html", {"request": request, "cards": cards, "active_tab": "overview"}
+        request, "overview.html", {"cards": cards, "active_tab": "overview"}
     )
 
 
@@ -639,8 +651,8 @@ def feature_card_status(request: Request, feature: str, prev_running: bool = Fal
     progress_text = _progress_text(get_progress(feature)) if running else ""
     card = _build_card(feature, _CARD_TITLES[feature], _CARD_TAB_URLS[feature]) if prev_running and not running else None
     return templates.TemplateResponse(
-        "_card_status_poll.html",
-        {"request": request, "feature": feature, "running": running, "progress_text": progress_text, "card": card},
+        request, "_card_status_poll.html",
+        {"feature": feature, "running": running, "progress_text": progress_text, "card": card},
     )
 
 
@@ -649,12 +661,12 @@ def feature_card_status(request: Request, feature: str, prev_running: bool = Fal
 # ---------------------------------------------------------------------------
 
 # Live progress text (e.g. "Checking for updates (23/59)") only makes sense for a feature that
-# reports progress — currently just "updates" (Stage 2, staged Stage 6). Polling faster while
+# reports progress -- currently just "updates" (Stage 2, staged Stage 6). Polling faster while
 # it's running gives meaningfully live-feeling updates now that a full check finishes in
 # seconds rather than up to a minute; logs/compose keep their original 2s cadence untouched.
 _FAST_POLL_FEATURES = {"updates", "logs", "compose"}
 
-# Human label per pipeline stage (check_state.py's progress "stage" field) — every stage that
+# Human label per pipeline stage (check_state.py's progress "stage" field) -- every stage that
 # reports progress needs an entry here, or it silently falls back to the generic "Checking…"
 # below. Add the new stage's name here whenever a stage is added to the pipeline (see
 # persist.py's docstrings for why a stage that reports progress but isn't named here, or
@@ -688,7 +700,7 @@ def _progress_text(progress: dict) -> str:
 _IDLE_POLL_DELAY_MS = 3000
 
 
-def _status_context(request: Request, feature: str) -> dict:
+def _status_context(feature: str) -> dict:
     state = get_state(feature)
     progress = get_progress(feature)
     # A different feature's check running elsewhere (this page's own action buttons are also
@@ -702,7 +714,6 @@ def _status_context(request: Request, feature: str) -> dict:
     )
     poll_delay_ms = 500 if feature in _FAST_POLL_FEATURES else 2000
     return {
-        "request": request,
         "feature": feature,
         "state": state,
         "progress": progress,
@@ -715,8 +726,8 @@ def _status_context(request: Request, feature: str) -> dict:
 
 
 def _render_status(request: Request, feature: str):
-    context = _status_context(request, feature)
-    resp = templates.TemplateResponse("_status.html", context)
+    context = _status_context(feature)
+    resp = templates.TemplateResponse(request, "_status.html", context)
     if not context["state"]["running"]:
         resp.headers["HX-Trigger"] = "checkComplete"
     return resp
@@ -744,9 +755,9 @@ def _render_status_poll(
     covering both this feature's own start and noticing another feature's check via the idle
     poll, neither of which prev_running (this feature's own running flag only) can tell apart
     from a same-feature steady state on its own."""
-    context = _status_context(request, feature)
+    context = _status_context(feature)
     context["prev_badge_running"] = prev_badge_running
-    resp = templates.TemplateResponse("_status_poll.html", context)
+    resp = templates.TemplateResponse(request, "_status_poll.html", context)
     if prev_running and not context["state"]["running"]:
         resp.headers["HX-Trigger"] = "checkComplete"
     return resp
@@ -893,9 +904,9 @@ def updates_partial(request: Request, sort: str = "importance", dir: str = "asc"
     rows = db.list_tracked_containers_with_status()
     updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True, show_silenced=show_silenced)
     return templates.TemplateResponse(
-        "_updates_table.html",
+        request, "_updates_table.html",
         {
-            "request": request, "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
+            "updates": updates, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
             "show_silenced": show_silenced, "is_partial": True,
         },
     )
@@ -907,8 +918,8 @@ def updates_partial_containers(request: Request, sort: str = "importance", dir: 
     rows = db.list_tracked_containers_with_status()
     containers = _sort_and_filter_rows(rows, csort, cdir, updates_only=False)
     return templates.TemplateResponse(
-        "_containers_table.html",
-        {"request": request, "containers": containers, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "is_partial": True},
+        request, "_containers_table.html",
+        {"containers": containers, "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "is_partial": True},
     )
 
 
@@ -931,9 +942,9 @@ def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str
         issue["display_name"] = compose_lookup.subject_display_name("logs", issue["subject"])
     issues = _sort_issue_rows(issues, sort, dir)
     return templates.TemplateResponse(
-        "_issues_grouped_table.html",
+        request, "_issues_grouped_table.html",
         {
-            "request": request, "issues": issues, "source": "logs", "show_silenced": show_silenced,
+            "issues": issues, "source": "logs", "show_silenced": show_silenced,
             "sort": sort, "dir": dir, "is_partial": True, "show_stack_column": True,
         },
     )
@@ -946,9 +957,9 @@ def logs_partial_containers(request: Request, csort: str = "status", cdir: str =
         item["display_name"] = compose_lookup.subject_display_name("logs", item["name"])
     items = _sort_status_list_rows(items, csort, cdir)
     return templates.TemplateResponse(
-        "_status_list_table.html",
+        request, "_status_list_table.html",
         {
-            "request": request, "items": items, "detail_base": "/logs/container",
+            "items": items, "detail_base": "/logs/container",
             "csort": csort, "cdir": cdir, "partial_url": "/logs/partial/containers",
             "target_id": "logs-containers-table", "base_url": "/logs", "is_partial": True,
             "show_stack_column": True,
@@ -975,9 +986,9 @@ def compose_partial_issues(request: Request, show_silenced: bool = False, sort: 
         issue["display_name"] = compose_lookup.subject_display_name("compose", issue["subject"])
     issues = _sort_issue_rows(issues, sort, dir)
     return templates.TemplateResponse(
-        "_issues_grouped_table.html",
+        request, "_issues_grouped_table.html",
         {
-            "request": request, "issues": issues, "source": "compose", "show_silenced": show_silenced,
+            "issues": issues, "source": "compose", "show_silenced": show_silenced,
             "sort": sort, "dir": dir, "is_partial": True,
         },
     )
@@ -990,9 +1001,9 @@ def compose_partial_files(request: Request, csort: str = "status", cdir: str = "
         item["display_name"] = compose_lookup.subject_display_name("compose", item["name"])
     items = _sort_status_list_rows(items, csort, cdir)
     return templates.TemplateResponse(
-        "_status_list_table.html",
+        request, "_status_list_table.html",
         {
-            "request": request, "items": items, "detail_base": "/compose/file", "use_query_param": True,
+            "items": items, "detail_base": "/compose/file", "use_query_param": True,
             "csort": csort, "cdir": cdir, "partial_url": "/compose/partial/files",
             "target_id": "compose-files-table", "base_url": "/compose", "is_partial": True,
         },
@@ -1001,7 +1012,7 @@ def compose_partial_files(request: Request, csort: str = "status", cdir: str = "
 
 def _launch_check_if_not_running() -> None:
     """Claims the "running" slot synchronously (in this request-handling thread) so the
-    click's own HTTP response deterministically reflects "running" — right now the response
+    click's own HTTP response deterministically reflects "running" -- right now the response
     only ever came back once the whole check had already finished (set_finished had already
     been called before any render happened), so the spinner never had a chance to appear from
     the click itself; the only way to see it was to load a fresh page while an earlier click's
@@ -1010,7 +1021,7 @@ def _launch_check_if_not_running() -> None:
 
     Guarded against double-starts: if a check is already running (e.g. a double-click, or
     Reset & re-check fired right after Check now, or the automatic schedule firing at the same
-    moment — Stage 5), try_start_updates_check() is a no-op and nothing new gets launched."""
+    moment -- Stage 5), try_start_updates_check() is a no-op and nothing new gets launched."""
     if not persist.try_start_updates_check():
         return
     threading.Thread(target=persist.run_claimed_updates_check, daemon=True).start()
@@ -1035,7 +1046,7 @@ def _attach_stack_info(rows: list[dict], name_key: str) -> list[dict]:
     show and sort by which compose stack it belongs to. Ungrouped containers (no resolvable
     compose file) get stack_name=None.
 
-    Builds the compose index once for the whole batch of rows rather than once per row — each
+    Builds the compose index once for the whole batch of rows rather than once per row -- each
     row calling its own full compose-tree scan was the actual cause of slow page loads on
     setups with many tracked containers."""
     index = compose_lookup.build_stack_index()
@@ -1329,7 +1340,7 @@ def _regenerate_overview_in_background(source: str, subject: str, display_name: 
 def _get_or_build_overview(source: str, subject: str, display_name: str, findings, force: bool = False) -> str | None:
     """Combined AI overview shown above a subject's findings list. Cached by a hash of the
     current finding set so it's only regenerated (costing an API call) when something about
-    the findings actually changes, not on every page view. Never called for 0 or 1 findings —
+    the findings actually changes, not on every page view. Never called for 0 or 1 findings --
     those cases either show nothing or get redirected straight to the single finding.
 
     force=True (the service-level and bulk Regenerate AI Response buttons) bypasses the
@@ -1388,7 +1399,7 @@ def _get_or_build_overview(source: str, subject: str, display_name: str, finding
 VALID_SCOPES = ("master", "updates", "logs", "compose")
 VALID_FEATURES = ("updates", "logs", "compose")
 
-# Computed once at import time rather than per-request — available_timezones() scans the
+# Computed once at import time rather than per-request -- available_timezones() scans the
 # system's IANA zone database, which doesn't change while the process is running.
 AVAILABLE_TIMEZONES = sorted(available_timezones())
 
@@ -1418,7 +1429,7 @@ def _spec_from_form(form, scope: str) -> dict:
     """Builds a schedule_spec.py dict from the Hourly/Daily/Weekly/Monthly picker's POSTed
     fields. Only the currently-selected mode's fields are ever enabled client-side (see
     updateScheduleVisibility() in settings.html), so disabled fields never make it into the
-    form data — every mode can safely share one {scope}_time field name rather than needing
+    form data -- every mode can safely share one {scope}_time field name rather than needing
     per-mode suffixes, since at most one is ever actually submitted."""
     mode = form.get(f"{scope}_mode", "daily")
 
@@ -1480,9 +1491,9 @@ def settings_page(request: Request):
         feature: db.get_cross_service_analysis_enabled(feature) for feature in ("updates", "logs")
     }
     return templates.TemplateResponse(
-        "settings.html",
+        request, "settings.html",
         {
-            "request": request, "master": master, "features": features,
+            "master": master, "features": features,
             "describe": describe_schedule, "notify": _build_notify_context(),
             "deep_analysis": deep_analysis, "cross_service_analysis": cross_service_analysis,
             "update_severities": list(UPDATE_SEVERITIES),
@@ -1511,7 +1522,7 @@ def settings_page(request: Request):
 
 
 def _saved(request: Request):
-    return templates.TemplateResponse("_saved_indicator.html", {"request": request})
+    return templates.TemplateResponse(request, "_saved_indicator.html", {})
 
 
 @app.post("/settings/timezone")
@@ -1685,7 +1696,7 @@ def access_control_onboarding_modal(request: Request):
     needs_onboarding = not (db.get_auth_onboarding_done() or bool(db.get_auth_secret()))
     if not needs_onboarding:
         return Response(content="", media_type="text/html")
-    return templates.TemplateResponse("_access_control_onboarding_modal.html", {"request": request})
+    return templates.TemplateResponse(request, "_access_control_onboarding_modal.html", {})
 
 
 @app.post("/settings/ai/gemini-model")
@@ -1820,17 +1831,17 @@ async def test_apprise(request: Request):
     urls = [u.strip() for u in raw.replace("\n", ",").split(",") if u.strip()]
     success, message = send_test_notification(urls=urls)
     if success:
-        # Only persist the URL once it's actually proven to work — an unsaved textarea
+        # Only persist the URL once it's actually proven to work -- an unsaved textarea
         # that hasn't been tested (or failed its test) never gets written to the database.
         db.set_apprise_urls(", ".join(urls))
     css_class = "test-result-ok" if success else "test-result-error"
     return templates.TemplateResponse(
-        "_test_notification_result.html", {"request": request, "message": message, "css_class": css_class}
+        request, "_test_notification_result.html", {"message": message, "css_class": css_class}
     )
 
 
 # ---------------------------------------------------------------------------
-# Global Reset & re-check — wipes all persisted Updates history/tracking state, then runs a
+# Global Reset & re-check -- wipes all persisted Updates history/tracking state, then runs a
 # fresh check. Real persistence exists as of Stage 3 (see app/persist.py, db.reset_updates_data),
 # so this is now a genuine, permanent action rather than the Stage 1 placeholder it used to be.
 # ---------------------------------------------------------------------------
@@ -1992,9 +2003,9 @@ def stack_detail(request: Request, id: str, sort: str = "importance", dir: str =
         })
 
     return templates.TemplateResponse(
-        "stack_detail.html",
+        request, "stack_detail.html",
         {
-            "request": request, "stack_id": id, "display_name": display_name,
+            "stack_id": id, "display_name": display_name,
             "members": _sort_updates_stack_members(members, sort, dir),
             "deep_analysis_enabled": deep_analysis_enabled,
             "analysis_html": analysis_html, "active_tab": "updates",
@@ -2134,9 +2145,9 @@ def updates_page(request: Request, sort: str = "importance", dir: str = "asc",
     updates = _sort_and_filter_rows(rows, sort, dir, updates_only=True, show_silenced=show_silenced)
     containers = _sort_and_filter_rows(rows, csort, cdir, updates_only=False)
     return templates.TemplateResponse(
-        "updates.html",
+        request, "updates.html",
         {
-            **_status_context(request, "updates"),
+            **_status_context("updates"),
             "updates": updates, "containers": containers,
             "updates_count": len(updates), "containers_count": len(containers),
             "sort": sort, "dir": dir, "csort": csort, "cdir": cdir, "show_silenced": show_silenced,
@@ -2157,9 +2168,9 @@ def logs_page(request: Request, show_silenced: bool = False,
         item["display_name"] = compose_lookup.subject_display_name("logs", item["name"])
     containers = _sort_status_list_rows(containers, csort, cdir)
     return templates.TemplateResponse(
-        "logs.html",
+        request, "logs.html",
         {
-            **_status_context(request, "logs"),
+            **_status_context("logs"),
             "issues": issues, "containers": containers, "show_silenced": show_silenced,
             "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
             "active_tab": "logs", "show_stack_column": True,
@@ -2185,9 +2196,9 @@ def logs_container_detail(request: Request, container_name: str, sort: str = "se
     stack_info = compose_lookup.get_stack_info(container_name)
     stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
     return templates.TemplateResponse(
-        "subject_findings.html",
+        request, "subject_findings.html",
         {
-            "request": request, "findings": _sort_subject_findings(findings, sort, dir),
+            "findings": _sort_subject_findings(findings, sort, dir),
             "display_name": display_name, "subject": container_name,
             "back_url": "/logs", "overview_html": overview_html, "source": "logs",
             **summary,
@@ -2237,9 +2248,9 @@ def logs_stack_detail(request: Request, id: str, sort: str = "severity", dir: st
         })
 
     return templates.TemplateResponse(
-        "logs_stack_detail.html",
+        request, "logs_stack_detail.html",
         {
-            "request": request, "stack_id": id, "display_name": display_name,
+            "stack_id": id, "display_name": display_name,
             "members": _sort_stack_members(members, sort, dir), "active_tab": "logs",
             "cross_service_enabled": cross_service_enabled, "analysis_html": analysis_html,
             "silence_state": _silence_state(active_total, silenced_total),
@@ -2310,9 +2321,9 @@ def _render_read_toggle(request: Request, *, read_url: str, unread_url: str, is_
     pages. The scopes only differ in their POST endpoints and how their read state and badge
     visibility are derived, so those arrive as plain parameters."""
     return templates.TemplateResponse(
-        "_read_toggle_response.html",
+        request, "_read_toggle_response.html",
         {
-            "request": request, "read_url": read_url, "unread_url": unread_url,
+            "read_url": read_url, "unread_url": unread_url,
             "is_unread": is_unread, "mark_all": mark_all, "show_badge": show_badge,
         },
     )
@@ -2322,9 +2333,9 @@ def _render_silence_toggle(request: Request, *, silence_url: str, unsilence_url:
     """Silence-side counterpart to _render_read_toggle -- silence_state is 'silenced',
     'partially_silenced', or anything falsy for a fully active scope."""
     return templates.TemplateResponse(
-        "_silence_toggle_response.html",
+        request, "_silence_toggle_response.html",
         {
-            "request": request, "silence_url": silence_url, "unsilence_url": unsilence_url,
+            "silence_url": silence_url, "unsilence_url": unsilence_url,
             "silence_state": silence_state,
         },
     )
@@ -2384,9 +2395,9 @@ def compose_page(request: Request, show_silenced: bool = False,
         f["display_name"] = compose_lookup.subject_display_name("compose", f["name"])
     files = _sort_status_list_rows(files, csort, cdir)
     return templates.TemplateResponse(
-        "compose.html",
+        request, "compose.html",
         {
-            **_status_context(request, "compose"),
+            **_status_context("compose"),
             "issues": issues, "files": files, "show_silenced": show_silenced,
             "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
             "active_tab": "compose",
@@ -2408,9 +2419,9 @@ def compose_file_detail(request: Request, path: str, sort: str = "severity", dir
     overview_html = render_markdown(overview) if overview else None
     summary = _findings_summary(findings)
     return templates.TemplateResponse(
-        "subject_findings.html",
+        request, "subject_findings.html",
         {
-            "request": request, "findings": _sort_subject_findings(findings, sort, dir),
+            "findings": _sort_subject_findings(findings, sort, dir),
             "display_name": display_name, "subject": path,
             "back_url": "/compose", "overview_html": overview_html, "source": "compose",
             **summary,
@@ -2466,9 +2477,9 @@ def update_detail(request: Request, update_id: int):
     upgrade_guidance_html = render_markdown(update["upgrade_guidance"]) if update["upgrade_guidance"] else None
     display_name = db.get_container_display_name(update["container_name"]) or update["container_name"]
     return templates.TemplateResponse(
-        "detail.html",
+        request, "detail.html",
         {
-            "request": request, "update": update, "display_name": display_name,
+            "update": update, "display_name": display_name,
             "summary_html": summary_html,
             "release_notes_html": release_notes_html,
             "upgrade_guidance_html": upgrade_guidance_html,
@@ -2606,9 +2617,9 @@ def _render_item_status(request: Request, item_key: str, poll_url: str, busy_mes
     in which status-poll endpoint keeps the fragment alive, hence the poll_url parameter."""
     item = check_state.get_item_state(item_key)
     return templates.TemplateResponse(
-        "_item_status.html",
+        request, "_item_status.html",
         {
-            "request": request, "poll_url": poll_url, "item": item,
+            "poll_url": poll_url, "item": item,
             "progress_text": _progress_text(item) if item else "",
             "busy_message": busy_message,
         },
@@ -2629,7 +2640,7 @@ def _launch_scoped_item_check(request: Request, item_key: str, label: str, poll_
     if not claim():
         return _render_item_status(
             request, item_key, poll_url,
-            busy_message="A check just started elsewhere — try again shortly.",
+            busy_message="A check just started elsewhere -- try again shortly.",
         )
 
     check_state.start_item(item_key, label)
@@ -2646,15 +2657,15 @@ def _item_status_poll_response(request: Request, item_key: str, poll_url: str, r
     item = check_state.get_item_state(item_key)
     if item is not None and item["running"]:
         return templates.TemplateResponse(
-            "_item_status_poll.html",
-            {"request": request, "poll_url": poll_url, "item": item, "progress_text": _progress_text(item)},
+            request, "_item_status_poll.html",
+            {"poll_url": poll_url, "item": item, "progress_text": _progress_text(item)},
         )
 
     target_url = redirect_url(item) if callable(redirect_url) else redirect_url
     check_state.clear_item(item_key)
     resp = templates.TemplateResponse(
-        "_item_status_poll.html",
-        {"request": request, "poll_url": poll_url, "item": None, "progress_text": ""},
+        request, "_item_status_poll.html",
+        {"poll_url": poll_url, "item": None, "progress_text": ""},
     )
     resp.headers["HX-Redirect"] = target_url
     return resp
@@ -2686,7 +2697,7 @@ def _stack_poll_url(stack_id: str) -> str:
 
 
 def _launch_scoped_stack_check(request: Request, stack_id: str, target) -> object:
-    """Stack-level counterpart to _launch_scoped_check above — keyed by stack_id rather than
+    """Stack-level counterpart to _launch_scoped_check above -- keyed by stack_id rather than
     an update id since a stack action's own URL never changes underneath it the way a
     per-update action's id can (a digest transition can get superseded mid-recheck; a stack's
     compose file path can't)."""
@@ -3082,9 +3093,9 @@ def finding_detail(request: Request, finding_id: int):
         stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
 
     return templates.TemplateResponse(
-        "finding_detail.html",
+        request, "finding_detail.html",
         {
-            "request": request, "finding": finding, "description_html": description_html,
+            "finding": finding, "description_html": description_html,
             "suggested_fix_html": suggested_fix_html,
             "display_name": display_name, "active_tab": finding["source"],
             "stack_id": stack_id, "subject_findings_count": subject_findings_count,

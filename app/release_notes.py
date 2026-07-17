@@ -1,24 +1,24 @@
 """Resolves 'this image updated' into 'here's the human-readable changelog text'.
 
 Stage 6 of the ground-up rebuild: real release notes. Stage 8 (brought forward once Stage 7's
-AI summarization landed) adds a web search fallback, always on — a real AI provider call with
+AI summarization landed) adds a web search fallback, always on -- a real AI provider call with
 web search/grounding tool use (see app/ai_provider.py), versus everything above being either
 free or a plain HTTP request, but only ever reached after every cheaper option above has come up
 empty, and cached per image after the first successful lookup (see step 5) so it's never a
 repeat cost for the same image. This used to be an opt-in Settings toggle, off by default; it's
 unconditional now because the whole point of the app is real release notes, and a container
-that falls through every guess above without this step never gets any — silently defeating the
+that falls through every guess above without this step never gets any -- silently defeating the
 purpose for exactly the images that need it most (ones that don't follow a guessable naming
 convention). Priority order get_release_notes() actually uses:
-1. A per-container 'servicesentinel.changelog_url' label override — fetched as plain text/markdown.
+1. A per-container 'servicesentinel.changelog_url' label override -- fetched as plain text/markdown.
 2. The cached location that worked last time for this exact image (see release_notes_cache
-   in db.py) — skips straight past guessing if it still works, and falls through to full
+   in db.py) -- skips straight past guessing if it still works, and falls through to full
    discovery below if it doesn't (e.g. the repo was renamed or moved).
-3. A per-container 'servicesentinel.source' label override (owner/repo) — used against GitHub Releases.
+3. A per-container 'servicesentinel.source' label override (owner/repo) -- used against GitHub Releases.
 4. Best-effort guesses based on naming convention: ghcr.io images map directly to a GitHub
    repo; LinuxServer images follow their docker-<name>/<name> convention; a plain Docker Hub
    image's namespace is often the same as the project's GitHub username too.
-5. Asks the configured AI provider to search the web — see _web_search_release_notes() below. A
+5. Asks the configured AI provider to search the web -- see _web_search_release_notes() below. A
    successful result is cached exactly like a successful guess (as "github" if the discovered
    URL is a GitHub repo, via _extract_github_repo_from_url, so future lookups reuse the cheap
    GitHub Releases API path instead of searching again; as a plain "url" otherwise), so this
@@ -26,7 +26,7 @@ convention). Priority order get_release_notes() actually uses:
 6. Docker Hub's repository overview page as an absolute last resort (rarely has real changelog
    content, but better than nothing to click on).
 
-Returns (notes_text, source_url) or (None, None) if nothing could be found — callers should
+Returns (notes_text, source_url) or (None, None) if nothing could be found -- callers should
 treat that as "flag for manual review" rather than failing the whole check."""
 
 import ipaddress
@@ -114,7 +114,7 @@ def _fetch_github_release_notes(owner_repo: str, tag: str) -> tuple[str | None, 
             if resp.status_code == 200:
                 return _wrap_single_release(resp.json())
 
-        # Fall back to the most recent release if we can't match the tag exactly —
+        # Fall back to the most recent release if we can't match the tag exactly --
         # still useful signal, just less precisely scoped.
         resp = client.get(f"https://api.github.com/repos/{owner_repo}/releases", params={"per_page": 1})
         if resp.status_code == 200 and resp.json():
@@ -211,7 +211,7 @@ def _resolve_github_notes(owner_repo: str, tag: str, since: datetime | None) -> 
 def _guess_github_repos(image_repo: str) -> list[str]:
     """Returns candidate GitHub repos to try, in priority order, based on naming
     conventions common enough in a typical homelab to be worth trying before ever paying
-    for a web search. Not exhaustive by design — anything that doesn't match a known
+    for a web search. Not exhaustive by design -- anything that doesn't match a known
     convention falls through to web search, same as before."""
     if image_repo.startswith("ghcr.io/"):
         parts = image_repo.removeprefix("ghcr.io/").split("/")
@@ -320,10 +320,10 @@ def _web_search_release_notes(image_repo: str, tag: str) -> tuple[str | None, st
 tag/version "{tag}".
 
 Search for the project's actual GitHub releases page, changelog file, or official announcement \
-for this specific version — prefer the project's own repository or documentation over \
+for this specific version -- prefer the project's own repository or documentation over \
 third-party mirrors, package indexes, or unofficial blog posts.
 
-Respond with ONLY a JSON object and nothing else — no markdown fences, no preamble. Use exactly \
+Respond with ONLY a JSON object and nothing else -- no markdown fences, no preamble. Use exactly \
 this shape:
 {{"found": true or false, "source_url": "the URL you found, or null", "notes": "a paraphrased, \
 faithful description of what changed in this release in your own words, or null if nothing found"}}"""
@@ -368,7 +368,7 @@ def get_release_notes(
     if changelog_url_override:
         return _fetch_manual_url(changelog_url_override)
 
-    # Try wherever worked last time for this exact image first — this is the whole point:
+    # Try wherever worked last time for this exact image first -- this is the whole point:
     # once we've paid the cost of discovering where an image's release notes actually live,
     # never pay it again unless that location genuinely stops working.
     cached = db.get_release_notes_source(image_repo)
@@ -381,7 +381,7 @@ def get_release_notes(
             notes, url = _fetch_manual_url(cached["location"])
             if notes:
                 return notes, url
-        # Cached location no longer works (renamed, moved, deleted) — fall through to full
+        # Cached location no longer works (renamed, moved, deleted) -- fall through to full
         # discovery below, same as if nothing had ever been cached.
 
     candidates = [source_override] if source_override else []

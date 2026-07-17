@@ -1,5 +1,5 @@
 """Shared pytest setup. Sets DATA_DIR/COMPOSE_ROOT before any test module imports app.config
-(env vars are read once at import time — see app/config.py — so whichever import happens
+(env vars are read once at import time -- see app/config.py -- so whichever import happens
 first for the whole test session wins; centralizing it here instead of duplicating it per
 file avoids that turning into an accidental footgun).
 
