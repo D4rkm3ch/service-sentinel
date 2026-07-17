@@ -1349,9 +1349,15 @@ a.feature-card-issue-slot:hover {
   flex: 0 0 auto;
   max-width: 132px;
 }
+/* margin-left, on top of the row's own 20px gap -- Schedule's flex-grow already claims every
+   pixel Last run/Notifications don't need, but with typically-short values ("Daily at 6:00 AM")
+   that left most of that reclaimed width sitting empty *after* the (left-aligned) text, between
+   it and Notifications. Shifting the column's own start right eats into that reclaimed space
+   instead of leaving it trailing, so the value sits closer to the middle of the row. */
 .feature-card-meta-row:nth-child(2) {
   flex: 1 1 auto;
   min-width: 0;
+  margin-left: 40px;
 }
 .feature-card-meta-row:nth-child(3) {
   flex: 0 0 auto;
