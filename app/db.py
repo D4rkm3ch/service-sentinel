@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -7,6 +8,8 @@ from datetime import datetime, timezone
 
 from app import secrets_crypto
 from app.config import settings
+
+logger = logging.getLogger("service_sentinel.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS container_state (
@@ -205,12 +208,6 @@ def _set_setting(key: str, value: str) -> None:
 
 def init_db() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    # Migration: pre-rebrand installs (release-radar) stored the database under the old
-    # filename. Move it forward under the new name on first startup after the upgrade so an
-    # existing install's history isn't orphaned.
-    _legacy_db_path = settings.data_dir / "release_radar.db"
-    if not settings.db_path.exists() and _legacy_db_path.exists():
-        _legacy_db_path.rename(settings.db_path)
     with get_conn() as conn:
         conn.executescript(SCHEMA)
         for key, value in DEFAULT_FEATURE_STATE.items():
@@ -358,6 +355,38 @@ def init_db() -> None:
             conn.execute(
                 "UPDATE app_settings SET value = 'bugfix' WHERE key = 'notify_severity_updates'"
             )
+
+    ensure_secrets_encrypted()
+
+
+# Every app_settings key that holds a secret and goes through secrets_crypto on read/write.
+# ensure_secrets_encrypted() below and the settings routes are the only writers, so this list
+# plus grep for secrets_crypto in this file is the complete secret surface.
+_SECRET_SETTING_KEYS = (
+    "anthropic_api_key",
+    "gemini_api_key",
+    "github_token",
+    "notify_apprise_urls",
+    "auth_secret",
+)
+
+
+def ensure_secrets_encrypted() -> None:
+    """Encryption at rest used to be opt-in (SECRETS_ENCRYPTION_KEY set) -- an install that
+    never set it has its secrets sitting in app_settings as plain text. Now that encryption is
+    always on (see secrets_crypto's own docstring for the key resolution), re-encrypt any such
+    value in place on startup, so a secret is never left as plain text just because it was
+    saved by an older version. Naturally idempotent: an already-encrypted value is skipped by
+    the prefix check, and a fresh install has nothing stored at all."""
+    with get_conn() as conn:
+        for key in _SECRET_SETTING_KEYS:
+            stored = _get_setting(key, "", conn)
+            if stored and not secrets_crypto.is_encrypted(stored):
+                conn.execute(
+                    "UPDATE app_settings SET value = ? WHERE key = ?",
+                    (secrets_crypto.encrypt(stored), key),
+                )
+                logger.info("Encrypted previously-plaintext setting %r in place.", key)
 
 
 @contextmanager

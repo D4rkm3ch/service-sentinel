@@ -71,12 +71,6 @@ def test_ignore_label_excludes_a_container_from_update_tracking():
     assert [t.name for t in result] == ["keepme"]
 
 
-def test_legacy_releaseradar_ignore_label_still_works():
-    ignored = _FakeContainer("oldskip", "owner/app:1.0", labels={"releaseradar.ignore": "true"})
-    with _with_containers([ignored]):
-        assert docker_client.list_tracked_containers() == []
-
-
 def test_missing_repo_digests_leaves_current_digest_none():
     c = _FakeContainer("fresh-build", "locally/built:dev", repo_digests=[])
     with _with_containers([c]):
@@ -112,12 +106,6 @@ def test_logs_listing_respects_the_logs_ignore_label_not_the_updates_one():
 
     # updates-ignored container still shows up for logs; logs-ignored doesn't.
     assert [t.name for t in logs_result] == ["u"]
-
-
-def test_legacy_logs_ignore_label_still_works():
-    c = _FakeContainer("old", "owner/a:1", labels={"releaseradar.logs.ignore": "true"})
-    with _with_containers([c]):
-        assert docker_client.list_running_containers_for_logs() == []
 
 
 # ---------------------------------------------------------------------------

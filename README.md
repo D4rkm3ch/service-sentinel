@@ -55,9 +55,6 @@ labels:
   servicesentinel.changelog_url: "https://example.com/changelog"  # use this URL directly, skip auto-detection
 ```
 
-The old `releaseradar.*` label names still work as a fallback, so compose files from before the
-rename don't need updating.
-
 ## Running it
 
 See `docker-compose.example.yml`. Copy it into your stacks folder, fill in `.env`, and deploy.
@@ -80,10 +77,14 @@ For anything internet-facing, still prefer your own layer in front (a reverse pr
 a VPN, or similar) rather than relying on any single gate.
 
 **Secrets at rest.** API keys, the Apprise notification URL, and the Access Control password
-are stored in the SQLite database under `DATA_DIR` -- as plain text by default, so treat that
-volume (and any backup of it) as holding secrets. Optionally, set `SECRETS_ENCRYPTION_KEY` in
-your `.env` to encrypt those values at rest; see `.env.example` for the details and the
-key-loss caveat.
+are stored in the SQLite database under `DATA_DIR`, always encrypted -- never as plain text.
+By default the app generates a random key on first launch and keeps it at `DATA_DIR/secrets.key`
+(owner-read-only). That protects against anything that exposes only the database file (a copied
+or synced `.db`, an SQL-level read), but since the key lives in the same volume, not against
+someone holding the entire volume. For that stronger case, set `SECRETS_ENCRYPTION_KEY` in your
+`.env` -- it takes precedence over the key file and keeps the key out of the volume entirely;
+see `.env.example` for details. Either way: lose the key, lose the secrets -- they're
+unrecoverable without it, and you'd re-enter them in Settings.
 
 **Secret redaction is best-effort.** Compose files sent for Configuration health review get
 secret-looking values redacted first -- by key name (`PASSWORD`, `TOKEN`, and similar), by value
@@ -101,19 +102,22 @@ in front of it.
 
 ## Backup and restore
 
-Everything Service Sentinel knows lives in one SQLite database inside the `service-sentinel-data`
-volume (`/data/service_sentinel.db` in the container). To back it up, stop the container first --
-SQLite files copied mid-write can be inconsistent -- then copy the file out:
+Everything Service Sentinel knows lives in the `service-sentinel-data` volume: the SQLite
+database (`/data/service_sentinel.db` in the container) plus, unless you set
+`SECRETS_ENCRYPTION_KEY`, the auto-generated encryption key (`/data/secrets.key`) that the
+database's stored secrets are unrecoverable without. To back both up, stop the container
+first -- SQLite files copied mid-write can be inconsistent -- then copy them out:
 
 ```bash
 docker compose stop service-sentinel
 docker cp service-sentinel:/data/service_sentinel.db ./service_sentinel.db.backup
+docker cp service-sentinel:/data/secrets.key ./secrets.key.backup
 docker compose start service-sentinel
 ```
 
-To restore, stop the container, copy the backup over the same path, and start it again. If you
-use `SECRETS_ENCRYPTION_KEY`, back that up too, somewhere separate from the database file -- an
-encrypted backup without its key is unrecoverable.
+To restore, stop the container, copy the backups over the same paths, and start it again. If
+you use `SECRETS_ENCRYPTION_KEY` instead, there's no key file -- back up the passphrase itself,
+somewhere separate from the database file.
 
 ## Status
 

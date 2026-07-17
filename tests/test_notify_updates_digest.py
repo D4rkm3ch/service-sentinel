@@ -224,7 +224,7 @@ def test_body_has_no_links_at_all():
 
 def test_title_is_just_the_feature_name_no_app_branding_prefix():
     """The webhook's own name (set directly in Discord, e.g. "Spidey Bot") already identifies
-    the source -- repeating "release-radar" inside every message would just be noise. Severity
+    the source -- repeating the app's name inside every message would just be noise. Severity
     and count live in the body's first line instead (Discord renders a title larger/bolder than
     the body, so "Update Issues" as the title / "Breaking Change (1)" as the first body line
     reads as a big line + a smaller line under it, without a second Apprise call)."""

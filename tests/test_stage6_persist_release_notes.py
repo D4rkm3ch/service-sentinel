@@ -358,8 +358,8 @@ def test_same_image_different_tag_is_not_deduplicated():
 
 def test_same_image_different_label_overrides_is_not_deduplicated():
     """Rare, but two services on the same image could genuinely point their
-    releaseradar.source label at different repos -- deduping past that would silently hand one
-    of them the wrong container's notes."""
+    servicesentinel.source label at different repos -- deduping past that would silently hand
+    one of them the wrong container's notes."""
     def fetch_for(image_repo, tag, source_override=None, changelog_url_override=None, since=None):
         return (f"notes from {source_override}", "https://example.com")
 
