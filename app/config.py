@@ -23,7 +23,7 @@ class Settings:
 
         self.tz: str = os.environ.get("TZ", "UTC")
 
-        # Base URL this app is reachable at (e.g. http://192.168.4.59:8420), used to build
+        # Base URL this app is reachable at (e.g. http://192.168.1.50:8420), used to build
         # clickable links in notifications. Optional -- links just won't be clickable without it.
         self.public_url: str = os.environ.get("PUBLIC_URL", "").rstrip("/")
 

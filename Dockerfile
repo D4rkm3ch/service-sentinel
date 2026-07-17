@@ -1,5 +1,10 @@
 FROM python:3.12-slim
 
+# The source label is what links the GHCR package page back to this repository (and lets it
+# inherit the repo's visibility/README on the package page).
+LABEL org.opencontainers.image.source="https://github.com/D4rkm3ch/service-sentinel" \
+      org.opencontainers.image.description="Watches your homelab's Docker containers and compose files: AI-summarized updates, log triage, and compose review."
+
 # Under docker-compose.example.yml's read_only root filesystem, Python's own .pyc bytecode
 # cache write would silently fail anyway (Python already tolerates an unwritable source tree),
 # but skipping the attempt outright avoids the wasted syscalls on every import, every start.

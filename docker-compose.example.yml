@@ -1,6 +1,6 @@
 services:
   service-sentinel:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/service-sentinel:latest
+    image: ghcr.io/d4rkm3ch/service-sentinel:latest
     container_name: service-sentinel
     restart: unless-stopped
     # The app itself only ever writes to /data (its own SQLite database) -- confirmed by reading
