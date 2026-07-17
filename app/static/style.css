@@ -1262,6 +1262,33 @@ a.feature-card-issue-slot:hover {
   font-size: 22px;
   line-height: 1;
 }
+/* A real issue slot's own flex: 1 1 0 (see .feature-card-issue-slot above) is what stretched a
+   lone issue to fill the whole row before this existed -- a report that with only 1-2 of the 3
+   possible slots actually populated, the real issue(s) looked stretched abnormally wide instead
+   of staying the same size they'd be alongside a full 3. This renders in the remaining slot(s)
+   instead (see _feature_card.html), sized via flex-grow to visually read as the same "1 unit"
+   width as a real slot -- or 2 units combined into one box, not two separate empty boxes, when
+   only a single real issue exists. */
+.feature-card-issue-slot-filler {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.feature-card-issue-slot-filler-wide {
+  flex-grow: 2;
+}
+.issue-slot-filler-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.issue-slot-filler-icon {
+  font-size: 16px;
+  line-height: 1;
+}
 @container issue-slots (min-width: 480px) {
   .feature-card-issue-slot:nth-of-type(3) {
     display: flex;
@@ -1323,7 +1350,7 @@ a.feature-card-issue-slot:hover {
    fit that comfortably; Schedule is the one column that can genuinely run long, so it gets the
    most room of the three but is still capped so it can never push Notifications off its mark. */
 .feature-card-meta-row:nth-child(1) {
-  width: 140px;
+  width: 132px;
 }
 .feature-card-meta-row:nth-child(2) {
   width: 160px;

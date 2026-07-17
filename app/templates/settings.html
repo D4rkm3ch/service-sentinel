@@ -200,9 +200,11 @@ capped by your last actual check</p>
                          'Scheduling enabled' if features[feature].enabled else 'Scheduling disabled',
                          "toggleFeatureScheduling('" ~ feature ~ "', this.checked)", feature ~ '_scheduling_toggle_label') }}
     <div id="{{ feature }}_scheduling_gated" class="{{ 'faded' if not features[feature].enabled else '' }}">
-      {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
-                           'Using own schedule' if not features[feature].use_master else 'Using general schedule',
-                           "toggleScheduleOverride('" ~ feature ~ "', this.checked)", feature ~ '_schedule_toggle_label') }}
+      <div style="margin-top:8px">
+        {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
+                             'Using own schedule' if not features[feature].use_master else 'Using general schedule',
+                             "toggleScheduleOverride('" ~ feature ~ "', this.checked)", feature ~ '_schedule_toggle_label') }}
+      </div>
       <div id="{{ feature }}_schedule_wrapper" class="schedule-wrapper {{ 'faded' if features[feature].use_master else '' }}">
         {{ sf.schedule_fields(feature, features[feature].spec, '/settings/schedule/' ~ feature, features[feature].use_master) }}
       </div>

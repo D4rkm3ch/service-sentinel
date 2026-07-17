@@ -49,6 +49,14 @@
       <span class="issue-slot-cta">View details →</span>
     </a>
     {% endfor %}
+    {% if card.top_issues|length < 3 %}
+    <div class="feature-card-issue-slot feature-card-issue-slot-filler {{ 'feature-card-issue-slot-filler-wide' if card.top_issues|length == 1 else '' }}">
+      <span class="issue-slot-filler-message">
+        <span class="issue-slot-filler-icon" aria-hidden="true">✓</span>
+        No further issues detected
+      </span>
+    </div>
+    {% endif %}
     {% else %}
     <div class="feature-card-issue-slot feature-card-issue-slot-empty">
       <span class="issue-slot-empty-message">
