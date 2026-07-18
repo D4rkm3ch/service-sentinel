@@ -457,8 +457,20 @@ quoted already matches the value you'd otherwise recommend, there is no finding 
 that says it's already correct or that no change is needed. A correctly-configured mount doesn't \
 get a JSON object; it gets nothing.
 
-Do NOT flag any of the following -- this homelab operator has explicitly decided none of these \
-are worth reporting, even as a low-severity suggestion:
+Same discipline before flagging a missing restart policy: re-read the service's actual `restart:` \
+line, if it has one, character by character, directly from the file. A service with `restart: \
+unless-stopped`, `restart: always`, or `restart: on-failure` (in any form, including with a max \
+retry count) already has a real policy -- never describe one of these as missing. Only `restart: \
+no`, `restart: false`, or no `restart:` key at all is genuinely "no restart policy."
+
+The single most important rule in this whole review: if a configuration choice is genuinely \
+harmless -- it isn't broken, isn't a real security exposure, and isn't going to cause a real \
+problem -- do not report it, even if some other arrangement would be marginally cleaner or more \
+conventional. Only report something with a real, concrete negative consequence you can actually \
+name. The list below gives the most common harmless patterns this operator has already told you \
+about by name, but it's illustrative, not exhaustive -- the same "no real consequence, so no \
+finding" judgment applies to anything else you recognize as equally harmless, even if it isn't \
+individually listed:
 - Missing resource limits (CPU/memory limits).
 - Image tag/version-pinning choice in either direction (floating :latest vs. a pinned version, \
 or recommending one floating tag over another) -- assume it's a deliberate choice, not an \
@@ -478,6 +490,12 @@ otherwise defined in this same file. This is completely normal and expected -- t
 supplies these separately at deploy time (a Docker secret, a `.env` file, the shell environment), \
 not inside the compose file itself. Never describe this as missing, undefined, broken, or likely \
 to fail; always assume it resolves correctly wherever it's used.
+- A value that reads exactly `[REDACTED]`. That's not the file's real content -- it's this \
+review pipeline's own placeholder for a secret-looking value that's been stripped out before you \
+ever saw it (see this prompt's own opening line). It means a real value is genuinely set there, \
+correctly, every time. Never describe it as missing, blank, unset, or needing verification -- \
+that's the one interpretation you know for certain is wrong, since redaction only ever replaces \
+an already-present value, never an absent one.
 - An empty `networks: {{}}` block. Several common stack-management tools (Dockge among them) \
 insert this automatically; it's inert boilerplate, not something to flag or recommend removing.
 - PUID, PGID, GUID, UID, or TZ environment variables as "redundant" or "unnecessary," on the \
@@ -498,16 +516,21 @@ settings, write cache files, write its database, save downloaded files). These c
 write access by definition; don't raise it as a security concern and then hedge in the fix that \
 "rw is generally required so no change is recommended" -- if that's the honest conclusion, the \
 finding was never real, so don't start writing it in the first place.
-- Recommending read-only for a media library mount used by a media *manager* or *processor* \
-service, as opposed to a pure playback server. A manager's whole job is renaming, moving, \
-hardlinking, or deleting files inside that library -- it categorically is not "just reading" \
-regardless of how the mount looks in isolation. Recognize these by service name, container_name, \
-or image (allow for suffixes/variants like "sonarr-4k" or "lscr.io/linuxserver/sonarr"), \
-including but not limited to: Sonarr, Radarr, Lidarr, Readarr, Whisparr, Bazarr, Prowlarr, \
-Tdarr, FileFlows, Cleanuparr, Kapowarr, Audiobookshelf, Huntarr, Janitorr, Unpackerr, \
-qBittorrent, and Qui. Reserve read-only recommendations for a mount you can tell is genuinely \
-playback/reference-only for that specific service (a pure media server's own library mount, or \
-one service reading another's data it doesn't own).
+- Recommending read-only for a library mount used by a service whose actual job is downloading, \
+organizing, renaming, moving, converting, hardlinking, or otherwise managing the files in it -- \
+as opposed to a pure playback/reference server that only ever reads. This is a behavioral \
+judgment, not a name lookup: if you can tell from the service's name, image, or what it evidently \
+does that managing/acquiring files is its job -- media managers (Sonarr, Radarr, Lidarr, Readarr, \
+Whisparr, Bazarr, Prowlarr, Tdarr, FileFlows, Cleanuparr, Kapowarr, Audiobookshelf, Huntarr, \
+Janitorr, Unpackerr), download clients (qBittorrent, Qui, JDownloader, SABnzbd, NZBGet, \
+Deluge, Transmission, and the like), or ROM/game library managers -- it categorically is not \
+"just reading" that library, regardless of how the mount looks in isolation, whether or not its \
+name appears on this list. Reserve read-only recommendations for a mount you can tell is \
+genuinely playback/reference-only for that specific service (a pure media server's own library \
+mount, or one service reading another's data it doesn't own). And once you've recognized a mount \
+as correctly read-write for this reason, that's the end of it -- no finding, not even one that \
+just confirms it's fine or explains why; a correct mount gets nothing, exactly like the :ro/:rw \
+rule above.
 
 These exclusions are pre-filters, not second thoughts: decide whether a finding belongs in one \
 of these categories BEFORE drafting its title/description/fix, not by writing it out and then \
@@ -558,7 +581,12 @@ def _docker_socket_mounts_are_all_read_only(redacted_yaml: str) -> bool | None:
     of relying on prompt compliance alone -- see review_compose_file's own use of this.
 
     Returns True if every docker.sock mount found is :ro, False if at least one isn't, None if
-    the file mentions no docker.sock mount at all (nothing to check or suppress)."""
+    the file mentions no docker.sock mount at all (nothing to check or suppress). Note that
+    review_compose_file treats both True and None the same way (strip any docker-socket-flavored
+    finding) -- a real-world report showed the model naming "Docker socket mounted read-write"
+    for a file with no docker.sock mount anywhere in it at all (an unrelated database data-volume
+    mount, apparently free-associated into docker-socket language), which this same function
+    already had the data to catch but the old True-only check didn't act on."""
     try:
         data = yaml.safe_load(redacted_yaml)
     except yaml.YAMLError:
@@ -582,6 +610,61 @@ def _docker_socket_mounts_are_all_read_only(redacted_yaml: str) -> bool | None:
 def _mentions_docker_socket(finding: dict) -> bool:
     text = " ".join(str(finding.get(k, "")) for k in ("title", "description", "fix")).lower()
     return "docker socket" in text or "docker.sock" in text
+
+
+# "no", "false", and simply omitting the key are the only shapes that genuinely mean "no restart
+# policy" -- anything else (unless-stopped, always, on-failure[:max_retries]) is a real policy.
+_NO_RESTART_POLICY_VALUES = {"no", "false"}
+
+
+def _services_with_a_real_restart_policy(redacted_yaml: str) -> set[str]:
+    """Deterministically lists every service that already has a real restart: policy set, rather
+    than trusting the AI to have read it correctly -- same "mechanically checkable, so don't rely
+    on prompt compliance alone" reasoning as the docker.sock guard above. A real-world report:
+    the reviewer flagged a service as missing a restart policy despite `restart: unless-stopped`
+    being right there, verbatim, in the redacted text it was given."""
+    try:
+        data = yaml.safe_load(redacted_yaml)
+    except yaml.YAMLError:
+        return set()
+    if not isinstance(data, dict):
+        return set()
+
+    result = set()
+    for name, service_def in (data.get("services") or {}).items():
+        if not isinstance(service_def, dict):
+            continue
+        restart = service_def.get("restart")
+        if restart and str(restart).strip().lower() not in _NO_RESTART_POLICY_VALUES:
+            result.add(name)
+    return result
+
+
+def _mentions_missing_restart_policy_for(finding: dict, service_name: str) -> bool:
+    text = " ".join(str(finding.get(k, "")) for k in ("title", "description", "fix")).lower()
+    return service_name.lower() in text and "restart" in text
+
+
+def _has_empty_top_level_networks_block(redacted_yaml: str) -> bool:
+    """Deterministically checks for Dockge's (and similar stack managers') auto-inserted empty
+    top-level `networks: {}` block -- the system prompt below already instructs the model to
+    never flag this as removable clutter, but a real-world report showed it still getting
+    flagged on a real file despite the instruction. A fixed, one-key, one-empty-mapping shape is
+    mechanically checkable, so it gets the same code-level guard as the docker.sock and
+    restart-policy checks above rather than relying on prompt compliance alone."""
+    try:
+        data = yaml.safe_load(redacted_yaml)
+    except yaml.YAMLError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    networks = data.get("networks")
+    return isinstance(networks, dict) and len(networks) == 0
+
+
+def _mentions_networks_block(finding: dict) -> bool:
+    text = " ".join(str(finding.get(k, "")) for k in ("title", "description", "fix")).lower()
+    return "networks" in text and ("{}" in text or "empty" in text)
 
 
 def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = False,
@@ -619,14 +702,43 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
     data = extract_json(text)
     findings = data if isinstance(data, list) else []
 
-    if _docker_socket_mounts_are_all_read_only(redacted_yaml) is True:
+    # is not False: covers both True (mount exists and is already :ro -- a misread) and None (no
+    # docker.sock mount in the file at all -- a real-world report showed the model naming
+    # "Docker socket mounted read-write" for an unrelated database data-volume mount). Only a
+    # genuinely read-write docker.sock mount (False) lets a docker-socket finding through.
+    if _docker_socket_mounts_are_all_read_only(redacted_yaml) is not False:
         dropped = [f for f in findings if _mentions_docker_socket(f)]
         if dropped:
             logger.warning(
-                "Dropped %d AI finding(s) about an already-:ro docker.sock mount for %s (misread despite correct input)",
+                "Dropped %d AI finding(s) about the docker socket for %s (no genuinely-rw "
+                "docker.sock mount in the file -- misread or hallucinated)",
                 len(dropped), file_path,
             )
         findings = [f for f in findings if not _mentions_docker_socket(f)]
+
+    restart_ok_services = _services_with_a_real_restart_policy(redacted_yaml)
+    if restart_ok_services:
+        dropped = [
+            f for f in findings
+            if any(_mentions_missing_restart_policy_for(f, name) for name in restart_ok_services)
+        ]
+        if dropped:
+            logger.warning(
+                "Dropped %d AI finding(s) about a missing restart policy for %s (service already "
+                "has one -- misread)",
+                len(dropped), file_path,
+            )
+        findings = [f for f in findings if f not in dropped]
+
+    if _has_empty_top_level_networks_block(redacted_yaml):
+        dropped = [f for f in findings if _mentions_networks_block(f)]
+        if dropped:
+            logger.warning(
+                "Dropped %d AI finding(s) about the empty networks: {} block for %s (Dockge-style "
+                "boilerplate, never a real finding)",
+                len(dropped), file_path,
+            )
+        findings = [f for f in findings if not _mentions_networks_block(f)]
 
     return findings
 

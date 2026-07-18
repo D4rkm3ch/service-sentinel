@@ -105,3 +105,20 @@ def test_review_compose_file_is_unaffected_when_the_file_has_no_docker_socket_mo
         findings = review_compose_file("app.yml", _NO_SOCKET_YAML)
 
     assert [f["title"] for f in findings] == ["Missing restart policy"]
+
+
+def test_review_compose_file_drops_a_docker_socket_finding_when_there_is_no_socket_mount_at_all():
+    """A real-world report: the model named "Docker socket mounted read-write" for a file with
+    no docker.sock mount anywhere in it (an unrelated database data-volume mount, apparently
+    free-associated into docker-socket language) -- the old True-only check let this through
+    since _docker_socket_mounts_are_all_read_only returns None, not True, when nothing is
+    mounted. Now any docker-socket-flavored finding is dropped unless a genuinely read-write
+    docker.sock mount actually exists."""
+    with patch("app.summarizer.ai_provider.is_configured", return_value=True), \
+         patch("app.summarizer.ai_provider.complete_text",
+               return_value=json.dumps([_DOCKER_SOCKET_FINDING, _UNRELATED_FINDING])):
+        findings = review_compose_file("app.yml", _NO_SOCKET_YAML)
+
+    titles = [f["title"] for f in findings]
+    assert "Docker socket mounted read-write" not in titles
+    assert "Missing restart policy" in titles

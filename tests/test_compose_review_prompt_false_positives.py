@@ -70,12 +70,50 @@ def test_prompt_suppresses_puid_pgid_as_redundant():
 def test_prompt_teaches_media_managers_need_rw_on_library_mounts():
     """A real-world report: the AI assumed Sonarr's media mount only needed read access and
     flagged it as an unnecessary security concern -- Sonarr renames/moves/deletes files in that
-    library as its normal job. Locks in the specific tool list so a future edit doesn't quietly
-    drop it back to the old, wrong "media libraries are read-only" assumption."""
-    assert "media *manager* or *processor*" in _RENDERED
+    library as its normal job. A second real-world report showed the same wrong assumption
+    applied to JDownloader2 (a download client, not on the original named list at all) for a ROM
+    library -- this is now a behavioral rule (recognize managing/acquiring-file services by what
+    they evidently do, not only by an exact name match), with the specific tools kept as
+    non-exhaustive anchoring examples."""
+    assert "behavioral judgment, not a name lookup" in _RENDERED
+    assert "whether or not its name appears on this list" in _RENDERED
     for tool in (
         "Sonarr", "Radarr", "Lidarr", "Readarr", "Whisparr", "Bazarr", "Prowlarr",
         "Tdarr", "FileFlows", "Cleanuparr", "Kapowarr", "Audiobookshelf", "Huntarr",
-        "Janitorr", "Unpackerr", "qBittorrent", "Qui",
+        "Janitorr", "Unpackerr", "qBittorrent", "Qui", "JDownloader",
     ):
         assert tool in _RENDERED, f"expected {tool!r} in the media-manager suppression list"
+
+
+def test_prompt_never_hedges_on_a_correctly_read_write_managed_library_mount():
+    """A real-world report: even when the model correctly recognized a mount needed write access,
+    it still emitted a finding explaining why -- e.g. "This mount appears to be for data storage,
+    so rw access is correct and no change is needed." A correct configuration must produce no
+    finding at all, the same rule as the plain :ro/:rw check above."""
+    assert "no finding, not even one that just confirms it's fine or explains why" in _RENDERED
+
+
+def test_prompt_states_the_general_harmless_means_no_finding_principle():
+    """The blanket rule behind every specific exclusion below it: something with no real,
+    nameable negative consequence isn't a finding, even if it isn't one of the individually
+    listed patterns -- covers the next real-world report the same way, not just the ones already
+    seen and added to the list by name."""
+    assert "genuinely harmless" in _RENDERED
+    assert "illustrative, not exhaustive" in _RENDERED
+
+
+def test_prompt_treats_the_redacted_placeholder_as_a_correctly_configured_secret():
+    """A real-world report: the reviewer flagged a `[REDACTED]` password value (this app's own
+    redaction placeholder, not the file's real content) as possibly missing or needing
+    verification. Redaction only ever replaces an already-present value, so it must always be
+    read as "correctly configured," never as suspicious."""
+    assert "[REDACTED]" in _RENDERED
+    assert "the one interpretation you know for certain is wrong" in _RENDERED
+
+
+def test_prompt_re_reads_restart_policy_before_flagging_it_missing():
+    """A real-world report: the reviewer claimed a service was missing a restart policy despite
+    `restart: unless-stopped` being right there in the file it was given -- mirrors the existing
+    :ro/:rw character-by-character re-read discipline, now applied to restart: too."""
+    assert "re-read the service's actual `restart:` line" in _RENDERED
+    assert "restart: unless-stopped" in _RENDERED
