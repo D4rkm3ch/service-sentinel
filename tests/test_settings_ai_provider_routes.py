@@ -10,25 +10,29 @@ import pytest
 from app import db
 
 
+def _reset_ai_settings():
+    db.set_ai_provider("anthropic")
+    db.set_anthropic_api_key("")
+    db.set_anthropic_model("claude-sonnet-5")
+    db.set_anthropic_concurrency(db.AI_CONCURRENCY_DEFAULT)
+    db.set_gemini_api_key("")
+    db.set_gemini_model("gemini-2.5-flash")
+    db.set_gemini_concurrency(db.AI_CONCURRENCY_DEFAULT)
+    db.set_openai_api_key("")
+    db.set_openai_model("gpt-5.1")
+    db.set_openai_concurrency(db.AI_CONCURRENCY_DEFAULT)
+    db.set_openai_compat_base_url("")
+    db.set_openai_compat_model("")
+    db.set_openai_compat_api_key("")
+    db.set_openai_compat_concurrency(1)
+    db.set_github_token("")
+
+
 @pytest.fixture(autouse=True)
 def clean_settings():
-    db.set_ai_provider("anthropic")
-    db.set_anthropic_api_key("")
-    db.set_anthropic_model("claude-sonnet-5")
-    db.set_anthropic_concurrency(db.AI_CONCURRENCY_DEFAULT)
-    db.set_gemini_api_key("")
-    db.set_gemini_model("gemini-2.5-flash")
-    db.set_gemini_concurrency(db.AI_CONCURRENCY_DEFAULT)
-    db.set_github_token("")
+    _reset_ai_settings()
     yield
-    db.set_ai_provider("anthropic")
-    db.set_anthropic_api_key("")
-    db.set_anthropic_model("claude-sonnet-5")
-    db.set_anthropic_concurrency(db.AI_CONCURRENCY_DEFAULT)
-    db.set_gemini_api_key("")
-    db.set_gemini_model("gemini-2.5-flash")
-    db.set_gemini_concurrency(db.AI_CONCURRENCY_DEFAULT)
-    db.set_github_token("")
+    _reset_ai_settings()
 
 
 def test_settings_page_shows_anthropic_selected_by_default(client):
@@ -46,7 +50,7 @@ def test_saving_the_provider_persists_and_reflects_on_the_page(client):
 
 
 def test_unknown_provider_is_rejected(client):
-    resp = client.post("/settings/ai/provider", data={"ai_provider": "openai"})
+    resp = client.post("/settings/ai/provider", data={"ai_provider": "mistral"})
     assert resp.status_code == 400
     assert db.get_ai_provider() == "anthropic"
 
@@ -183,6 +187,104 @@ def test_concurrency_non_numeric_value_is_rejected(client):
     assert resp.status_code == 200
     assert resp.json()["ok"] is False
     assert db.get_anthropic_concurrency() == db.AI_CONCURRENCY_DEFAULT
+
+
+def test_openai_and_compat_are_selectable_providers(client):
+    resp = client.post("/settings/ai/provider", data={"ai_provider": "openai"})
+    assert resp.status_code == 200
+    assert db.get_ai_provider() == "openai"
+
+    resp = client.post("/settings/ai/provider", data={"ai_provider": "openai_compat"})
+    assert resp.status_code == 200
+    assert db.get_ai_provider() == "openai_compat"
+
+    page = client.get("/settings")
+    assert '<option value="openai_compat" selected' in page.text
+
+
+def test_an_openai_key_that_passes_its_test_is_saved_but_never_echoed_back(client):
+    with patch("app.main.ai_provider.test_openai_key", return_value=(True, "API key works.")):
+        resp = client.post("/settings/ai/openai-key", data={"api_key": "sk-openai-secret1"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "message": "API key works."}
+    assert db.get_openai_api_key() == "sk-openai-secret1"
+
+    page = client.get("/settings")
+    assert "sk-openai-secret1" not in page.text
+
+
+def test_an_openai_key_that_fails_its_test_is_never_saved(client):
+    with patch("app.main.ai_provider.test_openai_key", return_value=(False, "Invalid API key.")):
+        resp = client.post("/settings/ai/openai-key", data={"api_key": "sk-bad"})
+    assert resp.json() == {"ok": False, "message": "Invalid API key."}
+    assert db.get_openai_api_key() == ""
+
+
+def test_saving_the_openai_model_persists_it_and_unknown_is_rejected(client):
+    resp = client.post("/settings/ai/openai-model", data={"openai_model": "gpt-5-mini"})
+    assert resp.status_code == 200
+    assert db.get_openai_model() == "gpt-5-mini"
+
+    resp = client.post("/settings/ai/openai-model", data={"openai_model": "gpt-3.5-turbo"})
+    assert resp.status_code == 400
+    assert db.get_openai_model() == "gpt-5-mini"
+
+
+def test_openai_compat_endpoint_that_passes_its_test_is_saved(client):
+    with patch("app.main.ai_provider.test_openai_compat", return_value=(True, "Endpoint works.")) as mock_test:
+        resp = client.post("/settings/ai/openai-compat", data={
+            "base_url": "http://ollama:11434/v1/", "model": "llama3.1:8b", "api_key": "tok-abc",
+        })
+    assert resp.json() == {"ok": True, "message": "Endpoint works."}
+    # Trailing slash is normalized off before the test and the save.
+    mock_test.assert_called_once_with("http://ollama:11434/v1", "tok-abc")
+    assert db.get_openai_compat_base_url() == "http://ollama:11434/v1"
+    assert db.get_openai_compat_model() == "llama3.1:8b"
+    assert db.get_openai_compat_api_key() == "tok-abc"
+
+    page = client.get("/settings")
+    assert "tok-abc" not in page.text
+    assert "http://ollama:11434/v1" in page.text
+
+
+def test_openai_compat_blank_key_keeps_the_existing_key(client):
+    db.set_openai_compat_api_key("tok-original")
+    with patch("app.main.ai_provider.test_openai_compat", return_value=(True, "Endpoint works.")) as mock_test:
+        resp = client.post("/settings/ai/openai-compat", data={
+            "base_url": "http://lmstudio:1234/v1", "model": "qwen3-8b", "api_key": "",
+        })
+    assert resp.json()["ok"] is True
+    # The already-saved key is what gets tested against the endpoint, and it survives the save.
+    mock_test.assert_called_once_with("http://lmstudio:1234/v1", "tok-original")
+    assert db.get_openai_compat_api_key() == "tok-original"
+
+
+def test_openai_compat_requires_base_url_and_model(client):
+    with patch("app.main.ai_provider.test_openai_compat") as mock_test:
+        resp = client.post("/settings/ai/openai-compat", data={"base_url": "", "model": "x"})
+    assert resp.json()["ok"] is False
+    mock_test.assert_not_called()
+    assert db.get_openai_compat_base_url() == ""
+
+
+def test_openai_compat_failed_test_saves_nothing(client):
+    with patch("app.main.ai_provider.test_openai_compat", return_value=(False, "Couldn't reach the endpoint.")):
+        resp = client.post("/settings/ai/openai-compat", data={
+            "base_url": "http://nowhere:1/v1", "model": "llama3.1:8b",
+        })
+    assert resp.json()["ok"] is False
+    assert db.get_openai_compat_base_url() == ""
+    assert db.get_openai_compat_model() == ""
+
+
+def test_saving_openai_and_compat_concurrency_persists_them(client):
+    resp = client.post("/settings/ai/openai-concurrency", data={"value": "6"})
+    assert resp.json() == {"ok": True, "value": 6}
+    assert db.get_openai_concurrency() == 6
+
+    resp = client.post("/settings/ai/openai_compat-concurrency", data={"value": "2"})
+    assert resp.json() == {"ok": True, "value": 2}
+    assert db.get_openai_compat_concurrency() == 2
 
 
 def test_concurrency_settings_are_independent_and_reflected_on_the_page(client):

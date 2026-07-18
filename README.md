@@ -62,8 +62,10 @@ than the compose file:
 
 - Read-only access to the Docker socket, to list running containers, their images, and logs
 - Read-only access to the folder where your compose files live
-- An API key for Anthropic (Claude) or Google Gemini. Your key, your usage, configured from the
-  Settings page in the app itself rather than the compose file
+- An AI provider, configured from the Settings page in the app itself rather than the compose
+  file: an API key for Anthropic (Claude), Google Gemini, or OpenAI (GPT) - or any
+  OpenAI-compatible endpoint (Ollama, LM Studio, llama.cpp, vLLM, OpenRouter), which for a
+  local model server means no API key and no per-token cost at all
 - Optionally, a GitHub token to raise the GitHub API rate limit used for fetching release notes
   (60 requests an hour unauthenticated, 5000 with a token), also set from Settings
 

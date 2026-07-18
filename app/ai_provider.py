@@ -1,14 +1,15 @@
-"""Pluggable AI provider -- Anthropic or Gemini, chosen (along with each provider's own API
-key and model) on the Settings page rather than baked in at deploy time via compose-file env
-vars. Every AI call site in summarizer.py and release_notes.py's web search fallback goes
+"""Pluggable AI provider -- Anthropic, Gemini, OpenAI, or any OpenAI-compatible endpoint
+(Ollama, LM Studio, llama.cpp, vLLM, OpenRouter, ...), chosen (along with each provider's own
+API key and model) on the Settings page rather than baked in at deploy time via compose-file
+env vars. Every AI call site in summarizer.py and release_notes.py's web search fallback goes
 through complete_text()/web_search() here instead of instantiating a provider SDK client
 directly, so switching providers in Settings takes effect for every feature immediately, with
 no redeploy -- the whole point being able to switch away from a provider that's temporarily
 out of credits without touching the compose file at all.
 
-Deliberately just an if/else dispatch over two known providers, not a plugin registry -- there
-are exactly two providers to support, and a third would still only mean one more branch here,
-not a new abstraction.
+Deliberately just a dispatch over the known providers, not a plugin registry -- a new provider
+means one more branch here, not a new abstraction. The OpenAI-compatible provider already
+covers the long tail of local/aggregator servers in a single branch.
 """
 
 import logging
@@ -16,11 +17,17 @@ import threading
 import time
 
 import anthropic
+import openai
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from app import db
+
+# Every value the ai_provider setting can hold -- main.py validates the Settings dropdown's
+# POST against this, and is_configured()/concurrency_limit()/complete_text()/web_search()
+# below dispatch on it.
+PROVIDERS = ("anthropic", "gemini", "openai", "openai_compat")
 
 logger = logging.getLogger("service_sentinel.ai_provider")
 
@@ -138,6 +145,53 @@ def _call_gemini(fn):
             time.sleep(min(retry_after, 30.0))
 
 
+def _openai_client() -> "openai.OpenAI":
+    """max_retries=0 disables the SDK's own silent retries so the RateLimitError handling in
+    _call_openai() below sees every 429 and can count it toward the UI's rate-limit badge --
+    the same reason the Gemini SDK's built-in retry is disabled above."""
+    return openai.OpenAI(api_key=db.get_openai_api_key(), max_retries=0)
+
+
+def _openai_compat_client(base_url: str | None = None, api_key: str | None = None) -> "openai.OpenAI":
+    """The api_key falls back to a placeholder rather than empty: the SDK refuses to construct
+    a client with no key at all (it would otherwise silently read OPENAI_API_KEY from the
+    environment), but local servers like Ollama accept and ignore any value."""
+    base = base_url if base_url is not None else db.get_openai_compat_base_url()
+    key = api_key if api_key is not None else db.get_openai_compat_api_key()
+    return openai.OpenAI(base_url=base, api_key=key or "unused", max_retries=0)
+
+
+_OPENAI_MAX_ATTEMPTS = 5
+_OPENAI_SERVER_ERROR_DELAY = 3.0
+_OPENAI_RATE_LIMIT_DELAY = 5.0
+
+
+def _call_openai(fn):
+    """Retry policy for both OpenAI-dialect providers, same shape as _call_gemini(): count and
+    retry rate limits with a short fixed delay, retry transient server-side errors, raise
+    anything else immediately."""
+    for attempt in range(_OPENAI_MAX_ATTEMPTS):
+        try:
+            return fn()
+        except openai.RateLimitError:
+            _note_rate_limited()
+            if attempt == _OPENAI_MAX_ATTEMPTS - 1:
+                raise
+            logger.info(
+                "OpenAI-compatible endpoint rate-limited, retrying in %.1fs (attempt %d/%d)",
+                _OPENAI_RATE_LIMIT_DELAY, attempt + 1, _OPENAI_MAX_ATTEMPTS,
+            )
+            time.sleep(_OPENAI_RATE_LIMIT_DELAY)
+        except openai.InternalServerError:
+            if attempt == _OPENAI_MAX_ATTEMPTS - 1:
+                raise
+            logger.info(
+                "OpenAI-compatible endpoint returned a transient server error, retrying in %.1fs (attempt %d/%d)",
+                _OPENAI_SERVER_ERROR_DELAY, attempt + 1, _OPENAI_MAX_ATTEMPTS,
+            )
+            time.sleep(_OPENAI_SERVER_ERROR_DELAY)
+
+
 def test_anthropic_key(key: str) -> tuple[bool, str]:
     """Validates a candidate Anthropic key with a free metadata call (lists models, no tokens
     billed) rather than a real completion -- cheap enough to run on every save attempt."""
@@ -163,12 +217,48 @@ def test_gemini_key(key: str) -> tuple[bool, str]:
         return False, f"Couldn't verify key: {exc}"
 
 
+def test_openai_key(key: str) -> tuple[bool, str]:
+    """Same idea as test_anthropic_key -- models.list() is a free metadata call."""
+    try:
+        openai.OpenAI(api_key=key).models.list()
+        return True, "API key works."
+    except openai.AuthenticationError:
+        return False, "Invalid API key."
+    except openai.OpenAIError as exc:
+        return False, f"Couldn't verify key: {exc}"
+
+
+def test_openai_compat(base_url: str, key: str) -> tuple[bool, str]:
+    """Validates an OpenAI-compatible endpoint by listing its models -- every server this
+    provider targets (Ollama, LM Studio, llama.cpp, vLLM, OpenRouter) implements /v1/models.
+    Unlike the key tests above, failure here usually means the URL is wrong or the server is
+    unreachable rather than a bad key, so the messages say so."""
+    if not (base_url.startswith("http://") or base_url.startswith("https://")):
+        return False, "Base URL must start with http:// or https://"
+    try:
+        _openai_compat_client(base_url=base_url, api_key=key).models.list()
+        return True, "Endpoint works."
+    except openai.AuthenticationError:
+        return False, "The endpoint rejected the API key."
+    except openai.APIConnectionError:
+        return False, "Couldn't reach the endpoint - check the URL and that the server is running."
+    except openai.OpenAIError as exc:
+        return False, f"Couldn't verify the endpoint: {exc}"
+
+
 def is_configured() -> bool:
-    """True if the currently-selected provider has an API key on file. Every call site in
-    summarizer.py/release_notes.py already early-outs on this before spending any effort
-    building a prompt, exactly like they used to early-out on settings.anthropic_api_key."""
-    if db.get_ai_provider() == "gemini":
+    """True if the currently-selected provider has what it needs to make a call. Every call
+    site in summarizer.py/release_notes.py already early-outs on this before spending any
+    effort building a prompt, exactly like they used to early-out on settings.anthropic_api_key.
+    The OpenAI-compatible provider needs a URL and a model but no key -- local servers don't
+    check one."""
+    provider = db.get_ai_provider()
+    if provider == "gemini":
         return bool(db.get_gemini_api_key())
+    if provider == "openai":
+        return bool(db.get_openai_api_key())
+    if provider == "openai_compat":
+        return bool(db.get_openai_compat_base_url()) and bool(db.get_openai_compat_model())
     return bool(db.get_anthropic_api_key())
 
 
@@ -184,8 +274,13 @@ def concurrency_limit() -> int:
     Per-provider (not one global value) and UI-editable in Settings -- see db.get_anthropic_
     concurrency/get_gemini_concurrency -- since the right number genuinely differs by provider
     and by tier within a provider, not something one constant can fit."""
-    if db.get_ai_provider() == "gemini":
+    provider = db.get_ai_provider()
+    if provider == "gemini":
         return db.get_gemini_concurrency()
+    if provider == "openai":
+        return db.get_openai_concurrency()
+    if provider == "openai_compat":
+        return db.get_openai_compat_concurrency()
     return db.get_anthropic_concurrency()
 
 
@@ -217,21 +312,38 @@ _MAX_TOKENS_CEILING = 8192
 _GEMINI_THINKING_BUDGET = 512
 
 
+_COMPLETE_FNS = {
+    "anthropic": lambda system, user, mt: _complete_anthropic(system, user, mt),
+    "gemini": lambda system, user, mt: _complete_gemini(system, user, mt),
+    "openai": lambda system, user, mt: _complete_openai(system, user, mt),
+    "openai_compat": lambda system, user, mt: _complete_openai_compat(system, user, mt),
+}
+
+
 def complete_text(system: str | None, user_message: str, max_tokens: int) -> str:
     """Single-turn text completion, provider-agnostic. Raises on failure -- same contract the
     direct anthropic.Anthropic() calls this replaces always had; every caller already handles
     an exception here as "this attempt failed," regardless of which provider raised it."""
-    fn = _complete_gemini if db.get_ai_provider() == "gemini" else _complete_anthropic
+    fn = _COMPLETE_FNS.get(db.get_ai_provider(), _COMPLETE_FNS["anthropic"])
     return _with_truncation_retry(lambda mt: fn(system, user_message, mt), max_tokens)
+
+
+_WEB_SEARCH_FNS = {
+    "anthropic": lambda user, mt: _web_search_anthropic(user, mt),
+    "gemini": lambda user, mt: _web_search_gemini(user, mt),
+    "openai": lambda user, mt: _web_search_openai(user, mt),
+    "openai_compat": lambda user, mt: _web_search_openai_compat(user, mt),
+}
 
 
 def web_search(user_message: str, max_tokens: int) -> str:
     """Same shape as complete_text, but with the provider's own web-search/grounding tool
     enabled -- backs release_notes.py's web search fallback. Billed per search the model
-    actually performs on top of the normal completion cost for both providers, which is why
-    this is only ever reached behind its own opt-in Settings toggle -- gating that is the
-    caller's job, not this function's."""
-    fn = _web_search_gemini if db.get_ai_provider() == "gemini" else _web_search_anthropic
+    actually performs on top of the normal completion cost, which is why this is only ever
+    reached behind its own opt-in Settings toggle -- gating that is the caller's job, not this
+    function's. The OpenAI-compatible provider raises: a local model has no live search, and a
+    plain completion here would just invite hallucinated release notes."""
+    fn = _WEB_SEARCH_FNS.get(db.get_ai_provider(), _WEB_SEARCH_FNS["anthropic"])
     return _with_truncation_retry(lambda mt: fn(user_message, mt), max_tokens)
 
 
@@ -312,3 +424,64 @@ def _web_search_gemini(user_message: str, max_tokens: int) -> tuple[str, bool]:
 def _gemini_hit_max_tokens(response) -> bool:
     candidates = getattr(response, "candidates", None)
     return bool(candidates) and candidates[0].finish_reason == genai_types.FinishReason.MAX_TOKENS
+
+
+# GPT-5-family models spend internal reasoning tokens that count against max_completion_tokens,
+# the same failure mode as Gemini's thinking budget above -- a generous answer budget can still
+# be eaten alive by reasoning before a single output character is written. There's no separate
+# reasoning-token cap in the chat completions API, but "low" effort keeps the burn small without
+# disabling reasoning outright. Only sent to api.openai.com (whose curated model list all
+# accepts it) -- an arbitrary OpenAI-compatible server may reject the parameter entirely.
+_OPENAI_REASONING_EFFORT = "low"
+
+
+def _openai_chat_completion(client, model: str, system: str | None,
+                            user_message: str, extra: dict) -> tuple[str, bool]:
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": user_message})
+    response = _call_openai(lambda: client.chat.completions.create(
+        model=model, messages=messages, **extra,
+    ))
+    choice = response.choices[0]
+    return choice.message.content or "", choice.finish_reason == "length"
+
+
+def _complete_openai(system: str | None, user_message: str, max_tokens: int) -> tuple[str, bool]:
+    # max_completion_tokens, not max_tokens: the GPT-5 family rejects the legacy parameter.
+    return _openai_chat_completion(
+        _openai_client(), db.get_openai_model(), system, user_message,
+        {"max_completion_tokens": max_tokens, "reasoning_effort": _OPENAI_REASONING_EFFORT},
+    )
+
+
+def _complete_openai_compat(system: str | None, user_message: str, max_tokens: int) -> tuple[str, bool]:
+    # The legacy max_tokens parameter here, deliberately: it's the one every OpenAI-compatible
+    # server understands, while max_completion_tokens support is far from universal.
+    return _openai_chat_completion(
+        _openai_compat_client(), db.get_openai_compat_model(), system, user_message,
+        {"max_tokens": max_tokens},
+    )
+
+
+def _web_search_openai(user_message: str, max_tokens: int) -> tuple[str, bool]:
+    """Web search on OpenAI means the Responses API -- chat completions has no search tool."""
+    client = _openai_client()
+    response = _call_openai(lambda: client.responses.create(
+        model=db.get_openai_model(), input=user_message,
+        tools=[{"type": "web_search"}], max_output_tokens=max_tokens,
+        reasoning={"effort": _OPENAI_REASONING_EFFORT},
+    ))
+    truncated = (
+        getattr(response, "status", None) == "incomplete"
+        and getattr(getattr(response, "incomplete_details", None), "reason", None) == "max_output_tokens"
+    )
+    return response.output_text or "", truncated
+
+
+def _web_search_openai_compat(user_message: str, max_tokens: int) -> tuple[str, bool]:
+    raise RuntimeError(
+        "The OpenAI-compatible provider has no web search tool - "
+        "disable the web search fallback in Settings or switch providers."
+    )

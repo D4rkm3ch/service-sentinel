@@ -53,6 +53,8 @@ using its own standard sign-in dialog.</p>
             hx-post="/settings/ai/provider" hx-trigger="change" hx-target="#saved-ai-provider">
       <option value="anthropic" {{ 'selected' if ai_provider == 'anthropic' else '' }}>Anthropic (Claude)</option>
       <option value="gemini" {{ 'selected' if ai_provider == 'gemini' else '' }}>Google Gemini</option>
+      <option value="openai" {{ 'selected' if ai_provider == 'openai' else '' }}>OpenAI (GPT)</option>
+      <option value="openai_compat" {{ 'selected' if ai_provider == 'openai_compat' else '' }}>OpenAI-compatible (Ollama, LM Studio, ...)</option>
     </select>
     <span class="saved-indicator-slot" id="saved-ai-provider"></span>
   </div>
@@ -108,6 +110,66 @@ using its own standard sign-in dialog.</p>
         <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', 1)">+</button>
       </div>
       <span class="saved-indicator-slot" id="saved-gemini_concurrency"></span>
+    </div>
+  </div>
+
+  <div class="settings-subsection {{ '' if ai_provider == 'openai' else 'hidden' }}" id="openai-provider-section">
+    <h4>OpenAI</h4>
+    <p class="meta">Get a key from
+<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></p>
+    {{ akf.api_key_field('openai', openai_key_configured, 'sk-...', '/settings/ai/openai-key') }}
+    <div style="margin-top:10px">
+      <select name="openai_model" class="mono field-input" hx-post="/settings/ai/openai-model" hx-trigger="change" hx-target="#saved-openai_model">
+        {% for value, label in openai_models %}
+        <option value="{{ value }}" {{ 'selected' if value == openai_model else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="saved-indicator-slot" id="saved-openai_model"></span>
+    </div>
+    <div class="stepper-row">
+      <label class="meta" for="openai_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 4)</label>
+      <div class="stepper">
+        <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', -1)">&minus;</button>
+        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+               id="openai_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+               value="{{ openai_concurrency }}" onchange="saveConcurrency('openai', this.value)"
+               onkeydown="if (event.key === 'Enter') this.blur();">
+        <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', 1)">+</button>
+      </div>
+      <span class="saved-indicator-slot" id="saved-openai_concurrency"></span>
+    </div>
+  </div>
+
+  <div class="settings-subsection {{ '' if ai_provider == 'openai_compat' else 'hidden' }}" id="openai_compat-provider-section">
+    <h4>OpenAI-compatible</h4>
+    <p class="meta">Any server speaking the OpenAI API - Ollama, LM Studio, llama.cpp, vLLM, OpenRouter.
+Point it at the server's /v1 base URL and name the model exactly as the server knows it.<br>
+The web search fallback for release notes isn't available with this provider.</p>
+    <div style="margin-top:6px">
+      <input type="text" class="mono field-input" id="openai_compat_base_url_field"
+             placeholder="http://ollama:11434/v1" value="{{ openai_compat_base_url }}" style="max-width:360px">
+    </div>
+    <div style="margin-top:6px">
+      <input type="text" class="mono field-input" id="openai_compat_model_field"
+             placeholder="Model, e.g. llama3.1:8b" value="{{ openai_compat_model }}" style="max-width:360px">
+    </div>
+    <div class="api-key-row">
+      <input type="text" class="mono field-input" id="openai_compat_key_field" autocomplete="off"
+             placeholder="{{ '•••••••• (configured - blank keeps it)' if openai_compat_key_configured else 'API key (optional)' }}">
+      <button type="button" class="btn" onclick="saveOpenAiCompat()">Test &amp; Save</button>
+      <span id="openai_compat_result">{% if openai_compat_base_url and openai_compat_model %}<span class="key-configured-badge">&check; Configured</span>{% endif %}</span>
+    </div>
+    <div class="stepper-row">
+      <label class="meta" for="openai_compat_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 1 for local models)</label>
+      <div class="stepper">
+        <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', -1)">&minus;</button>
+        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+               id="openai_compat_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+               value="{{ openai_compat_concurrency }}" onchange="saveConcurrency('openai_compat', this.value)"
+               onkeydown="if (event.key === 'Enter') this.blur();">
+        <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', 1)">+</button>
+      </div>
+      <span class="saved-indicator-slot" id="saved-openai_compat_concurrency"></span>
     </div>
   </div>
 
@@ -311,8 +373,40 @@ capped by your last actual check</p>
 
 <script>
 function toggleAiProvider(active) {
-  document.getElementById('anthropic-provider-section').classList.toggle('hidden', active !== 'anthropic');
-  document.getElementById('gemini-provider-section').classList.toggle('hidden', active !== 'gemini');
+  for (const provider of ['anthropic', 'gemini', 'openai', 'openai_compat']) {
+    document.getElementById(provider + '-provider-section').classList.toggle('hidden', active !== provider);
+  }
+}
+
+function saveOpenAiCompat() {
+  const baseUrl = document.getElementById('openai_compat_base_url_field').value.trim();
+  const model = document.getElementById('openai_compat_model_field').value.trim();
+  const keyField = document.getElementById('openai_compat_key_field');
+  const resultSlot = document.getElementById('openai_compat_result');
+  if (!baseUrl || !model) {
+    resultSlot.innerHTML = '<span class="test-result-error">Enter a base URL and a model name.</span>';
+    return;
+  }
+  resultSlot.innerHTML = '<span class="meta">Testing…</span>';
+  fetch('/settings/ai/openai-compat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'base_url=' + encodeURIComponent(baseUrl) +
+          '&model=' + encodeURIComponent(model) +
+          '&api_key=' + encodeURIComponent(keyField.value.trim()),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      if (keyField.value.trim()) {
+        keyField.value = '';
+        keyField.placeholder = '•••••••• (configured - blank keeps it)';
+      }
+      resultSlot.innerHTML = '<span class="key-configured-badge">✓ Configured</span>';
+    } else {
+      resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+    }
+  }).catch(() => {
+    resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  });
 }
 
 function handleApiKeyButtonClick(provider) {

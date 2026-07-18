@@ -45,7 +45,7 @@ report.
   Overview-page card assembly. Large by design; split only if a real seam appears.
 - `db.py` -- schema, migrations (inline in `init_db`), and every query. Parameterized SQL
   throughout; dynamic `ORDER BY` only from allowlisted column names.
-- `ai_provider.py` -- the Anthropic/Gemini abstraction; retry and concurrency logic lives here,
+- `ai_provider.py` -- the provider abstraction (Anthropic, Gemini, OpenAI, OpenAI-compatible); retry and concurrency logic lives here,
   not in callers. `ai_json.py` parses imperfect LLM output.
 - `compose_lookup.py` -- compose-file indexing (cached + request-coalesced, see its comments)
   and secret redaction (key-name + value-shape).

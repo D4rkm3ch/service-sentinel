@@ -1416,6 +1416,11 @@ GEMINI_MODELS = [
     ("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite (fastest, cheapest)"),
     ("gemini-2.5-pro", "Gemini 2.5 Pro (highest quality, slower/costlier)"),
 ]
+OPENAI_MODELS = [
+    ("gpt-5.1", "GPT-5.1 (recommended)"),
+    ("gpt-5-mini", "GPT-5 Mini (fastest, cheapest)"),
+    ("gpt-5", "GPT-5 (previous generation)"),
+]
 
 
 def _int_field(form, name: str, default: int) -> int:
@@ -1510,6 +1515,14 @@ def settings_page(request: Request):
             "gemini_model": db.get_gemini_model(),
             "gemini_models": GEMINI_MODELS,
             "gemini_concurrency": db.get_gemini_concurrency(),
+            "openai_key_configured": bool(db.get_openai_api_key()),
+            "openai_model": db.get_openai_model(),
+            "openai_models": OPENAI_MODELS,
+            "openai_concurrency": db.get_openai_concurrency(),
+            "openai_compat_base_url": db.get_openai_compat_base_url(),
+            "openai_compat_model": db.get_openai_compat_model(),
+            "openai_compat_key_configured": bool(db.get_openai_compat_api_key()),
+            "openai_compat_concurrency": db.get_openai_compat_concurrency(),
             "ai_concurrency_min": db.AI_CONCURRENCY_MIN,
             "ai_concurrency_max": db.AI_CONCURRENCY_MAX,
             "github_token_configured": bool(db.get_github_token()),
@@ -1587,7 +1600,7 @@ async def save_logs_use_checkpoint(request: Request):
 async def save_ai_provider(request: Request):
     form = await request.form()
     provider = form.get("ai_provider", "")
-    if provider not in ("anthropic", "gemini"):
+    if provider not in ai_provider.PROVIDERS:
         raise HTTPException(status_code=400, detail="Unknown provider")
     db.set_ai_provider(provider)
     return _saved(request)
@@ -1624,6 +1637,52 @@ async def save_gemini_key(request: Request):
     ok, message = ai_provider.test_gemini_key(key)
     if ok:
         db.set_gemini_api_key(key)
+    return {"ok": ok, "message": message}
+
+
+@app.post("/settings/ai/openai-key")
+async def save_openai_key(request: Request):
+    form = await request.form()
+    key = (form.get("api_key") or "").strip()
+    if not key:
+        return {"ok": False, "message": "Enter a key first."}
+    ok, message = ai_provider.test_openai_key(key)
+    if ok:
+        db.set_openai_api_key(key)
+    return {"ok": ok, "message": message}
+
+
+@app.post("/settings/ai/openai-model")
+async def save_openai_model(request: Request):
+    form = await request.form()
+    model = form.get("openai_model", "")
+    if model not in dict(OPENAI_MODELS):
+        raise HTTPException(status_code=400, detail="Unknown model")
+    db.set_openai_model(model)
+    return _saved(request)
+
+
+@app.post("/settings/ai/openai-compat")
+async def save_openai_compat(request: Request):
+    """Saves the whole endpoint config (base URL + model + optional key) as one unit, tested
+    live against the endpoint first -- unlike the hosted providers there's no separate curated
+    model list or mandatory key, so one Test & Save covers everything. A blank key field keeps
+    any already-saved key rather than clearing it, so re-saving a corrected URL or model never
+    silently wipes working credentials; clearing the key means saving with the endpoint's key
+    genuinely absent (there's nothing a stale key could be needed for)."""
+    form = await request.form()
+    base_url = (form.get("base_url") or "").strip().rstrip("/")
+    model = (form.get("model") or "").strip()
+    key = (form.get("api_key") or "").strip()
+    if not base_url or not model:
+        return {"ok": False, "message": "Enter a base URL and a model name."}
+    effective_key = key or db.get_openai_compat_api_key()
+    ok, message = ai_provider.test_openai_compat(base_url, effective_key)
+    if ok:
+        db.set_openai_compat_base_url(base_url)
+        db.set_openai_compat_model(model)
+        if key:
+            db.set_openai_compat_api_key(key)
     return {"ok": ok, "message": message}
 
 
@@ -1740,6 +1799,26 @@ async def save_gemini_concurrency(request: Request):
     if error:
         return {"ok": False, "message": error}
     db.set_gemini_concurrency(value)
+    return {"ok": True, "value": value}
+
+
+@app.post("/settings/ai/openai-concurrency")
+async def save_openai_concurrency(request: Request):
+    form = await request.form()
+    value, error = _parse_concurrency_value(form.get("value", ""))
+    if error:
+        return {"ok": False, "message": error}
+    db.set_openai_concurrency(value)
+    return {"ok": True, "value": value}
+
+
+@app.post("/settings/ai/openai_compat-concurrency")
+async def save_openai_compat_concurrency(request: Request):
+    form = await request.form()
+    value, error = _parse_concurrency_value(form.get("value", ""))
+    if error:
+        return {"ok": False, "message": error}
+    db.set_openai_compat_concurrency(value)
     return {"ok": True, "value": value}
 
 

@@ -313,6 +313,7 @@ def init_db() -> None:
             "ai_provider": "anthropic",
             "anthropic_model": "claude-sonnet-5",
             "gemini_model": "gemini-2.5-flash",
+            "openai_model": "gpt-5.1",
         }
         for key, value in default_settings.items():
             conn.execute(
@@ -365,6 +366,8 @@ def init_db() -> None:
 _SECRET_SETTING_KEYS = (
     "anthropic_api_key",
     "gemini_api_key",
+    "openai_api_key",
+    "openai_compat_api_key",
     "github_token",
     "notify_apprise_urls",
     "auth_secret",
@@ -1807,6 +1810,52 @@ def set_gemini_model(model: str) -> None:
     _set_setting("gemini_model", model)
 
 
+def get_openai_api_key() -> str:
+    return secrets_crypto.decrypt(_get_setting("openai_api_key", ""))
+
+
+def set_openai_api_key(key: str) -> None:
+    _set_setting("openai_api_key", secrets_crypto.encrypt(key))
+
+
+def get_openai_model() -> str:
+    return _get_setting("openai_model", "gpt-5.1")
+
+
+def set_openai_model(model: str) -> None:
+    _set_setting("openai_model", model)
+
+
+# The OpenAI-compatible provider is one implementation covering every server that speaks
+# OpenAI's chat-completions dialect -- Ollama, LM Studio, llama.cpp, vLLM, OpenRouter, and
+# whatever ships next. Base URL and model are free-form (there's no curated list that could
+# possibly stay correct across all of those), and the API key is genuinely optional since
+# local servers typically don't check one.
+
+def get_openai_compat_base_url() -> str:
+    return _get_setting("openai_compat_base_url", "")
+
+
+def set_openai_compat_base_url(url: str) -> None:
+    _set_setting("openai_compat_base_url", url)
+
+
+def get_openai_compat_api_key() -> str:
+    return secrets_crypto.decrypt(_get_setting("openai_compat_api_key", ""))
+
+
+def set_openai_compat_api_key(key: str) -> None:
+    _set_setting("openai_compat_api_key", secrets_crypto.encrypt(key))
+
+
+def get_openai_compat_model() -> str:
+    return _get_setting("openai_compat_model", "")
+
+
+def set_openai_compat_model(model: str) -> None:
+    _set_setting("openai_compat_model", model)
+
+
 # How many AI calls persist.py's fan-out phases run at once for each provider -- previously a
 # single value shared by both (see AI_SUMMARIZE_CONCURRENCY in config.py), now per-provider and
 # UI-editable since the right number genuinely differs by provider (and by tier within a
@@ -1831,6 +1880,24 @@ def get_gemini_concurrency() -> int:
 
 def set_gemini_concurrency(value: int) -> None:
     _set_setting("gemini_concurrency", str(value))
+
+
+def get_openai_concurrency() -> int:
+    return int(_get_setting("openai_concurrency", str(AI_CONCURRENCY_DEFAULT)))
+
+
+def set_openai_concurrency(value: int) -> None:
+    _set_setting("openai_concurrency", str(value))
+
+
+# Defaults to 1, not AI_CONCURRENCY_DEFAULT: the typical OpenAI-compatible endpoint is a local
+# model on homelab hardware, where parallel requests just queue on the GPU anyway.
+def get_openai_compat_concurrency() -> int:
+    return int(_get_setting("openai_compat_concurrency", "1"))
+
+
+def set_openai_compat_concurrency(value: int) -> None:
+    _set_setting("openai_compat_concurrency", str(value))
 
 
 def get_github_token() -> str:
