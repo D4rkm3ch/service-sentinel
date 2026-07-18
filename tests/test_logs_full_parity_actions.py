@@ -578,11 +578,14 @@ def test_service_regenerate_force_regenerates_the_overview(client):
 def test_service_page_still_offers_check_now_for_a_subject_with_no_findings(client):
     """A container with clean logs (or never checked at all) must still be actionable from its
     own page -- Check Now/Reset & re-check don't depend on any findings existing, only
-    Regenerate/Read/Silence (which need something to act on) do."""
+    Regenerate/Read/Silence (which need something to act on) do. The subject-scoped Regenerate
+    action specifically is what must be absent -- the topbar's own sitewide "Regenerate AI"
+    button (POST /checks/regenerate-all) is present on every page regardless, so a bare
+    "/regenerate" substring check would also match that unrelated global button's own URL."""
     resp = client.get("/logs/container/service-regen-empty-subject")
     assert "/check-now" in resp.text
     assert "/reset-and-recheck" in resp.text
-    assert "/regenerate" not in resp.text
+    assert "/logs/container/service-regen-empty-subject/regenerate" not in resp.text
     assert "/read" not in resp.text and "/unread" not in resp.text
     assert "/silence" not in resp.text and "/unsilence" not in resp.text
     assert "Not checked yet" in resp.text

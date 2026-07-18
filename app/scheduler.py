@@ -154,9 +154,11 @@ def run_check_all() -> None:
     it reuses _JOBS/_FEATURE_ORDER directly instead of duplicating that "run these one after
     another" loop.
 
-    Only Check Now's own light, skip-what-isn't-new work -- deliberately never wired to bulk
-    Regenerate AI Response or Reset & re-check, both heavier/token-costlier actions a sitewide
-    "run everything" button should never trigger by accident.
+    Only Check Now's own light, skip-what-isn't-new work -- the topbar's separate Regenerate AI
+    Response / Reset & Re-Check buttons (POST /checks/regenerate-all and
+    /checks/reset-and-recheck-all, both in main.py) are their own explicit, dedicated actions,
+    never folded into this one, so a click that only meant "check everything" can never
+    accidentally trigger the heavier, token-costlier ones.
 
     A Cancel clicked mid-chain (the same sitewide Cancel every other check uses -- see
     check_state.request_cancel_running_checks) stops the chain rather than continuing on to the
@@ -169,3 +171,15 @@ def run_check_all() -> None:
         func()
         if check_state.is_cancel_requested(feature):
             break
+
+
+def run_single_check(feature: str) -> None:
+    """Runs one feature's own scheduled-job check function directly and synchronously -- the
+    exact same raw function run_check_all/the master schedule use (_JOBS[feature][0]), not the
+    async-scheduling trigger_log_check_now/trigger_compose_check_now the UI's per-feature
+    Reset & Re-Check buttons use (those hand the work to APScheduler and return immediately).
+    Used by main.py's topbar-level Reset & Re-Check All chain, which needs each feature's
+    re-check to genuinely finish -- not just get queued -- before it wipes and starts the next
+    one, same sequential reasoning as run_check_all above."""
+    func, _job_id = _JOBS[feature]
+    func()

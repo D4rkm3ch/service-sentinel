@@ -125,6 +125,14 @@
     </div>
     <div class="topbar-end">
       <button type="button" id="check-all-btn" class="check-all-btn">Check All</button>
+      <button type="button" id="regenerate-all-btn" class="regenerate-all-btn"
+              title="Regenerate the AI-written response for every currently open finding, across Updates, Runtime Health, and Configuration Health">
+        Regenerate AI
+      </button>
+      <button type="button" id="reset-recheck-all-btn" class="reset-recheck-all-btn"
+              title="Wipe all tracked history and re-check everything fresh, across Updates, Runtime Health, and Configuration Health">
+        Reset &amp; Re-Check
+      </button>
       <!-- All seven carry data-accent -- picking any of them switches the app's --accent family
            and persists it (see style.css's own [data-theme][data-accent] blocks and the script
            below). Graphite Grey is the accessibility-motivated one -- a genuinely neutral
@@ -237,11 +245,13 @@
     // re-enabling once every running check genuinely finishes.
     (function () {
       var FEATURES = ["updates", "logs", "compose"];
-      // #check-all-btn is included here (not just the three "{feature}-action-btn" classes) so
-      // it dims and re-enables on exactly the same signal as every other check-starting button
-      // -- it kicks off the same per-feature mutexes underneath (see scheduler.run_check_all),
-      // just chained, so there's no separate state to track for it.
-      var ALL_SELECTOR = FEATURES.map(function (f) { return "." + f + "-action-btn"; }).join(",") + ",#check-all-btn";
+      // #check-all-btn/#regenerate-all-btn/#reset-recheck-all-btn are included here (not just
+      // the three "{feature}-action-btn" classes) so all three dim and re-enable on exactly the
+      // same signal as every other check-starting button -- each kicks off the same per-feature
+      // mutexes underneath (see scheduler.run_check_all / main.py's _run_global_bulk_regenerate
+      // / _run_global_reset_and_recheck), just chained, so there's no separate state to track.
+      var ALL_SELECTOR = FEATURES.map(function (f) { return "." + f + "-action-btn"; }).join(",") +
+        ",#check-all-btn,#regenerate-all-btn,#reset-recheck-all-btn";
 
       var banner = document.getElementById("check-running-banner");
       var bannerText = document.getElementById("check-running-banner-text");
@@ -302,6 +312,30 @@
         checkAllBtn.addEventListener("click", function () {
           applyRunningState(true);
           fetch("/checks/check-all", { method: "POST" });
+        });
+      }
+
+      // "Regenerate AI" / "Reset & Re-Check" -- the topbar-level chained counterparts of each
+      // page's own bulk Regenerate AI Response / Reset & Re-Check buttons (see
+      // _feature_header.html), covering Updates, Runtime Health, and Configuration Health in
+      // one click instead of three. Same confirm-before-firing pattern those per-feature buttons
+      // already use (heavier/token-costlier or destructive enough to want an explicit second
+      // click), same optimistic instant-disable + fetch shape as Check All above.
+      var regenerateAllBtn = document.getElementById("regenerate-all-btn");
+      if (regenerateAllBtn) {
+        regenerateAllBtn.addEventListener("click", function () {
+          if (!confirm("This regenerates the AI response for every currently open finding across Updates, Runtime Health, and Configuration Health. Continue?")) return;
+          applyRunningState(true);
+          fetch("/checks/regenerate-all", { method: "POST" });
+        });
+      }
+
+      var resetRecheckAllBtn = document.getElementById("reset-recheck-all-btn");
+      if (resetRecheckAllBtn) {
+        resetRecheckAllBtn.addEventListener("click", function () {
+          if (!confirm("This wipes all tracked history for Updates, Runtime Health, and Configuration Health, then re-checks everything fresh. Continue?")) return;
+          applyRunningState(true);
+          fetch("/checks/reset-and-recheck-all", { method: "POST" });
         });
       }
 

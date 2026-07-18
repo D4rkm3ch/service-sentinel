@@ -32,13 +32,14 @@ from app.schedule_spec import DAY_NAMES, describe as describe_schedule
 from app.scheduler import (
     apply_schedules,
     run_check_all,
+    run_single_check,
     start_scheduler,
     trigger_compose_check_now,
     trigger_log_check_now,
 )
 from app.uptime import get_uptime_str
 
-APP_VERSION = "0.8.1"
+APP_VERSION = "0.8.3"
 
 # LOG_LEVEL was previously hardcoded to INFO with no override (test_improvement_plan.md section
 # 6) -- an env var rather than a Settings-page toggle since logging is configured once at import
@@ -895,6 +896,64 @@ def check_all():
     second) is what reflects progress through each feature as the chain advances -- no separate
     endpoint or polling loop needed for this button specifically."""
     threading.Thread(target=run_check_all, daemon=True).start()
+    return {"status": "ok"}
+
+
+def _run_global_bulk_regenerate() -> None:
+    """The topbar's "Regenerate AI" button (POST /checks/regenerate-all) -- chains each
+    feature's own bulk Regenerate AI Response (persist.run_claimed_bulk_regenerate /
+    _run_claimed_logs_bulk_regenerate / _run_claimed_compose_bulk_regenerate) one after another,
+    each claiming and releasing its own mutex exactly like its single-feature button already
+    does, so this can never overlap with a real check or another regenerate/reset action for
+    that feature. Sequential for the same reason as run_check_all: three features' worth of AI
+    calls competing for the same provider rate limits at once would make everything slower and
+    more likely to get rate-limited, not less. A feature whose mutex is already claimed by
+    something else is skipped outright (claimed stays False) rather than waited on."""
+    for feature in VALID_FEATURES:
+        claimed = persist.try_start_updates_check() if feature == "updates" else check_state.try_start(feature)
+        if claimed:
+            if feature == "updates":
+                persist.run_claimed_bulk_regenerate()
+            elif feature == "logs":
+                _run_claimed_logs_bulk_regenerate()
+            else:
+                _run_claimed_compose_bulk_regenerate()
+        if check_state.is_cancel_requested(feature):
+            break
+
+
+@app.post("/checks/regenerate-all")
+def regenerate_all():
+    """Same fire-and-forget shape as check_all() above -- the actual chain runs on a background
+    thread, the topbar's existing once-a-second poll reflects progress through each feature."""
+    threading.Thread(target=_run_global_bulk_regenerate, daemon=True).start()
+    return {"status": "ok"}
+
+
+def _run_global_reset_and_recheck() -> None:
+    """The topbar's "Reset & Re-Check" button (POST /checks/reset-and-recheck-all) -- wipes each
+    feature's tracked history/state, then runs a fresh check for it, one feature at a time (same
+    sequential "bound total concurrent AI-provider load" reasoning as run_check_all and
+    _run_global_bulk_regenerate above). Uses scheduler.run_single_check rather than the async-
+    scheduling TRIGGER_FUNCS the per-feature Reset & Re-Check buttons use, since those hand the
+    work to APScheduler and return immediately -- this needs each feature's re-check to
+    genuinely finish before the next feature's data gets wiped and started."""
+    for feature in VALID_FEATURES:
+        if feature == "updates":
+            db.reset_updates_data()
+        elif feature == "logs":
+            db.reset_logs_data()
+        else:
+            db.reset_compose_data()
+        run_single_check(feature)
+        if check_state.is_cancel_requested(feature):
+            break
+
+
+@app.post("/checks/reset-and-recheck-all")
+def reset_and_recheck_all():
+    """Same fire-and-forget shape as check_all() above."""
+    threading.Thread(target=_run_global_reset_and_recheck, daemon=True).start()
     return {"status": "ok"}
 
 
