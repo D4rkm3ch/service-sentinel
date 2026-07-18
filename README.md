@@ -34,6 +34,30 @@ Findings from Runtime and Configuration health are deduplicated by fingerprint, 
 issue updates its occurrence count instead of generating a new notification every day, and can
 be silenced from the dashboard once you've seen it and don't need to be told again.
 
+## Screenshots
+
+The Overview page, with each feature's status, latest findings, and schedule at a glance:
+
+![Overview page](docs/screenshots/overview.jpg)
+
+The navigation sidebar collapses to icons to give the dashboard the full width:
+
+![Overview page with the sidebar collapsed](docs/screenshots/overview-collapsed-nav.jpg)
+
+Runtime health, with active findings on top and every tracked container below:
+
+![Runtime health page](docs/screenshots/runtime-health.jpg)
+
+A finding's detail page: the AI's read on what's wrong, and a suggested fix checked against
+your own setup:
+
+![Finding detail page](docs/screenshots/finding-detail.jpg)
+
+Settings, including access control and your AI provider, all configured from the app rather
+than the compose file:
+
+![Settings page](docs/screenshots/settings.jpg)
+
 ## What it needs
 
 - Read-only access to the Docker socket, to list running containers, their images, and logs

@@ -75,14 +75,14 @@
   --text: #1b1e24;
   --text-dim: #5b6270;
   /* Same Nordic Blue fallback reasoning as the dark block above. */
-  --accent: #1e4a7d;
-  --accent-dim: #4a7aae;
+  --accent: #1565c0;
+  --accent-dim: #4a8bd4;
   --on-accent: #eef4fc;
-  --accent-wash: rgba(30, 74, 125, 0.12);
-  --warn: #8a5615;
-  --error: #a63421;
-  --info: #24578f;
-  --violet: #5741a8;
+  --accent-wash: rgba(21, 101, 192, 0.12);
+  --warn: #b45309;
+  --error: #c62f1c;
+  --info: #1565c0;
+  --violet: #6d28d9;
   --on-error: #fdf3f1;
   --on-warn: #fdf6ea;
   --on-info: #eef4fc;
@@ -121,18 +121,18 @@
   --title-accent: #c98f6b;
 }
 :root[data-theme="light"][data-accent="nordic"] {
-  --accent: #1e4a7d;
-  --accent-dim: #4a7aae;
+  --accent: #1565c0;
+  --accent-dim: #4a8bd4;
   --on-accent: #eef4fc;
-  --accent-wash: rgba(30, 74, 125, 0.12);
-  --title-accent: #705649;
+  --accent-wash: rgba(21, 101, 192, 0.12);
+  --title-accent: #8a6f60;
 }
 :root[data-theme="light"][data-accent="emerald"] {
-  --accent: #146b4e;
-  --accent-dim: #3e9173;
+  --accent: #047857;
+  --accent-dim: #34a37e;
   --on-accent: #f5fdf9;
-  --accent-wash: rgba(20, 107, 78, 0.12);
-  --title-accent: #7d4e30;
+  --accent-wash: rgba(4, 120, 87, 0.12);
+  --title-accent: #96603f;
 }
 :root[data-theme="dark"][data-accent="amber"] {
   --accent: #d9a441;
@@ -163,32 +163,32 @@
   --title-accent: #c9a066;
 }
 :root[data-theme="light"][data-accent="amber"] {
-  --accent: #7a5514;
-  --accent-dim: #a8843c;
+  --accent: #b45309;
+  --accent-dim: #cf7f2e;
   --on-accent: #fbf3e6;
-  --accent-wash: rgba(122, 85, 20, 0.12);
-  --title-accent: #3e5674;
+  --accent-wash: rgba(180, 83, 9, 0.12);
+  --title-accent: #4f6a8c;
 }
 :root[data-theme="light"][data-accent="violet"] {
-  --accent: #533f92;
-  --accent-dim: #8b78c4;
+  --accent: #6d28d9;
+  --accent-dim: #9061e0;
   --on-accent: #f5f2fb;
-  --accent-wash: rgba(83, 63, 146, 0.12);
-  --title-accent: #764c36;
+  --accent-wash: rgba(109, 40, 217, 0.12);
+  --title-accent: #8f6046;
 }
 :root[data-theme="light"][data-accent="crimson"] {
-  --accent: #8a3220;
-  --accent-dim: #c0705e;
+  --accent: #c0392b;
+  --accent-dim: #d4604c;
   --on-accent: #fcf0ed;
-  --accent-wash: rgba(138, 50, 32, 0.12);
-  --title-accent: #2f5f6a;
+  --accent-wash: rgba(192, 57, 43, 0.12);
+  --title-accent: #3f7580;
 }
 :root[data-theme="light"][data-accent="teal"] {
-  --accent: #135f6b;
-  --accent-dim: #3d8f9d;
+  --accent: #0e7490;
+  --accent-dim: #2fa3bd;
   --on-accent: #eafafc;
-  --accent-wash: rgba(19, 95, 107, 0.12);
-  --title-accent: #71542c;
+  --accent-wash: rgba(14, 116, 144, 0.12);
+  --title-accent: #8a6a3a;
 }
 /* Graphite Grey -- the one accessibility-motivated accent. Every color here is a genuinely
    neutral grey (R/G/B within a couple of points of each other, not just "looks grey") rather
@@ -205,11 +205,11 @@
   --title-accent: #8f8f93;
 }
 :root[data-theme="light"][data-accent="graphite"] {
-  --accent: #38383c;
-  --accent-dim: #77777d;
+  --accent: #4a4a4e;
+  --accent-dim: #b0b0b4;
   --on-accent: #f4f4f5;
-  --accent-wash: rgba(56, 56, 60, 0.12);
-  --title-accent: #58585c;
+  --accent-wash: rgba(74, 74, 78, 0.12);
+  --title-accent: #6e6e72;
 }
 
 * { box-sizing: border-box; }
