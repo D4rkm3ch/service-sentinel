@@ -26,7 +26,7 @@ def test_changed_files_are_reviewed_concurrently_not_one_after_another():
     files = [_compose_file(f"conc{i}.yml", f"svc{i}") for i in range(6)]
     delay = 0.3
 
-    def slow_review(path_str, redacted, include_fix=False):
+    def slow_review(path_str, redacted, include_fix=False, active_findings=None):
         time.sleep(delay)
         return []
 
@@ -80,7 +80,7 @@ def test_cancel_stops_queued_files_but_lets_in_flight_ones_finish():
     call_count = 0
     call_lock = threading.Lock()
 
-    def slow_review(path_str, redacted, include_fix=False):
+    def slow_review(path_str, redacted, include_fix=False, active_findings=None):
         nonlocal call_count
         with call_lock:
             call_count += 1
@@ -110,7 +110,7 @@ def test_cancel_stops_queued_files_but_lets_in_flight_ones_finish():
 def test_a_failed_review_does_not_lose_findings_from_other_files():
     files = [_compose_file(f"mix{i}.yml", f"svc{i}") for i in range(3)]
 
-    def fake_review(path_str, redacted, include_fix=False):
+    def fake_review(path_str, redacted, include_fix=False, active_findings=None):
         if "mix0" in path_str:
             raise RuntimeError("simulated AI failure")
         return [{"title": "Real issue", "category": "reliability", "severity": "warning",

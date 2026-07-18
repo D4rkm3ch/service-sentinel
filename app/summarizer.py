@@ -339,22 +339,40 @@ misconfigured indexer categories yielding no results) should land on the same ca
 same severity, not just one or the other.
 
 Respond with ONLY a JSON array and nothing else -- no markdown fences, no preamble. Each element:
-{{"container": "the container name from the excerpt's header", "title": "a short, specific title \
-(under 8 words) that would let someone recognize this same issue if it recurred", "category": \
-one of "error", "reliability", "optimization", "severity": one of "critical", "warning", \
-"suggestion", "description": "1-3 sentences explaining what's happening"{fix_field}}}
+{{"container": "the container name from the excerpt's header", "title": "a short, generic title \
+(under 8 words) naming the general failure, not this specific occurrence of it -- never bake in \
+a single volatile detail (an exact IP address, port, or verbatim error string) that would change \
+if the same underlying problem showed up against a different target next time, so the same issue \
+always gets the exact same title however many times it recurs", "category": one of "error", \
+"reliability", "optimization", "severity": one of "critical", "warning", "suggestion", \
+"description": "1-3 sentences explaining what's happening"{fix_field}}}
 
 If nothing in the provided excerpts represents a real issue, respond with an empty JSON array: []
 
-Some containers below also list their own currently tracked open issues, under "Already tracked \
--- check if still happening". For each one, decide from the log evidence you're given whether \
-it's still occurring or appears to have been resolved (the log now shows normal operation, or \
-the specific failure mode described is no longer present). Only report one as resolved if the \
-evidence actually supports it -- if what you're given is too short, unrelated, or simply doesn't \
-touch on that issue either way, leave it alone and say nothing about it, don't guess. Report a \
-resolved issue as its own element in the same JSON array as your findings above, shaped exactly \
-like this instead: {{"container": "the container name", "resolved_title": "its exact title as \
-given below"}}."""
+Some containers below also list their own currently tracked issues, under "Already tracked -- \
+check if still happening" -- some marked "(silenced)", meaning the operator has already seen and \
+dismissed that one. Before writing a new finding, use your own judgment (not exact wording) to \
+check whether it's really the same underlying problem as one already tracked -- the same kind of \
+failure recurring against a different specific cause (a different unreachable IP/port, a \
+different dependency of the same kind, slightly different log phrasing) is still the SAME \
+finding, not a new one, even if the previous occurrence happened to get a different title before \
+this instruction existed. When it matches: reuse that tracked issue's title exactly as given \
+below, word for word -- do not invent new wording for it. Write "description" as an updated \
+summary covering everything currently known to be affected (fold in whatever's new -- e.g. \
+another unreachable target -- alongside what the tracked description already said), not just \
+what you can see in this one excerpt. Only give something a genuinely new title when it's a \
+different kind of problem than everything tracked for that container.
+
+For each tracked issue NOT marked "(silenced)", also decide from the log evidence you're given \
+whether it's still occurring or appears to have been resolved (the log now shows normal \
+operation, or the specific failure mode described is no longer present). Only report one as \
+resolved if the evidence actually supports it -- if what you're given is too short, unrelated, or \
+simply doesn't touch on that issue either way, leave it alone and say nothing about it, don't \
+guess. Report a resolved issue as its own element in the same JSON array as your findings above, \
+shaped exactly like this instead: {{"container": "the container name", "resolved_title": "its \
+exact title as given below"}}. Never report a "(silenced)" issue as resolved -- the operator \
+silenced it deliberately, so leave it alone unless you're reusing its title per the matching \
+instruction above."""
 
 FIX_INSTRUCTION_LOG = "a concrete, specific suggestion for how to resolve this -- commands, " \
     "config changes, or what to check, not generic advice"
@@ -374,14 +392,19 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
     asking the model to actually work out a remediation costs meaningfully more output tokens
     than just naming the problem.
 
-    active_findings_by_container (db.get_active_findings_by_subject), when given, is a real-
-    world-report-driven feature: a container's already-open findings persist forever otherwise,
-    even once whatever caused them is actually fixed, since nothing else in this app ever
-    re-examines an existing finding once it's been recorded. Listing them alongside the fresh
-    excerpt lets the model judge whether the new evidence shows they've cleared up -- see
-    log_watcher.py, which also makes sure a container with open findings still reaches this call
-    even when its own new fetch had nothing suspicious to report on its own (log_filter.
-    recent_tail), since otherwise there'd be no evidence at all to judge resolution against."""
+    active_findings_by_container (db.get_active_findings_by_subject(..., include_silenced=True)),
+    when given, is a real-world-report-driven feature: a container's already-open findings
+    persist forever otherwise, even once whatever caused them is actually fixed, since nothing
+    else in this app ever re-examines an existing finding once it's been recorded. Listing them
+    alongside the fresh excerpt lets the model judge whether the new evidence shows they've
+    cleared up -- see log_watcher.py, which also makes sure a container with open findings still
+    reaches this call even when its own new fetch had nothing suspicious to report on its own
+    (log_filter.recent_tail), since otherwise there'd be no evidence at all to judge resolution
+    against. Silenced findings are included too (not just active ones), each marked
+    "(silenced)" in the prompt -- a real-world report showed the same recurring issue getting
+    re-filed as a brand-new unread finding under slightly different AI-generated wording every
+    time, purely because a silenced finding had dropped out of this context and so had nothing
+    to match its new phrasing against; see the system prompt's own matching/reuse instructions."""
     if not excerpts_by_container:
         return []
 
@@ -391,7 +414,10 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
         section = f"=== Container: {container_name} ==="
         tracked = active_findings_by_container.get(container_name)
         if tracked:
-            tracked_lines = "\n".join(f'- "{f["title"]}": {f["description"]}' for f in tracked)
+            tracked_lines = "\n".join(
+                f'- "{f["title"]}"{" (silenced)" if f.get("status") == "silenced" else ""}: {f["description"]}'
+                for f in tracked
+            )
             section += f"\nAlready tracked -- check if still happening:\n{tracked_lines}"
         section += f"\n{excerpt}"
         sections.append(section)
@@ -498,7 +524,18 @@ this finding is actually about -- it must match what the description and fix des
 different one (e.g. don't title something \"Docker socket mount\" when the finding is really \
 about an unrelated volume)", "category": one of "security", \
 "reliability", "optimization", "severity": one of "critical", "warning", "suggestion", \
-"description": "1-3 sentences explaining the issue"{fix_field}}}"""
+"description": "1-3 sentences explaining the issue"{fix_field}}}
+
+If this file's currently tracked issues are listed below (under "Already tracked in this file"), \
+some marked "(silenced)" meaning the operator has already seen and dismissed that one, check \
+each finding you're about to report against them using your own judgment, not exact wording -- \
+the same underlying misconfiguration, described in different words, or flagged again after an \
+unrelated part of the file changed and triggered a fresh review, is still the SAME finding, not \
+a new one. When it matches: reuse that tracked issue's title exactly as given, word for word -- \
+do not invent new wording for something already tracked, silenced or not. Write "description" as \
+an updated summary covering everything currently relevant, not narrowly just what prompted this \
+particular review. Only give something a genuinely new title when it's a different setting or \
+problem than everything tracked for this file."""
 
 FIX_INSTRUCTION_COMPOSE = "a concrete suggested compose file change -- the specific key(s) to " \
     "add or edit, not generic advice. State it as a from-the-actual-current-value " \
@@ -547,14 +584,30 @@ def _mentions_docker_socket(finding: dict) -> bool:
     return "docker socket" in text or "docker.sock" in text
 
 
-def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = False) -> list[dict]:
+def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = False,
+                         active_findings: list[dict] | None = None) -> list[dict]:
     """Sends a secret-redacted compose file to Claude for a structural review. Returns a list
     of finding dicts, or an empty list if the file looks fine.
 
     include_fix requests an additional "fix" field (Deep Analysis) -- off by default for the
     same token-cost reason as the log triage function.
-    """
+
+    active_findings (db.get_active_findings_by_subject(..., include_silenced=True)'s per-path
+    list), when given, lists this file's own currently tracked findings (title + description +
+    silenced/active status) so the model can recognize a still-ongoing issue -- even one
+    reported with different wording last time, or one the operator already silenced -- and reuse
+    its exact title instead of re-describing it fresh every review; see the system prompt's own
+    matching/reuse instructions. Resolution itself still isn't judged by the model here
+    (compose_reviewer.py's own diff against this review's fresh titles handles that, since a
+    compose review always sees the file's entire current content, unlike Logs' incremental
+    window -- see run_compose_check_for's docstring)."""
     user_message = f"File: {file_path}\n\n{redacted_yaml}"
+    if active_findings:
+        tracked_lines = "\n".join(
+            f'- "{f["title"]}"{" (silenced)" if f.get("status") == "silenced" else ""}: {f["description"]}'
+            for f in active_findings
+        )
+        user_message += f"\n\nAlready tracked in this file:\n{tracked_lines}"
     system_prompt = COMPOSE_REVIEW_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_COMPOSE if include_fix else "")
 
     if not ai_provider.is_configured():

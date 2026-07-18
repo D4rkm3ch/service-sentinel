@@ -142,7 +142,9 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     # forever, since nothing ever cleared it -- only Reset & re-check's full wipe made it look
     # like the fix "worked." Batched (one connection for every file about to be reviewed this
     # pass), same discipline as Logs' own active_findings_by_container fetch.
-    active_findings_by_path = db.get_active_findings_by_subject("compose", [path_str for path_str, _, _ in to_review])
+    active_findings_by_path = db.get_active_findings_by_subject(
+        "compose", [path_str for path_str, _, _ in to_review], include_silenced=True
+    )
 
     reviewed = 0
     findings_found = 0
@@ -166,7 +168,10 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
             return
         try:
             include_fix = db.get_deep_analysis_enabled("compose")
-            findings = review_compose_file(path_str, redacted, include_fix=include_fix)
+            findings = review_compose_file(
+                path_str, redacted, include_fix=include_fix,
+                active_findings=active_findings_by_path.get(path_str, []),
+            )
         except Exception as exc:
             logger.exception("Compose review AI call failed for %s", path_str)
             with progress_lock:
@@ -206,6 +211,10 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
         # Anything that was active for this file before this review but isn't in what the
         # review just produced no longer applies -- clear it now rather than leaving it to look
         # active forever (see this function's own docstring above for the real-world report).
+        # active_findings_by_path now includes silenced findings too (fetched with
+        # include_silenced=True so review_compose_file can match/reuse their titles -- see its
+        # own docstring), but db.resolve_finding only ever deletes a status='active' row, so a
+        # silenced entry that isn't in fresh_titles is safely left alone here, not deleted.
         for active in active_findings_by_path.get(path_str, []):
             if active["title"] not in fresh_titles:
                 db.resolve_finding("compose", path_str, active["title"])

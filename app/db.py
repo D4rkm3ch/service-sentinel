@@ -1200,28 +1200,42 @@ def list_findings_for_subject(source: str, subject: str, include_silenced: bool 
         return cur.fetchall()
 
 
-def get_active_findings_by_subject(source: str, subjects: list[str]) -> dict[str, list[dict]]:
+def get_active_findings_by_subject(
+    source: str, subjects: list[str], include_silenced: bool = False
+) -> dict[str, list[dict]]:
     """Batched -- one connection for the whole list, same discipline as
     get_log_watch_checkpoints -- rather than one query per subject. Only active (not silenced)
-    findings are included: silencing is an operator's own "I know, ignore it" call, not
-    something the system should be trying to auto-resolve out from under them. Feeds Logs'
+    findings are included by default: silencing is an operator's own "I know, ignore it" call,
+    not something the system should be trying to auto-resolve out from under them. Feeds Logs'
     AI-driven resolution check (log_watcher.run_log_check_for / summarizer.analyze_logs_batch),
     which gets each subject's currently open findings alongside its newly fetched logs and
-    judges whether any are no longer happening."""
+    judges whether any are no longer happening.
+
+    include_silenced=True additionally returns findings the operator has already silenced --
+    needed when building the AI's "already tracked" context (both log_watcher.py and
+    compose_reviewer.py do this) rather than for the active-only resolve-on-diff/resolve-on-
+    AI-judgment paths: a recurring issue that got silenced under one title, then shows up again
+    under slightly different AI-generated wording, should still be recognized as the same thing
+    and merged into that silenced finding (upsert_finding bumps its occurrence count quietly,
+    per its own docstring) rather than filed as a brand-new unread duplicate. Callers that fetch
+    with include_silenced=True and also need an active-only view (compose_reviewer.py's resolve-
+    diff loop) filter the returned "status" field locally rather than this being two queries."""
     if not subjects:
         return {}
+    status_clause = "" if include_silenced else "AND status = 'active'"
     with get_conn() as conn:
         qs = ",".join("?" * len(subjects))
         cur = conn.execute(
-            f"SELECT subject, id, title, description_markdown FROM findings "
-            f"WHERE source = ? AND status = 'active' AND subject IN ({qs})",
+            f"SELECT subject, id, title, description_markdown, status FROM findings "
+            f"WHERE source = ? {status_clause} AND subject IN ({qs})",
             [source] + subjects,
         )
         result: dict[str, list[dict]] = {}
         for row in cur.fetchall():
-            result.setdefault(row["subject"], []).append(
-                {"id": row["id"], "title": row["title"], "description": row["description_markdown"]}
-            )
+            result.setdefault(row["subject"], []).append({
+                "id": row["id"], "title": row["title"], "description": row["description_markdown"],
+                "status": row["status"],
+            })
         return result
 
 

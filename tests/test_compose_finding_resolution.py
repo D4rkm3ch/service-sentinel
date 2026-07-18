@@ -109,3 +109,45 @@ def test_check_now_does_not_resolve_a_silenced_finding():
         assert findings[0]["status"] == "silenced"
     finally:
         _cleanup(compose_file)
+
+
+def test_a_silenced_finding_reaches_review_compose_file_as_tracked_context():
+    """The wiring behind the silenced-duplicate fix (a real-world report: the same misconfigured
+    setting kept getting re-titled on separate reviews of the same file, e.g. "Insecure
+    authentication setting" vs "Mousehole allows no authentication", spawning a fresh unread
+    duplicate instead of bumping the original -- because a silenced finding used to drop out of
+    review_compose_file's context entirely). run_compose_check_for must fetch this file's tracked
+    findings with include_silenced=True and pass them through as active_findings."""
+    compose_file = _compose_file("silenced-context.yml", "silenced-context-svc")
+    try:
+        with patch("app.compose_reviewer.review_compose_file", return_value=[
+            {"title": "Insecure authentication setting", "category": "security",
+             "severity": "critical", "description": "no-auth is enabled"},
+        ]):
+            compose_reviewer.run_compose_check_for([compose_file])
+        db.silence_all_findings_for_subjects("compose", [str(compose_file)])
+
+        compose_file.write_text(compose_file.read_text() + "    restart: unless-stopped\n")
+        captured = {}
+
+        def fake_review(path_str, redacted, include_fix=False, active_findings=None):
+            captured["active_findings"] = active_findings
+            return [{"title": "Insecure authentication setting", "category": "security",
+                     "severity": "critical", "description": "no-auth is enabled"}]
+
+        with patch("app.compose_reviewer.review_compose_file", side_effect=fake_review):
+            compose_reviewer.run_compose_check_for([compose_file])
+
+        tracked = captured["active_findings"]
+        assert len(tracked) == 1
+        assert tracked[0]["title"] == "Insecure authentication setting"
+        assert tracked[0]["status"] == "silenced"
+
+        # And it stayed the single silenced row -- reusing the title merged the recurrence
+        # instead of spawning a second, unread duplicate.
+        findings = db.list_findings_for_subject("compose", str(compose_file), include_silenced=True)
+        assert len(findings) == 1
+        assert findings[0]["status"] == "silenced"
+        assert findings[0]["occurrence_count"] == 2
+    finally:
+        _cleanup(compose_file)

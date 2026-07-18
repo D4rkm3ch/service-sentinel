@@ -141,7 +141,9 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     # every check from here on (not just the one right after a Reset & re-check) until the AI
     # actually confirms it's cleared up -- see the excerpt-building loop below and
     # analyze_logs_batch's own docstring.
-    active_findings_by_container = db.get_active_findings_by_subject("logs", container_names)
+    active_findings_by_container = db.get_active_findings_by_subject(
+        "logs", container_names, include_silenced=True
+    )
     checked_ok_names: list[str] = []
     failed: dict[str, str] = {}
     total = len(container_names)

@@ -157,3 +157,34 @@ def test_cancel_stops_queued_chunks_but_lets_in_flight_ones_finish():
     finally:
         check_state.set_running("logs")
         check_state.release_running("logs")
+
+
+def test_run_log_check_for_passes_a_silenced_finding_into_the_ai_context():
+    """The wiring behind the silenced-duplicate fix: run_log_check_for must fetch this
+    container's tracked findings with include_silenced=True (not the old active-only default),
+    or a silenced finding never reaches analyze_logs_batch's "already tracked" context at all --
+    see get_active_findings_by_subject's own docstring for why that matters."""
+    name = "silenced-recur"
+    finding_id, _ = db.upsert_finding(
+        "logs", name, "Backend unreachable", "error", "critical", "cannot reach 10.0.0.5:8080",
+    )
+    db.set_finding_status(finding_id, "silenced")
+    captured = {}
+
+    def fake_analyze(chunk, include_fix=False, active_findings_by_container=None):
+        captured["active_findings_by_container"] = active_findings_by_container
+        return []
+
+    try:
+        with patch("app.log_watcher.get_container_logs_since", return_value="ERROR: boom"), \
+             patch("app.log_watcher.extract_suspicious_excerpt", side_effect=lambda text: text), \
+             patch("app.log_watcher.analyze_logs_batch", side_effect=fake_analyze), \
+             patch("app.log_watcher.notify_findings_digest"):
+            log_watcher.run_log_check_for([name])
+
+        tracked = captured["active_findings_by_container"][name]
+        assert tracked[0]["title"] == "Backend unreachable"
+        assert tracked[0]["status"] == "silenced"
+    finally:
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE source = 'logs' AND subject = ?", (name,))
