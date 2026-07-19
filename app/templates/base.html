@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-accent="nordic" data-sidebar="collapsed">
+<html lang="en" data-theme="dark" data-accent="nordic" data-sidebar="collapsed" data-chat="closed">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -35,6 +35,11 @@
         if (savedAccent) document.documentElement.dataset.accent = savedAccent;
         var savedSidebar = localStorage.getItem("service-sentinel-sidebar");
         if (savedSidebar === "expanded" || savedSidebar === "collapsed") document.documentElement.dataset.sidebar = savedSidebar;
+        // Same before-first-paint treatment as theme/accent/sidebar above -- without it, the
+        // chat panel would visibly snap shut and back open on every navigation for anyone who
+        // leaves it open while browsing, since the panel itself re-renders closed by default on
+        // every fresh page load otherwise.
+        if (localStorage.getItem("service-sentinel-chat") === "open") document.documentElement.dataset.chat = "open";
       } catch (e) { /* localStorage unavailable (private browsing, etc.) -- stay on the defaults */ }
       try {
         if (sessionStorage.getItem("service-sentinel-sidebar-peek") === "1") {
@@ -90,6 +95,15 @@
       </symbol>
       <symbol id="icon-moon" viewBox="0 0 24 24">
         <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4 7 7 0 0 0 20 14.5Z"/>
+      </symbol>
+      <symbol id="icon-chat" viewBox="0 0 24 24">
+        <path d="M4 5h16v11H9l-4 4v-4H4V5z"/>
+      </symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24">
+        <line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>
+      </symbol>
+      <symbol id="icon-send" viewBox="0 0 24 24">
+        <line x1="4" y1="12" x2="19" y2="12"/><path d="M13 6l6 6-6 6"/>
       </symbol>
     </defs>
   </svg>
@@ -215,6 +229,46 @@
        real access-control decision, the first-launch "set a username/password or turn this off"
        modal otherwise. -->
   <div id="onboarding-modal-slot" hx-get="/settings/access-control/onboarding-modal" hx-trigger="load" hx-swap="innerHTML"></div>
+
+  <!-- Chat widget -- present on every page (not a sidebar destination) so a conversation can
+       keep going while navigating between pages. Look-only: no tools that change anything.
+       Front-end only for now -- there's no AI backend behind it yet, see #chat-empty-state
+       below; the composer just echoes what was typed rather than pretending to answer.
+       A single rail (mirrors #sidebar's own collapsed/expanded shape, just on the right) rather
+       than a separate floating launcher + sliding panel -- collapsed to the toggle button alone,
+       expanded to the full header/log/input. -->
+  <aside class="chat-rail" id="chat-rail" aria-label="Ask Service Sentinel">
+    <button type="button" id="chat-launcher" class="chat-rail-toggle" aria-label="Open chat" aria-controls="chat-panel-inner" aria-expanded="false">
+      <svg class="icon"><use href="#icon-chat"/></svg>
+      <span class="chat-launcher-badge" id="chat-launcher-badge" hidden></span>
+    </button>
+
+    <div class="chat-panel-inner" id="chat-panel-inner">
+      <div class="chat-panel-head">
+        <div class="chat-panel-head-text">
+          <div class="chat-panel-title">Ask Service Sentinel</div>
+          <div class="chat-panel-subtitle">It can look, but never touch anything</div>
+        </div>
+        <button type="button" class="chat-header-btn" id="chat-clear-btn">Clear</button>
+        <button type="button" class="chat-header-btn chat-close-btn" id="chat-close-btn" aria-label="Close chat">
+          <svg class="icon"><use href="#icon-close"/></svg>
+        </button>
+      </div>
+      <div class="chat-log" id="chat-log">
+        <div class="chat-empty-state" id="chat-empty-state">
+          Ask about your containers, updates, or configuration findings.
+          <span class="chat-empty-note">The AI backend isn't connected yet — this is just the interface.</span>
+        </div>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" class="chat-input" id="chat-input" placeholder="Ask about your system…" autocomplete="off">
+        <button type="button" class="chat-send-btn" id="chat-send-btn" aria-label="Send">
+          <svg class="icon"><use href="#icon-send"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
   <script>
     // Dims every Check now / Regenerate / Reset & re-check button sitewide (class
     // "{feature}-action-btn" for feature in updates/logs/compose) while ANY feature's check --
@@ -469,6 +523,74 @@
           }
         } catch (e) { /* private browsing, etc. */ }
       });
+    })();
+
+    // Chat widget -- present on every page (see the markup above). Persists whether it's open
+    // across navigation the same localStorage-backed, before-first-paint-restored pattern as
+    // theme/accent/sidebar (see the head's blocking script) -- without it, the rail would
+    // visibly snap collapsed on every full page load, defeating the point of it being able to
+    // stay open while browsing between pages. Independent of the sidebar's own push (body's
+    // padding-left): this only ever touches padding-right, so both can be open at once and the
+    // main content area simply narrows from both sides at once, rather than the two competing
+    // over the same space.
+    //
+    // Front-end only for now -- there's no AI backend wired up yet, so the composer just echoes
+    // what was typed and adds an honest "not connected yet" note rather than pretending to
+    // answer (see #chat-empty-state's own copy).
+    (function () {
+      var STORAGE_KEY = "service-sentinel-chat";
+      var launcher = document.getElementById("chat-launcher");
+      var rail = document.getElementById("chat-rail");
+      var closeBtn = document.getElementById("chat-close-btn");
+      var clearBtn = document.getElementById("chat-clear-btn");
+      var log = document.getElementById("chat-log");
+      var emptyState = document.getElementById("chat-empty-state");
+      var input = document.getElementById("chat-input");
+      var sendBtn = document.getElementById("chat-send-btn");
+      if (!launcher || !rail) return;
+
+      function setOpen(open) {
+        document.documentElement.dataset.chat = open ? "open" : "closed";
+        launcher.setAttribute("aria-expanded", open ? "true" : "false");
+        try { localStorage.setItem(STORAGE_KEY, open ? "open" : "closed"); } catch (e) { /* private browsing, etc. */ }
+        if (open && input) input.focus();
+      }
+
+      launcher.addEventListener("click", function () { setOpen(true); });
+      if (closeBtn) closeBtn.addEventListener("click", function () { setOpen(false); });
+      document.addEventListener("keydown", function (evt) {
+        if (evt.key === "Escape" && document.documentElement.dataset.chat === "open") setOpen(false);
+      });
+
+      if (clearBtn) {
+        clearBtn.addEventListener("click", function () {
+          log.querySelectorAll(".chat-msg").forEach(function (el) { el.remove(); });
+          if (emptyState) emptyState.hidden = false;
+        });
+      }
+
+      function appendMessage(kind, text) {
+        var msg = document.createElement("div");
+        msg.className = "chat-msg chat-msg-" + kind;
+        var bubble = document.createElement("div");
+        bubble.className = "chat-bubble";
+        bubble.textContent = text;
+        msg.appendChild(bubble);
+        log.appendChild(msg);
+        log.scrollTop = log.scrollHeight;
+      }
+
+      function submit() {
+        var text = input.value.trim();
+        if (!text) return;
+        if (emptyState) emptyState.hidden = true;
+        appendMessage("user", text);
+        input.value = "";
+        appendMessage("system", "The AI backend isn't connected yet — this is just the interface.");
+      }
+
+      if (sendBtn) sendBtn.addEventListener("click", submit);
+      if (input) input.addEventListener("keydown", function (evt) { if (evt.key === "Enter") submit(); });
     })();
 
     // Light/dark theme toggle -- the actual switch on click; the matching read happens in the

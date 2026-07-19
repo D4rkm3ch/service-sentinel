@@ -171,7 +171,7 @@ def test_idle_summary_lives_in_the_topbar_center_and_is_hidden_by_default():
 def test_nordic_blue_is_the_hardcoded_default_accent():
     text = (TEMPLATES / "base.html").read_text()
     assert 'data-accent="nordic"' in text
-    assert '<html lang="en" data-theme="dark" data-accent="nordic" data-sidebar="collapsed">' in text
+    assert '<html lang="en" data-theme="dark" data-accent="nordic" data-sidebar="collapsed" data-chat="closed">' in text
 
 
 def test_head_script_also_restores_the_saved_accent():

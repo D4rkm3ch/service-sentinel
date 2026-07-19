@@ -226,9 +226,17 @@
   --sidebar-width-collapsed: 60px;
   --sidebar-width-expanded: 220px;
   --sidebar-width: var(--sidebar-width-collapsed);
+  /* Chat widget (see the "Chat widget" section below) -- collapsed to the same width as the
+     collapsed sidebar by default (not 0) so the two rails read as symmetric at rest, exactly
+     mirroring --sidebar-width just above right down to the collapsed/expanded values. */
+  --chat-panel-width: 360px;
+  --chat-width: var(--sidebar-width-collapsed);
 }
 html[data-sidebar="expanded"] {
   --sidebar-width: var(--sidebar-width-expanded);
+}
+html[data-chat="open"] {
+  --chat-width: var(--chat-panel-width);
 }
 
 body {
@@ -251,7 +259,12 @@ body {
      below some breakpoint, which isn't built yet. */
   padding-top: var(--topbar-height);
   padding-left: var(--sidebar-width);
-  transition: padding-left 0.18s ease;
+  /* padding-right reserves room for the chat rail the same way padding-left already does for
+     the sidebar -- see --chat-width above and the "Chat widget" section below. Always at least
+     the collapsed rail's own width, never zero, mirroring padding-left's own always-non-zero
+     behavior for the sidebar. */
+  padding-right: var(--chat-width);
+  transition: padding-left 0.18s ease, padding-right 0.22s ease;
 }
 
 .mono {
@@ -784,6 +797,236 @@ a {
 }
 .app-footer a:hover {
   color: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Chat widget -- present on every page (base.html), not a sidebar
+   destination: an explicit ask to keep the conversation available while
+   navigating between pages rather than losing it by leaving a dedicated tab.
+   Read-only by design (no tools that change anything) and, for now, the
+   interface only -- the AI backend itself isn't wired up yet (see
+   .chat-empty-state below).
+
+   Structured as a right-hand rail that mirrors .sidebar (see that rule
+   above) right down to the top/bottom/z-index/background/border/transition
+   shape, just on the other edge: collapsed to --sidebar-width-collapsed at
+   rest instead of collapsing to nothing, so the two rails read as symmetric
+   rather than the sidebar always reserving space while this one popped in
+   and out of existence entirely. Expanding it widens --chat-width the same
+   way the sidebar toggle widens --sidebar-width, and body's own
+   padding-right (see the app-shell layout tokens above) tracks it so
+   main/.app-footer narrow from both sides at once when both are open,
+   rather than the two competing over the same space.
+   --------------------------------------------------------------------------- */
+.chat-rail {
+  position: fixed;
+  top: var(--topbar-height);
+  right: 0;
+  bottom: 0;
+  width: var(--chat-width);
+  overflow: hidden;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  transition: width 0.22s ease;
+}
+
+/* Collapsed state: one centered icon button filling the rail, the same way an icon-only
+   .sidebar-link fills the collapsed sidebar. Hidden once open -- the expanded panel's own
+   header carries the close button instead, so this never needs to double as one. */
+.chat-rail-toggle {
+  position: relative;
+  flex: none;
+  width: var(--sidebar-width-collapsed);
+  height: var(--sidebar-width-collapsed);
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+.chat-rail-toggle:hover {
+  color: var(--accent);
+  background: var(--hover-tint);
+}
+.chat-rail-toggle .icon {
+  width: 21px;
+  height: 21px;
+}
+html[data-chat="open"] .chat-rail-toggle {
+  display: none;
+}
+.chat-launcher-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--error);
+  border: 2px solid var(--bg-panel);
+}
+
+/* Expanded state's content -- hidden until html[data-chat="open"], held at the full panel
+   width (not the rail's own, still-animating width) so it slides fully into view as the rail
+   widens instead of rendering pre-squished. */
+.chat-panel-inner {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-width: var(--chat-panel-width);
+  min-height: 0;
+}
+html[data-chat="open"] .chat-panel-inner {
+  display: flex;
+}
+
+.chat-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--topbar-height);
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.chat-panel-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.chat-panel-title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.chat-panel-subtitle {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+/* Same hollow outline-by-default, filled-on-hover shape as every other button in the app
+   (Check All / Regenerate AI / the rest) -- just sized for the chat header. */
+.chat-header-btn {
+  appearance: none;
+  cursor: pointer;
+  font-family: inherit;
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.chat-header-btn:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+.chat-close-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.chat-close-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.chat-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat-empty-state {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 8px 2px;
+}
+.chat-empty-note {
+  display: block;
+  margin-top: 8px;
+  font-size: 11.5px;
+  font-style: italic;
+}
+.chat-msg {
+  max-width: 88%;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.chat-msg-user {
+  align-self: flex-end;
+}
+.chat-msg-system {
+  align-self: center;
+  max-width: 100%;
+  text-align: center;
+}
+.chat-bubble {
+  padding: 9px 12px;
+  border-radius: 10px;
+}
+.chat-msg-user .chat-bubble {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-bottom-right-radius: 3px;
+}
+.chat-msg-system .chat-bubble {
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-style: italic;
+  padding: 2px;
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.chat-input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.chat-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.chat-send-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+.chat-send-btn:hover {
+  opacity: 0.88;
+}
+.chat-send-btn .icon {
+  width: 15px;
+  height: 15px;
 }
 
 /* Unfilled outline by default, filled solid on hover -- same shape as .button-danger/.button-
