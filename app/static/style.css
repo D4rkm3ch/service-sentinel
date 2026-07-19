@@ -1052,45 +1052,47 @@ tr:hover .row-chevron {
 }
 
 /* "Check All" -- Updates, then Logs, then Compose's existing full checks, strictly one after
-   another (see scheduler.run_check_all). Deliberately its own distinct look: not the plain
-   outlined button default (reserved for a page's own Check now/Regenerate actions), and not
-   button-danger/warn/etc (nothing destructive) -- just a small filled accent pill, since it's
-   the one action every page's topbar offers regardless of which feature you're looking at.
-   Regenerate AI / Reset & Re-Check below share this same small filled-pill sizing but swap the
-   fill color to --warn/--error, the topbar-level counterparts of each page's own per-feature
+   another (see scheduler.run_check_all). Same hollow-outline-by-default, filled-on-hover shape
+   as every other button in the app (.button-danger/.button-warn included) -- just smaller, since
+   it's a topbar-level action rather than a page's own. Regenerate AI / Reset & Re-Check share
+   this same small pill sizing, colored --warn/--error to match each page's own per-feature
    Regenerate AI Response / Reset & Re-Check buttons (see _feature_header.html's .button-warn/
-   .button-danger), chained across all three features instead of scoped to just one. */
+   .button-danger) -- these are the topbar-level, chained-across-all-three-features counterparts
+   of those. */
 .check-all-btn, .regenerate-all-btn, .reset-recheck-all-btn {
   padding: 6px 14px;
   font-size: 12px;
   white-space: nowrap;
 }
 .check-all-btn {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.check-all-btn:hover {
   background: var(--accent);
   color: var(--on-accent);
   border-color: var(--accent);
 }
-.check-all-btn:hover {
-  background: var(--accent);
-  opacity: 0.85;
-}
 .regenerate-all-btn {
+  background: transparent;
+  border: 1px solid var(--warn);
+  color: var(--warn);
+}
+.regenerate-all-btn:hover {
   background: var(--warn);
   color: var(--on-warn);
   border-color: var(--warn);
 }
-.regenerate-all-btn:hover {
-  background: var(--warn);
-  opacity: 0.85;
-}
 .reset-recheck-all-btn {
-  background: var(--error);
-  color: var(--on-error);
-  border-color: var(--error);
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
 }
 .reset-recheck-all-btn:hover {
   background: var(--error);
-  opacity: 0.85;
+  color: var(--on-error);
+  border-color: var(--error);
 }
 
 /* Feature header (per-tab check-now / status row) */
