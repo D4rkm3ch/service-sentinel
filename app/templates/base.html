@@ -230,42 +230,38 @@
        modal otherwise. -->
   <div id="onboarding-modal-slot" hx-get="/settings/access-control/onboarding-modal" hx-trigger="load" hx-swap="innerHTML"></div>
 
-  <!-- Chat widget -- present on every page (not a sidebar destination) so a conversation can
-       keep going while navigating between pages. Look-only: no tools that change anything.
-       Front-end only for now -- there's no AI backend behind it yet, see #chat-empty-state
-       below; the composer just echoes what was typed rather than pretending to answer.
-       A single rail (mirrors #sidebar's own collapsed/expanded shape, just on the right) rather
-       than a separate floating launcher + sliding panel -- collapsed to the toggle button alone,
-       expanded to the full header/log/input. -->
-  <aside class="chat-rail" id="chat-rail" aria-label="Ask Service Sentinel">
-    <button type="button" id="chat-launcher" class="chat-rail-toggle" aria-label="Open chat" aria-controls="chat-panel-inner" aria-expanded="false">
-      <svg class="icon"><use href="#icon-chat"/></svg>
-      <span class="chat-launcher-badge" id="chat-launcher-badge" hidden></span>
-    </button>
+  <!-- Chat widget -- floating, present on every page (not a sidebar destination) so a
+       conversation can keep going while navigating between pages. Look-only: no tools that
+       change anything. Front-end only for now -- there's no AI backend behind it yet, see
+       #chat-empty-state below; the composer just echoes what was typed rather than pretending
+       to answer. -->
+  <button type="button" id="chat-launcher" class="chat-launcher" aria-label="Open chat" aria-controls="chat-panel">
+    <svg class="icon"><use href="#icon-chat"/></svg>
+    <span class="chat-launcher-badge" id="chat-launcher-badge" hidden></span>
+  </button>
 
-    <div class="chat-panel-inner" id="chat-panel-inner">
-      <div class="chat-panel-head">
-        <div class="chat-panel-head-text">
-          <div class="chat-panel-title">Ask Service Sentinel</div>
-          <div class="chat-panel-subtitle">It can look, but never touch anything</div>
-        </div>
-        <button type="button" class="chat-header-btn" id="chat-clear-btn">Clear</button>
-        <button type="button" class="chat-header-btn chat-close-btn" id="chat-close-btn" aria-label="Close chat">
-          <svg class="icon"><use href="#icon-close"/></svg>
-        </button>
+  <aside class="chat-panel" id="chat-panel" aria-hidden="true" aria-label="Ask Service Sentinel">
+    <div class="chat-panel-head">
+      <div class="chat-panel-head-text">
+        <div class="chat-panel-title">Ask Service Sentinel</div>
+        <div class="chat-panel-subtitle">It can look, but never touch anything</div>
       </div>
-      <div class="chat-log" id="chat-log">
-        <div class="chat-empty-state" id="chat-empty-state">
-          Ask about your containers, updates, or configuration findings.
-          <span class="chat-empty-note">The AI backend isn't connected yet — this is just the interface.</span>
-        </div>
+      <button type="button" class="chat-header-btn" id="chat-clear-btn">Clear</button>
+      <button type="button" class="chat-header-btn chat-close-btn" id="chat-close-btn" aria-label="Close chat">
+        <svg class="icon"><use href="#icon-close"/></svg>
+      </button>
+    </div>
+    <div class="chat-log" id="chat-log">
+      <div class="chat-empty-state" id="chat-empty-state">
+        Ask about your containers, updates, or configuration findings.
+        <span class="chat-empty-note">The AI backend isn't connected yet — this is just the interface.</span>
       </div>
-      <div class="chat-input-row">
-        <input type="text" class="chat-input" id="chat-input" placeholder="Ask about your system…" autocomplete="off">
-        <button type="button" class="chat-send-btn" id="chat-send-btn" aria-label="Send">
-          <svg class="icon"><use href="#icon-send"/></svg>
-        </button>
-      </div>
+    </div>
+    <div class="chat-input-row">
+      <input type="text" class="chat-input" id="chat-input" placeholder="Ask about your system…" autocomplete="off">
+      <button type="button" class="chat-send-btn" id="chat-send-btn" aria-label="Send">
+        <svg class="icon"><use href="#icon-send"/></svg>
+      </button>
     </div>
   </aside>
 
@@ -525,14 +521,14 @@
       });
     })();
 
-    // Chat widget -- present on every page (see the markup above). Persists whether it's open
-    // across navigation the same localStorage-backed, before-first-paint-restored pattern as
-    // theme/accent/sidebar (see the head's blocking script) -- without it, the rail would
-    // visibly snap collapsed on every full page load, defeating the point of it being able to
+    // Chat widget -- floating, present on every page (see the markup above). Persists whether
+    // it's open across navigation the same localStorage-backed, before-first-paint-restored
+    // pattern as theme/accent/sidebar (see the head's blocking script) -- without it, the panel
+    // would visibly snap shut on every full page load, defeating the point of it being able to
     // stay open while browsing between pages. Independent of the sidebar's own push (body's
-    // padding-left): this only ever touches padding-right, so both can be open at once and the
-    // main content area simply narrows from both sides at once, rather than the two competing
-    // over the same space.
+    // padding-left): this only ever touches padding-right/the topbar's own right inset, so both
+    // can be open at once and the main content area simply narrows from both sides at once,
+    // rather than the two competing over the same space.
     //
     // Front-end only for now -- there's no AI backend wired up yet, so the composer just echoes
     // what was typed and adds an honest "not connected yet" note rather than pretending to
@@ -540,18 +536,18 @@
     (function () {
       var STORAGE_KEY = "service-sentinel-chat";
       var launcher = document.getElementById("chat-launcher");
-      var rail = document.getElementById("chat-rail");
+      var panel = document.getElementById("chat-panel");
       var closeBtn = document.getElementById("chat-close-btn");
       var clearBtn = document.getElementById("chat-clear-btn");
       var log = document.getElementById("chat-log");
       var emptyState = document.getElementById("chat-empty-state");
       var input = document.getElementById("chat-input");
       var sendBtn = document.getElementById("chat-send-btn");
-      if (!launcher || !rail) return;
+      if (!launcher || !panel) return;
 
       function setOpen(open) {
         document.documentElement.dataset.chat = open ? "open" : "closed";
-        launcher.setAttribute("aria-expanded", open ? "true" : "false");
+        panel.setAttribute("aria-hidden", open ? "false" : "true");
         try { localStorage.setItem(STORAGE_KEY, open ? "open" : "closed"); } catch (e) { /* private browsing, etc. */ }
         if (open && input) input.focus();
       }

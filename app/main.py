@@ -39,7 +39,7 @@ from app.scheduler import (
 )
 from app.uptime import get_uptime_str
 
-APP_VERSION = "0.8.5"
+APP_VERSION = "0.8.6"
 
 # LOG_LEVEL was previously hardcoded to INFO with no override (test_improvement_plan.md section
 # 6) -- an env var rather than a Settings-page toggle since logging is configured once at import
