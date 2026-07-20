@@ -930,6 +930,15 @@ html[data-chat="open"] .chat-panel {
   flex: 1;
   min-width: 0;
 }
+.chat-panel-title,
+.chat-panel-subtitle {
+  /* The header is a fixed var(--topbar-height) tall (see .chat-panel-head) -- title and
+     subtitle must each stay a single line so together they always total exactly two, never
+     wrapping into a third that would spill past the header's own height. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .chat-panel-title {
   font-size: 13.5px;
   font-weight: 600;
@@ -1280,6 +1289,10 @@ tr:hover .row-chevron {
   padding: 0 10px;
   font-size: 12px;
   color: var(--text-dim);
+  /* The topbar narrows while the chat panel is open (see --chat-open-width) -- without this,
+     "Nordic Blue" (the longest accent name) wraps to two lines the moment there's not quite
+     enough room, instead of just staying on its one row like every other topbar-end control. */
+  white-space: nowrap;
 }
 .accent-swatch-dot {
   width: 10px;
