@@ -2,7 +2,10 @@ name: build-and-push
 
 on:
   push:
-    branches: [main]
+    # polish is the working/staging branch -- pushes there build a rolling :polish image (see
+    # the ref_name tagging logic below) so it can be pulled and run without touching main, no
+    # version bump required. main stays the "release" branch (:latest).
+    branches: [main, polish]
     # Version tags (v0.8.0, ...) build the same way a branch push does; the tag-name image tag
     # comes from the ref_name logic below, so a release gets a pullable :vX.Y.Z image.
     tags: ["v*"]
