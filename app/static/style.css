@@ -9,13 +9,12 @@
    light/blue chrome. */
 :root {
   accent-color: var(--accent);
-  /* Without this, the vertical scrollbar only reserves its own width on pages tall enough to
-     actually scroll -- main's centered max-width column would then measure a few pixels
-     narrower on a short page (e.g. Overview) than on a long one (e.g. Settings) purely because
-     one has a scrollbar eating into the viewport and the other doesn't, even though both use
-     the exact same layout rules. Reserving the gutter unconditionally keeps every page's
-     content column pixel-identical regardless of how tall that particular page is. */
-  scrollbar-gutter: stable;
+  /* scrollbar-gutter: stable used to live here, on the viewport itself -- it's on .app-scroll
+     now instead (see that rule for why it exists at all). At this level it reserved a
+     scrollbar-wide strip down the ENTIRE right edge of the viewport on every page, scrollbar
+     or not, which position:fixed elements are laid out to exclude -- so the topbar visibly
+     stopped a scrollbar's width short of the window edge, reading as a permanent dead gap
+     after its last button. */
 }
 
 :root[data-theme="dark"] {
@@ -244,7 +243,17 @@ html[data-chat="open"] {
 
 body {
   margin: 0;
-  min-height: 100vh;
+  /* Exact viewport height + overflow:hidden -- the window itself NEVER scrolls; .app-scroll
+     (the wrapper around main/.app-footer, see below) is the app's one scroll container
+     instead. This is what keeps the vertical scrollbar below the topbar, inside the content
+     region: a window-level scrollbar runs the viewport's full height and reserves an edge
+     strip that position:fixed elements are laid out to exclude by spec, which left a
+     permanent scrollbar-wide dead gap to the right of the topbar's own last button on every
+     scrollable page. dvh where supported so mobile browsers' collapsing URL bars don't leave
+     the shell taller than the actually-visible area; the vh line above it is the fallback. */
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -484,6 +493,29 @@ html[data-sidebar="expanded"] .sidebar-label {
   opacity: 1;
 }
 
+/* The app's one scroll container (see body's own comment) -- fills whatever the fixed
+   topbar/sidebar/chat panel leave of body's padded box and scrolls main + the footer inside
+   it. Carries the sticky-footer flex column that used to live on body directly: main's own
+   flex: 1 0 auto still pushes .app-footer to the bottom on short pages, just measured against
+   this wrapper now instead of the whole body. min-height: 0 is what actually allows it to be
+   shorter than its content inside body's flex column -- without it, flex items refuse to
+   shrink below their content's height and this would just grow past the viewport instead of
+   scrolling. */
+.app-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  /* Same rationale as when this lived on :root (keeps main's centered max-width column
+     pixel-identical between pages short enough not to scroll and pages tall enough to,
+     instead of shifting a few pixels depending on whether a scrollbar happens to exist) --
+     but scoped to the app's one actual scroll container, the reserved strip sits inside the
+     content region below the topbar, rather than carving a dead lane down the viewport's
+     whole right edge that the fixed topbar could never extend into. */
+  scrollbar-gutter: stable;
+}
+
 main {
   max-width: 1260px;
   width: 100%;
@@ -550,10 +582,12 @@ th {
      regardless of the row's background color. */
   box-shadow: inset 0 -1px 0 var(--border);
   position: sticky;
-  /* Sticks right below the topbar, not the literal viewport top -- the topbar itself is now
-     position:fixed (see .topbar) and would otherwise sit on top of / hide a sticky header
-     stuck at top:0 as the page scrolls underneath it. */
-  top: var(--topbar-height);
+  /* top: 0 is genuinely the top of the scrollport now -- sticky positions against the nearest
+     scrolling ancestor, which is .app-scroll (whose own top edge already starts below the
+     fixed topbar via body's padding-top), not the window. This used to need a
+     var(--topbar-height) offset back when the window itself scrolled, since a viewport-stuck
+     header would otherwise have slid underneath the fixed topbar. */
+  top: 0;
   background: var(--bg-panel);
   z-index: 1;
 }

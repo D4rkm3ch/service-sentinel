@@ -215,6 +215,12 @@
     </a>
   </nav>
 
+  <!-- The app's ONE scroll container -- the window itself never scrolls (body is a fixed-height
+       shell, see body/.app-scroll in style.css). This is what keeps the vertical scrollbar
+       inside the content region, below the topbar, instead of running the viewport's full
+       height alongside it: a window scrollbar reserves an edge strip the fixed topbar can
+       never extend into, which read as a permanent dead gap at the topbar's right end. -->
+  <div class="app-scroll">
   <main>
     {% block content %}{% endblock %}
   </main>
@@ -224,6 +230,7 @@
     · {{ app_timezone() }}
     · uptime {{ get_uptime_str() }}
   </footer>
+  </div>
   <!-- Auto-loaded on every page rather than threaded through every route's own template context
        (see the route's own docstring for why) -- renders nothing once the operator has made a
        real access-control decision, the first-launch "set a username/password or turn this off"
