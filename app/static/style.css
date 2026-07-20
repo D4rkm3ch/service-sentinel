@@ -214,15 +214,6 @@
 
 * { box-sizing: border-box; }
 
-/* Reserves the vertical scrollbar's own width permanently, whether or not the current page is
-   tall enough to actually need one -- without this, .chat-launcher's fixed `right` offset (see
-   the "Chat widget" section below) measures from a viewport edge that silently shifts depending
-   on whether a scrollbar happens to be drawn, so the bubble reads as off-center (closer to the
-   edge) on short pages than on tall ones. */
-html {
-  scrollbar-gutter: stable;
-}
-
 /* App-shell layout tokens -- not colors, so unlike the palette above these are the same in
    every theme. --sidebar-width switches between the collapsed/expanded values via the
    [data-sidebar] attribute the head's blocking script (and the sidebar toggle) stamps on <html>
