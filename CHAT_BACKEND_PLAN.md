@@ -231,3 +231,156 @@ POST /chat/send
    the user says it's ready to be a real release (this was the feature originally floated as
    "bumping to 0.9" -- worth asking at that point whether it lands as 0.9 specifically or just
    the next frozen dev-cycle number, rather than assuming).
+
+---
+
+# v2 — Self-tuning steering rules (user-editable AI guidance)
+
+A follow-on the user explicitly asked for: let the operator refine what the AI does and
+doesn't flag, on an ongoing basis, without a code change every time. Not model training /
+fine-tuning (impossible with hosted APIs, wrong tool anyway) — instead a persistent,
+user-editable store of natural-language **steering rules** that get injected into the AI
+prompts on every check. This is the generalization of the by-hand prompt-tuning that made up a
+large fraction of this whole session (PUID/PGID, media-manager RW mounts, the five compose
+false-positive fixes, etc.).
+
+## The refined constraint boundary (corrected by the user — supersedes v1's framing)
+
+The v1 "read-only" wording above was about the user's **actual system** and stays absolute.
+The full three-tier boundary, as the user has now spelled it out:
+
+- **Never, ever:** the user's real system — Docker containers, compose files, host files. The
+  hard wall. (This is what "read-only" was always about.)
+- **Never by the AI, only by us (developers) in code:** the app's own **operational actions** —
+  silencing/resolving findings, marking updates read, changing schedules, flipping feature
+  toggles. These change what's monitored/reported and stay dev-controlled, not something the
+  chat or any AI path can do. Explicitly ruled out by the user: *"It will never be able to edit
+  its operational actions. That's what you and I will always be in control of."*
+- **Allowed — the AI/app editing itself:** its own **steering / analysis guidance**. The app
+  may write new steering rules and prompt guidance to its own store, at the user's request, so
+  it refines *how it analyzes* (not *what it operates*). This is the whole point of v2.
+
+So the write surface v2 opens is exactly one table: steering rules. Nothing else.
+
+## What can and can't become an editable rule (important honest limitation)
+
+Auditing the steering that exists in the codebase today (`summarizer.py`) turns up **two
+distinct kinds**, and only one can become a user-editable text rule:
+
+1. **Prompt-text steering — becomes editable default rules.** The
+   `COMPOSE_REVIEW_SYSTEM_PROMPT_BASE` already contains an explicit, structured block literally
+   introduced as *"the most common harmless patterns this operator has already told you about
+   by name"* (summarizer.py ~L470), followed by ~11 bullets. These are already exactly "user
+   ignore rules," just hardcoded into a string. Each becomes a seeded default rule (see seed
+   list below). The log-triage and update-summary prompts have smaller amounts of the same kind
+   of language.
+
+2. **Deterministic code guards — stay as code, NOT user-editable.** Several of this session's
+   fixes are Python functions that post-filter the AI's output because prompt compliance alone
+   proved unreliable on the highest-severity checks: `_docker_socket_mounts_are_all_read_only()`
+   (drops hallucinated/misread docker.sock findings), `_services_with_a_real_restart_policy()`
+   (drops false "missing restart policy" findings), the self-negating-no-op prefilter. These
+   aren't language and can't be exposed as "edit this sentence" without ceasing to be what they
+   are. They live in the same dev-controlled tier as operational actions. The UI should NOT
+   pretend these are editable rules.
+
+3. **Prompt machinery — stays hardcoded, never user-touchable.** The JSON-only output
+   instruction, the field schema, the `:ro`/`:rw` re-read discipline, the tracked-findings
+   matching logic. A stray user edit here breaks response parsing. When extracting rules from a
+   prompt, split it into: fixed machinery (stays in code) + steering rules (moves to the store,
+   seeded with current defaults). Only the second half is ever user-facing.
+
+## New/changed files (v2)
+
+### `app/db.py` (extend) — new `steering_rules` table
+Columns (sketch): `id`, `scope` (which AI site: `"compose"` / `"logs"` / `"updates"` /
+`"chat"` / `"all"`), `text` (the natural-language rule), `enabled` (bool), `source`
+(`"default"` seeded vs `"user"` created), `created_at`. Standard CRUD helpers mirroring the
+existing `get_*/set_*/list_*` conventions: `list_steering_rules(scope=None)`,
+`add_steering_rule(scope, text)`, `update_steering_rule(id, text, enabled)`,
+`delete_steering_rule(id)`. **Seeded on first boot** (in `init_db()`, guarded so it only seeds
+once — a `steering_seeded` flag in `app_settings`, same pattern as other one-time init) from
+the extracted defaults so a brand-new user immediately sees all the steering we built as
+editable starting points, exactly as the user described.
+
+### `app/steering.py` (new) — rule rendering + the seed defaults
+- `DEFAULT_RULES` — the seed list (below), each `(scope, text)`. Single source of truth for
+  what `init_db()` seeds.
+- `render_rules_for(scope) -> str` — pulls active rules for a scope (its own + the `"all"`
+  scope) and formats them into the bullet block that gets interpolated into that prompt. The
+  prompts change from a hardcoded bullet list to a `{steering_rules}` placeholder this fills.
+- Deliberately data + one formatter, no per-rule logic — same "dispatch/format, not a
+  framework" spirit as `ai_provider.py`.
+
+### `summarizer.py` (refactor the three prompt sites)
+Replace the hardcoded "harmless patterns" bullet block in `COMPOSE_REVIEW_SYSTEM_PROMPT_BASE`
+(and the smaller equivalents in the log-triage / update-summary prompts) with a
+`{steering_rules}` placeholder filled by `steering.render_rules_for(scope)` at call time. The
+fixed machinery and code guards around them are untouched. This is the one genuinely
+delicate refactor in v2 — it's editing prompts that took this whole session to tune, so it
+needs a careful before/after diff and a re-run of the existing compose-false-positive
+regression tests (`test_compose_review_*`) to prove the seeded defaults reproduce today's
+behavior exactly.
+
+### New Settings page or section — rules CRUD
+User's ask: *"a settings area or own page that lists all the rules/steering prompts… new,
+edit, delete."* Leaning **its own page** (reachable from Settings and/or the sidebar) rather
+than a cramped Settings section, since the seed list alone is ~a dozen multi-line rules and it
+'ll grow — open question to confirm. Shows all rules grouped by scope, each with
+enable/disable toggle + edit + delete, plus an "add rule" affordance. Defaults and
+user-created rules look the same and are equally editable/deletable (the user was explicit that
+the defaults are just a starting point to tweak, not locked). A deleted default does not come
+back on next boot (the one-time seed flag ensures seeding never re-runs).
+
+### `chat.py` + `/chat/send` (extend, once v1 chat exists)
+The chat becomes one way to author rules: on an explicit user request ("stop flagging
+qbittorrent's rw mount"), it calls `db.add_steering_rule(...)`. This is the one write the chat
+is allowed (per the refined boundary above). Surface every rule the chat adds visibly in the
+new rules page so they never accumulate silently. Whether the chat writes directly vs. drafts-
+then-user-confirms is a UX call to make at build time (I lean: chat proposes, shows the exact
+rule text, user confirms with a click — keeps authorship explicit — but direct-write is
+defensible too since it's the user's own explicit instruction).
+
+## Seed default rules (extracted from today's `COMPOSE_REVIEW_SYSTEM_PROMPT_BASE`)
+
+All `scope="compose"` unless noted. These are the ~11 "harmless patterns" bullets plus the
+top-level judgment rule, lifted verbatim-ish into standalone rules:
+
+1. (top-level, keep prominent) Only report a finding with a real, concrete negative consequence
+   you can name; if a choice is harmless, don't report it even if another arrangement is cleaner.
+2. Don't flag missing resource limits (CPU/memory).
+3. Don't flag image tag / version-pinning choices in either direction; assume deliberate.
+4. Don't flag `network_mode: host` — assume deliberate and required.
+5. Don't flag missing healthchecks in any form.
+6. Don't flag `${VAR}` / `${VAR:-default}` references to names not defined in the file.
+7. Don't flag `[REDACTED]` values as missing/blank — redaction only ever replaces a present value.
+8. Don't flag an empty `networks: {}` block (Dockge etc. insert it).
+9. Don't flag PUID/PGID/GUID/UID/TZ env vars as redundant/unnecessary.
+10. Never recommend adding an explicit `:rw` to a mount that already defaults to read-write.
+11. Don't recommend read-only for a service's own config/cache/database/download dir.
+12. Don't recommend read-only for a library mount used by a media manager / download client /
+    ROM manager (managing files, not just reading) — with the current image-name examples.
+
+(Exact final wording is a build-time detail; the point is these twelve are the concrete seed.)
+Log-triage and update prompts contribute a few more once their prompt text is audited the same
+way at build time.
+
+## Open questions to confirm before building v2
+
+- Own page vs Settings section for the rules UI (leaning own page).
+- Per-scope rules (a rule tagged compose/logs/updates/chat) vs a single global list applied
+  everywhere. Leaning per-scope — a "don't flag missing healthchecks" rule is meaningless for
+  the log analyzer — but a simple global list is less UI. **User decision.**
+- Chat authoring: direct-write vs propose-then-confirm (leaning propose-then-confirm).
+- Editing a seeded default: edit-in-place vs. the seed stays and the user's edit is an override.
+  Leaning edit-in-place (simpler, and the seed flag means it never gets clobbered on reboot).
+
+## Sequencing
+
+v2 depends on v1 only for the chat-authoring path — the **rules store + seeding + prompt
+injection + CRUD page are independent of the chat entirely** and could even ship first or in
+parallel. Recommended order regardless: land v1 read-only chat, get it stable, then build v2 as
+its own arc (store + seed + refactor prompts + CRUD page first; wire chat-authoring last). The
+prompt refactor is the riskiest single step in either version — it touches the hardest-won
+tuning in the app — so it gets its own careful commit with the existing regression tests as the
+safety net.
