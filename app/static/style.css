@@ -214,6 +214,15 @@
 
 * { box-sizing: border-box; }
 
+/* Reserves the vertical scrollbar's own width permanently, whether or not the current page is
+   tall enough to actually need one -- without this, .chat-launcher's fixed `right` offset (see
+   the "Chat widget" section below) measures from a viewport edge that silently shifts depending
+   on whether a scrollbar happens to be drawn, so the bubble reads as off-center (closer to the
+   edge) on short pages than on tall ones. */
+html {
+  scrollbar-gutter: stable;
+}
+
 /* App-shell layout tokens -- not colors, so unlike the palette above these are the same in
    every theme. --sidebar-width switches between the collapsed/expanded values via the
    [data-sidebar] attribute the head's blocking script (and the sidebar toggle) stamps on <html>
@@ -224,12 +233,15 @@
 :root {
   --topbar-height: 56px;
   --sidebar-width-collapsed: 60px;
-  --sidebar-width-expanded: 220px;
+  /* Matches --chat-panel-width below (300px each) so the page reads symmetric when both the
+     sidebar and the chat panel are open at once -- meeting in the middle of what the two used
+     to be (220px / 360px) rather than just widening one side or narrowing the other alone. */
+  --sidebar-width-expanded: 300px;
   --sidebar-width: var(--sidebar-width-collapsed);
   /* Chat widget (see the "Chat widget" section below) -- 0 while closed so opening it animates
      both the panel's own slide-in and the page's push-left from one variable, same pattern as
      --sidebar-width just above. */
-  --chat-panel-width: 360px;
+  --chat-panel-width: 300px;
   --chat-open-width: 0px;
 }
 html[data-sidebar="expanded"] {
@@ -901,9 +913,12 @@ html[data-chat="open"] .chat-panel {
   font-size: 11.5px;
   color: var(--text-dim);
   margin-top: 1px;
+  font-style: italic;
 }
-/* Same hollow outline-by-default, filled-on-hover shape as every other button in the app
-   (Check All / Regenerate AI / the rest) -- just sized for the chat header. */
+/* Same hollow outline-by-default, filled-on-hover shape as every other button in the app, sized
+   to match the topbar's own Check All / Regenerate AI / Reset & Re-Check pills exactly (not the
+   smaller size this used to be) so the chat header reads as the same weight of control as the
+   rest of the app's top navigation. */
 .chat-header-btn {
   appearance: none;
   cursor: pointer;
@@ -912,8 +927,8 @@ html[data-chat="open"] .chat-panel {
   border: 1px solid var(--accent-dim);
   color: var(--accent);
   border-radius: 6px;
-  padding: 5px 10px;
-  font-size: 11.5px;
+  padding: 6px 14px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .chat-header-btn:hover {
@@ -921,16 +936,24 @@ html[data-chat="open"] .chat-panel {
   color: var(--on-accent);
   border-color: var(--accent);
 }
+/* Close gets its own red/error theming (like .reset-recheck-all-btn) rather than the shared
+   accent color above -- it's a destructive-feeling action (shutting the panel) and reads more
+   clearly as distinct from Clear this way. Sized to match the topbar's own square icon buttons
+   (#theme-toggle-btn/#accent-swatch-btn, both .icon-button at 30x30) instead of the smaller box
+   this used to be. */
 .chat-close-btn {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   padding: 0;
+  border-color: var(--error);
+  color: var(--error);
 }
-.chat-close-btn .icon {
-  width: 14px;
-  height: 14px;
+.chat-close-btn:hover {
+  background: var(--error);
+  color: var(--on-error);
+  border-color: var(--error);
 }
 
 .chat-log {
