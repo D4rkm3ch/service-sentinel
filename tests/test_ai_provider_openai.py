@@ -382,3 +382,68 @@ def test_both_openai_keys_are_stored_encrypted():
     assert rows["openai_compat_api_key"] != "sk-secret-two"
     assert secrets_crypto.decrypt(rows["openai_api_key"]) == "sk-secret-one"
     assert secrets_crypto.decrypt(rows["openai_compat_api_key"]) == "sk-secret-two"
+
+
+# ---------------------------------------------------------------------------
+# complete_chat() -- OpenAI and OpenAI-compatible
+# ---------------------------------------------------------------------------
+
+_CHAT_HISTORY = [
+    {"role": "user", "content": "why is romm-db unhealthy?"},
+    {"role": "assistant", "content": "It's logging connection timeouts."},
+    {"role": "user", "content": "since when?"},
+]
+
+
+def test_complete_chat_openai_prepends_system_and_uses_completion_token_budget():
+    db.set_ai_provider("openai")
+    db.set_openai_api_key("sk-test")
+    db.set_openai_model("gpt-5.1")
+
+    with patch("app.ai_provider.openai.OpenAI") as mock_client_cls:
+        mock_client_cls.return_value.chat.completions.create.return_value = _chat_response("a while")
+        result = ai_provider.complete_chat(system="be helpful", messages=_CHAT_HISTORY, max_tokens=500)
+
+    assert result == "a while"
+    kwargs = mock_client_cls.return_value.chat.completions.create.call_args.kwargs
+    assert kwargs["model"] == "gpt-5.1"
+    assert kwargs["max_completion_tokens"] == 500
+    assert "max_tokens" not in kwargs
+    assert kwargs["reasoning_effort"] == ai_provider._OPENAI_REASONING_EFFORT
+    # System is prepended, then the conversation follows verbatim (roles already match).
+    assert kwargs["messages"] == [{"role": "system", "content": "be helpful"}, *_CHAT_HISTORY]
+
+
+def test_complete_chat_compat_uses_legacy_max_tokens_and_no_openai_only_params():
+    db.set_ai_provider("openai_compat")
+    db.set_openai_compat_base_url("http://ollama:11434/v1")
+    db.set_openai_compat_model("llama3.1:8b")
+
+    with patch("app.ai_provider.openai.OpenAI") as mock_client_cls:
+        mock_client_cls.return_value.chat.completions.create.return_value = _chat_response("since Tuesday")
+        result = ai_provider.complete_chat(system=None, messages=_CHAT_HISTORY, max_tokens=400)
+
+    assert result == "since Tuesday"
+    assert mock_client_cls.call_args.kwargs["base_url"] == "http://ollama:11434/v1"
+    kwargs = mock_client_cls.return_value.chat.completions.create.call_args.kwargs
+    assert kwargs["model"] == "llama3.1:8b"
+    assert kwargs["max_tokens"] == 400
+    assert "max_completion_tokens" not in kwargs
+    assert "reasoning_effort" not in kwargs
+    # No system given -- the array is just the conversation turns.
+    assert kwargs["messages"] == _CHAT_HISTORY
+
+
+def test_complete_chat_openai_truncated_reply_retries_with_double_the_budget():
+    db.set_ai_provider("openai")
+    db.set_openai_api_key("sk-test")
+    with patch("app.ai_provider.openai.OpenAI") as mock_client_cls:
+        mock_client_cls.return_value.chat.completions.create.side_effect = [
+            _chat_response("half an ans", finish_reason="length"),
+            _chat_response("the whole answer"),
+        ]
+        result = ai_provider.complete_chat(system="s", messages=_CHAT_HISTORY, max_tokens=100)
+
+    assert result == "the whole answer"
+    calls = mock_client_cls.return_value.chat.completions.create.call_args_list
+    assert [c.kwargs["max_completion_tokens"] for c in calls] == [100, 200]

@@ -347,6 +347,26 @@ def web_search(user_message: str, max_tokens: int) -> str:
     return _with_truncation_retry(lambda mt: fn(user_message, mt), max_tokens)
 
 
+_CHAT_FNS = {
+    "anthropic": lambda system, messages, mt: _chat_anthropic(system, messages, mt),
+    "gemini": lambda system, messages, mt: _chat_gemini(system, messages, mt),
+    "openai": lambda system, messages, mt: _chat_openai(system, messages, mt),
+    "openai_compat": lambda system, messages, mt: _chat_openai_compat(system, messages, mt),
+}
+
+
+def complete_chat(system: str | None, messages: list[dict], max_tokens: int) -> str:
+    """Multi-turn text completion, provider-agnostic -- the conversational sibling of
+    complete_text (single user_message) that backs the in-app chat widget (see app/chat.py).
+    messages is [{"role": "user"|"assistant", "content": "..."}, ...] in chronological order,
+    ending on the newest user turn; system carries the chat's instructions plus the live
+    read-only system-state snapshot chat.py builds fresh each turn. Same provider dispatch and
+    same truncation-retry wrapper as complete_text; raises on failure identically, so the route
+    that calls this handles a provider error the same way every other AI call site does."""
+    fn = _CHAT_FNS.get(db.get_ai_provider(), _CHAT_FNS["anthropic"])
+    return _with_truncation_retry(lambda mt: fn(system, messages, mt), max_tokens)
+
+
 def _with_truncation_retry(fn, max_tokens: int) -> str:
     text = ""
     budget = max_tokens
@@ -435,17 +455,27 @@ def _gemini_hit_max_tokens(response) -> bool:
 _OPENAI_REASONING_EFFORT = "low"
 
 
-def _openai_chat_completion(client, model: str, system: str | None,
-                            user_message: str, extra: dict) -> tuple[str, bool]:
-    messages = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": user_message})
+def _openai_messages(system: str | None, turns: list[dict]) -> list[dict]:
+    """Assembles OpenAI's messages array: an optional leading system message, then the
+    conversation turns as-is (their user/assistant role names already match OpenAI's). Shared by
+    the single-message completion path (one synthetic user turn) and the multi-turn chat path."""
+    messages = [{"role": "system", "content": system}] if system else []
+    messages.extend(turns)
+    return messages
+
+
+def _openai_chat_send(client, model: str, messages: list[dict], extra: dict) -> tuple[str, bool]:
     response = _call_openai(lambda: client.chat.completions.create(
         model=model, messages=messages, **extra,
     ))
     choice = response.choices[0]
     return choice.message.content or "", choice.finish_reason == "length"
+
+
+def _openai_chat_completion(client, model: str, system: str | None,
+                            user_message: str, extra: dict) -> tuple[str, bool]:
+    messages = _openai_messages(system, [{"role": "user", "content": user_message}])
+    return _openai_chat_send(client, model, messages, extra)
 
 
 def _complete_openai(system: str | None, user_message: str, max_tokens: int) -> tuple[str, bool]:
@@ -484,4 +514,51 @@ def _web_search_openai_compat(user_message: str, max_tokens: int) -> tuple[str, 
     raise RuntimeError(
         "The OpenAI-compatible provider has no web search tool - "
         "disable the web search fallback in Settings or switch providers."
+    )
+
+
+# Multi-turn chat impls (see complete_chat above). Each mirrors its single-turn _complete_*
+# sibling exactly -- same client, model getter, retry wrapper, thinking/reasoning cap, and
+# truncation signal -- differing only in passing the whole conversation array instead of one
+# user_message.
+
+
+def _chat_anthropic(system: str | None, messages: list[dict], max_tokens: int) -> tuple[str, bool]:
+    client = anthropic.Anthropic(api_key=db.get_anthropic_api_key())
+    kwargs = {"model": db.get_anthropic_model(), "max_tokens": max_tokens, "messages": messages}
+    if system:
+        kwargs["system"] = system
+    response = client.messages.create(**kwargs)
+    text = "".join(block.text for block in response.content if block.type == "text")
+    return text, response.stop_reason == "max_tokens"
+
+
+def _chat_gemini(system: str | None, messages: list[dict], max_tokens: int) -> tuple[str, bool]:
+    client = _gemini_client()
+    # Gemini names the assistant role "model" and wants each turn as {"role", "parts": [...]}.
+    contents = [
+        {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
+        for m in messages
+    ]
+    config = genai_types.GenerateContentConfig(
+        max_output_tokens=max_tokens, system_instruction=system,
+        thinking_config=genai_types.ThinkingConfig(thinking_budget=_GEMINI_THINKING_BUDGET),
+    )
+    response = _call_gemini(lambda: client.models.generate_content(
+        model=db.get_gemini_model(), contents=contents, config=config,
+    ))
+    return response.text or "", _gemini_hit_max_tokens(response)
+
+
+def _chat_openai(system: str | None, messages: list[dict], max_tokens: int) -> tuple[str, bool]:
+    return _openai_chat_send(
+        _openai_client(), db.get_openai_model(), _openai_messages(system, messages),
+        {"max_completion_tokens": max_tokens, "reasoning_effort": _OPENAI_REASONING_EFFORT},
+    )
+
+
+def _chat_openai_compat(system: str | None, messages: list[dict], max_tokens: int) -> tuple[str, bool]:
+    return _openai_chat_send(
+        _openai_compat_client(), db.get_openai_compat_model(), _openai_messages(system, messages),
+        {"max_tokens": max_tokens},
     )

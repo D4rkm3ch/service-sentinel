@@ -23,7 +23,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import ai_provider, check_state, compose_lookup, compose_reviewer, db, log_watcher, persist, release_notes, stacks
+from app import ai_provider, chat, check_state, compose_lookup, compose_reviewer, db, log_watcher, persist, release_notes, stacks
 from app.check_state import format_summary, get_progress, get_state, is_running, set_running
 from app.config import settings
 from app.notifications import send_test_notification
@@ -237,7 +237,11 @@ class AuthGateMiddleware:
 # the individual routes throughout this file), so a suffix match automatically covers new ones
 # added later the same way, without needing to keep a second, easily-forgotten list in sync.
 _RATE_LIMITED_SUFFIXES = ("/check-now", "/reset-and-recheck", "/regenerate-all", "/regenerate")
-_RATE_LIMITED_EXACT_PATHS = {"/checks/check-all"}
+# /chat/send joins the check-triggering routes here for the same reason they're limited: each
+# call spends real AI-provider budget, so an unauthenticated visitor (or a runaway open tab)
+# shouldn't be able to fire them as fast as the server accepts connections. The 30/60s window is
+# generous enough for a real back-and-forth conversation.
+_RATE_LIMITED_EXACT_PATHS = {"/checks/check-all", "/chat/send"}
 _RATE_LIMIT_MAX_REQUESTS = 30
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
 
@@ -955,6 +959,36 @@ def reset_and_recheck_all():
     """Same fire-and-forget shape as check_all() above."""
     threading.Thread(target=_run_global_reset_and_recheck, daemon=True).start()
     return {"status": "ok"}
+
+
+@app.post("/chat/send")
+async def chat_send(request: Request):
+    """The read-only "Ask Service Sentinel" widget's backend (see app/chat.py, base.html). Takes
+    the client-side conversation history, answers the newest turn against a fresh live snapshot
+    of read-only system state, and returns both the raw markdown (so the front-end can re-send it
+    as history next turn without HTML tags leaking back into the model) and the same sanitized
+    HTML every other AI-authored block in the app is rendered through (render_markdown -- no new
+    sanitization path). Always 200 with an {ok: bool} envelope rather than raising, so the widget
+    can show every outcome as a chat bubble: a missing provider and a provider failure both come
+    back as friendly ok:false messages, never a raw exception or stack detail."""
+    if not ai_provider.is_configured():
+        return JSONResponse({"ok": False, "error": "No AI provider is configured yet - set one up in Settings."})
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Malformed request."}, status_code=400)
+    history = payload.get("history") if isinstance(payload, dict) else None
+    try:
+        reply = chat.answer(history or [])
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "Type a question to get started."})
+    except Exception:
+        # Deliberately generic -- the real exception (a provider 4xx/5xx, a network error, a
+        # malformed key) is logged for the operator but never surfaced to the client, same as
+        # every other AI call site treats a provider failure.
+        logger.exception("Chat completion failed")
+        return JSONResponse({"ok": False, "error": "Couldn't reach the AI provider - check Settings and try again."})
+    return JSONResponse({"ok": True, "markdown": reply, "html": render_markdown(reply)})
 
 
 @app.get("/updates/partial")

@@ -536,3 +536,77 @@ def test_web_search_gemini_also_caps_the_thinking_budget():
     kwargs = mock_client_cls.return_value.models.generate_content.call_args.kwargs
     thinking_config = kwargs["config"].thinking_config
     assert thinking_config.thinking_budget == ai_provider._GEMINI_THINKING_BUDGET
+
+
+# ---------------------------------------------------------------------------
+# complete_chat() -- multi-turn, backs the in-app chat widget (app/chat.py)
+# ---------------------------------------------------------------------------
+
+_CHAT_HISTORY = [
+    {"role": "user", "content": "why is romm-db unhealthy?"},
+    {"role": "assistant", "content": "It's logging connection timeouts."},
+    {"role": "user", "content": "since when?"},
+]
+
+
+def test_complete_chat_anthropic_passes_the_message_array_and_system_through():
+    db.set_anthropic_api_key("sk-test")
+    db.set_anthropic_model("claude-sonnet-5")
+
+    with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.return_value = _anthropic_response("a while")
+        result = ai_provider.complete_chat(system="be helpful", messages=_CHAT_HISTORY, max_tokens=500)
+
+    assert result == "a while"
+    kwargs = mock_client_cls.return_value.messages.create.call_args.kwargs
+    assert kwargs["model"] == "claude-sonnet-5"
+    assert kwargs["system"] == "be helpful"
+    # The whole conversation is forwarded verbatim -- Anthropic's user/assistant roles match ours.
+    assert kwargs["messages"] == _CHAT_HISTORY
+
+
+def test_complete_chat_anthropic_omits_system_when_none():
+    db.set_anthropic_api_key("sk-test")
+    with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.return_value = _anthropic_response("ok")
+        ai_provider.complete_chat(system=None, messages=_CHAT_HISTORY, max_tokens=200)
+
+    assert "system" not in mock_client_cls.return_value.messages.create.call_args.kwargs
+
+
+def test_complete_chat_dispatches_on_the_active_provider():
+    """complete_chat routes to whichever provider Settings has active -- Gemini here -- not a
+    hardcoded default, same as complete_text/web_search."""
+    db.set_ai_provider("gemini")
+    db.set_gemini_api_key("AIza-test")
+    db.set_gemini_model("gemini-2.5-flash")
+
+    with patch("app.ai_provider.genai.Client") as mock_client_cls:
+        mock_client_cls.return_value.models.generate_content.return_value = _gemini_response("since Tuesday")
+        result = ai_provider.complete_chat(system="ctx", messages=_CHAT_HISTORY, max_tokens=400)
+
+    assert result == "since Tuesday"
+    kwargs = mock_client_cls.return_value.models.generate_content.call_args.kwargs
+    assert kwargs["model"] == "gemini-2.5-flash"
+    assert kwargs["config"].system_instruction == "ctx"
+    # Gemini renames "assistant" to "model" and wraps each turn's text in a parts list.
+    assert kwargs["contents"] == [
+        {"role": "user", "parts": [{"text": "why is romm-db unhealthy?"}]},
+        {"role": "model", "parts": [{"text": "It's logging connection timeouts."}]},
+        {"role": "user", "parts": [{"text": "since when?"}]},
+    ]
+
+
+def test_complete_chat_anthropic_retries_a_truncated_reply():
+    db.set_anthropic_api_key("sk-test")
+    cut_off = _anthropic_response("half an ans")
+    cut_off.stop_reason = "max_tokens"
+    complete = _anthropic_response("the whole answer")
+    complete.stop_reason = "end_turn"
+    with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.side_effect = [cut_off, complete]
+        result = ai_provider.complete_chat(system="s", messages=_CHAT_HISTORY, max_tokens=100)
+
+    assert result == "the whole answer"
+    calls = mock_client_cls.return_value.messages.create.call_args_list
+    assert [c.kwargs["max_tokens"] for c in calls] == [100, 200]

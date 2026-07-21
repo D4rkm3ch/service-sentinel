@@ -261,7 +261,7 @@
     <div class="chat-log" id="chat-log">
       <div class="chat-empty-state" id="chat-empty-state">
         Ask about your containers, updates, or configuration findings.
-        <span class="chat-empty-note">The AI backend isn't connected yet — this is just the interface.</span>
+        <span class="chat-empty-note">It answers from your current system state and can't change anything.</span>
       </div>
     </div>
     <div class="chat-input-row">
@@ -565,31 +565,73 @@
         if (evt.key === "Escape" && document.documentElement.dataset.chat === "open") setOpen(false);
       });
 
+      // The conversation as the server needs to see it: plain-text markdown per turn, NOT the
+      // rendered HTML shown in the DOM -- re-sending rendered HTML back to the model next turn
+      // would feed it its own tags. Lives only here/in the DOM (no server-side persistence),
+      // so it resets on navigation and on Clear, same as the visible log. Capped so a long-lived
+      // open panel can't grow the request payload unboundedly (the server bounds it too).
+      var history = [];
+      var MAX_HISTORY = 20;
+      var pending = false;
+
       if (clearBtn) {
         clearBtn.addEventListener("click", function () {
           log.querySelectorAll(".chat-msg").forEach(function (el) { el.remove(); });
+          history = [];
           if (emptyState) emptyState.hidden = false;
         });
       }
 
-      function appendMessage(kind, text) {
+      // asHtml renders already-server-sanitized markdown (the assistant's reply); everything
+      // else is set as textContent so a user message or error string is never interpreted as
+      // markup.
+      function appendMessage(kind, content, asHtml) {
         var msg = document.createElement("div");
         msg.className = "chat-msg chat-msg-" + kind;
         var bubble = document.createElement("div");
         bubble.className = "chat-bubble";
-        bubble.textContent = text;
+        if (asHtml) { bubble.innerHTML = content; } else { bubble.textContent = content; }
         msg.appendChild(bubble);
         log.appendChild(msg);
         log.scrollTop = log.scrollHeight;
+        return msg;
       }
 
       function submit() {
+        if (pending) return;
         var text = input.value.trim();
         if (!text) return;
         if (emptyState) emptyState.hidden = true;
-        appendMessage("user", text);
+        appendMessage("user", text, false);
+        history.push({ role: "user", content: text });
         input.value = "";
-        appendMessage("system", "The AI backend isn't connected yet — this is just the interface.");
+
+        pending = true;
+        if (sendBtn) sendBtn.disabled = true;
+        var thinking = appendMessage("pending", "", true);
+        thinking.querySelector(".chat-bubble").innerHTML = '<span class="spinner"></span>';
+
+        fetch("/chat/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history: history.slice(-MAX_HISTORY) }),
+        }).then(function (r) { return r.json(); }).then(function (data) {
+          thinking.remove();
+          if (data && data.ok) {
+            appendMessage("assistant", data.html, true);
+            history.push({ role: "assistant", content: data.markdown });
+            if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+          } else {
+            appendMessage("error", (data && data.error) || "Something went wrong.", false);
+          }
+        }).catch(function () {
+          thinking.remove();
+          appendMessage("error", "Couldn't reach the server.", false);
+        }).finally(function () {
+          pending = false;
+          if (sendBtn) sendBtn.disabled = false;
+          if (input) input.focus();
+        });
       }
 
       if (sendBtn) sendBtn.addEventListener("click", submit);

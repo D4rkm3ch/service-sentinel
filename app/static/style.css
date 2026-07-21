@@ -1039,6 +1039,53 @@ html[data-chat="open"] .chat-panel {
   font-style: italic;
   padding: 2px;
 }
+/* The AI's reply -- left-aligned, on the darker base fill so it reads as distinct from the
+   panel it sits on and from the accent-filled user bubble on the right. Holds rendered
+   markdown (server-sanitized, see render_markdown), so its inner block elements get their
+   margins tamed to sit tidily in a chat bubble rather than with document-flow spacing. */
+.chat-msg-assistant {
+  align-self: flex-start;
+}
+.chat-msg-assistant .chat-bubble {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 3px;
+}
+.chat-msg-assistant .chat-bubble > :first-child { margin-top: 0; }
+.chat-msg-assistant .chat-bubble > :last-child { margin-bottom: 0; }
+.chat-msg-assistant .chat-bubble p { margin: 0 0 8px; }
+.chat-msg-assistant .chat-bubble ul,
+.chat-msg-assistant .chat-bubble ol { margin: 0 0 8px; padding-left: 18px; }
+.chat-msg-assistant .chat-bubble li { margin-bottom: 3px; }
+.chat-msg-assistant .chat-bubble code { font-size: 12px; }
+.chat-msg-assistant .chat-bubble pre {
+  background: var(--code-bg);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+.chat-msg-assistant .chat-bubble a { color: var(--accent); }
+/* A failed turn (no provider configured, provider error, network hiccup) -- reuses the
+   system-message centering but in the error color so it reads as something that went wrong
+   rather than a normal assistant reply. */
+.chat-msg-error {
+  align-self: center;
+  max-width: 100%;
+  text-align: center;
+}
+.chat-msg-error .chat-bubble {
+  background: transparent;
+  color: var(--error);
+  font-size: 12px;
+  padding: 2px;
+}
+/* The pending-reply indicator -- the app's existing spinner, centered in a system bubble while
+   the request is in flight. */
+.chat-msg-pending .chat-bubble {
+  background: transparent;
+  padding: 4px 2px;
+}
 
 .chat-input-row {
   display: flex;
