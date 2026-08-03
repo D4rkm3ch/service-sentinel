@@ -1,9 +1,15 @@
 <div class="feature-header collapsible-header" data-collapse-target="{{ feature }}-collapse-body">
+  {# The title text sits in its own span so it can truncate on its own when horizontal space
+     runs out (both side panels open on a narrow window), while the count and the collapse
+     arrow beside it stay pinned and fully visible -- see .feature-header in style.css for the
+     full "what yields first" order. #}
   <h1>
-    {%- if feature == "updates" -%}Updates Found
-    {%- elif feature == "logs" -%}Runtime Health
-    {%- elif feature == "compose" -%}Configuration Health
-    {%- endif -%}
+    <span class="feature-title-text">
+      {%- if feature == "updates" -%}Updates Found
+      {%- elif feature == "logs" -%}Runtime Health
+      {%- elif feature == "compose" -%}Configuration Health
+      {%- endif -%}
+    </span>
     {%- if feature == "updates" and updates_count is defined %} <span class="heading-count" id="updates-count-badge">({{ updates_count }})</span>
     {%- elif issues is defined %} <span class="heading-count" id="{{ feature }}-issues-count-badge">({{ issues|length }})</span>
     {%- endif -%}
@@ -11,6 +17,7 @@
   </h1>
   <div class="topbar-right">
     <div id="check-status">{% include "_status.html" %}</div>
+    <div class="feature-actions">
     {# hx-disabled-elt is deliberately not used here -- it only covers the fast POST round-trip
        (the actual check runs in a background thread or on the scheduler), so it was disabling
        the button then immediately re-enabling it before the check itself finished, leaving
@@ -62,5 +69,6 @@
       </button>
     </form>
     {% endif %}
+    </div>
   </div>
 </div>

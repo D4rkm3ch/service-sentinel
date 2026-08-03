@@ -259,3 +259,31 @@ def test_live_logs_are_keyed_off_the_newest_turn_only():
             {"role": "user", "content": "and now?"},
         ])
     mock_logs.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# The assistant advises; it just can't act
+# ---------------------------------------------------------------------------
+
+def test_prompt_asks_for_real_advice_not_just_observation():
+    """A real-world report: asked "what do you think I should do?", the assistant answered "I
+    cannot tell you what you should do, as I am an observation tool and cannot take action or
+    offer advice." The read-only rule is about ACTIONS -- it was never meant to gag the model's
+    opinions, which are the entire reason for talking to it. These pin the prompt's stance so a
+    future edit can't quietly slide back into refusing to help."""
+    prompt = chat.SYSTEM_PROMPT_HEADER.lower()
+    # Explicitly invites advice/recommendations...
+    assert "advice" in prompt
+    assert "recommend" in prompt
+    # ...and explicitly rules out the refusal that was actually observed.
+    assert "i can't advise you" in prompt
+    # The limit is scoped to actions, and said so in as many words.
+    assert "about actions, not about opinions" in prompt
+
+
+def test_prompt_still_forbids_taking_action_itself():
+    """The advice-giving stance must not have loosened the actual constraint."""
+    prompt = chat.SYSTEM_PROMPT_HEADER.lower()
+    assert "cannot do is carry out changes yourself" in prompt
+    assert "you can only read" in prompt
+    assert "never claim to have done something" in prompt

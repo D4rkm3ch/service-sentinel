@@ -1490,13 +1490,99 @@ tr:hover .row-chevron {
 }
 
 /* Feature header (per-tab check-now / status row) */
+/* The Updates/Runtime/Configuration page header: title (with its count badge and collapse
+   arrow) on the left, status summary and action buttons on the right. This must stay exactly
+   one row at every width. With both the sidebar and the chat panel open there's genuinely
+   little horizontal space left, and it used to break in three separate ways at once: the
+   collapse arrow wrapped onto its own line under the title, "Check Now" and "Reset & Re-Check"
+   split mid-phrase, and the "last checked" summary wrapped to a second line.
+   Everything here is therefore nowrap and non-shrinking EXCEPT the status summary, which is
+   the one element that gives up space (truncating with an ellipsis) -- it's informational,
+   while a half-wrapped button label or an orphaned arrow reads as broken. */
 .feature-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
   margin-bottom: 24px;
+  /* Below the width where even the heading and the buttons alone can't both fit, this clips
+     rather than letting the two overlap each other. Overlapping was the actual rendering bug
+     once wrapping was switched off, and clipping is the far less broken-looking of the two. */
+  overflow: hidden;
 }
-.feature-header h1 { margin: 0; }
+/* flex:none, so "Updates Found (10) ▾" is never squeezed and the arrow can never be pushed
+   onto a line of its own -- the two things the report called out. A flex row (rather than
+   plain inline text) keeps the title, count and arrow laid out as one unbreakable unit. */
+.feature-header h1 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex: none;
+  white-space: nowrap;
+}
+.feature-header h1 .feature-title-text,
+.feature-header h1 .heading-count,
+.feature-header h1 .collapse-arrow {
+  flex: none;
+}
+
+/* Deliberately WITHOUT min-width:0, unlike the title and the status below it: the default
+   min-width:auto is what makes this refuse to shrink narrower than the buttons it holds. With
+   min-width:0 it shrank happily while its flex:none buttons kept their size, so they spilled
+   out of the box leftwards and rendered on top of the heading. */
+/* A two-column grid rather than a flex row, because grid states the intent directly instead of
+   leaving it to shrink-factor negotiation: the actions column is sized to its buttons (auto)
+   and the status column takes only what's left (minmax(0, 1fr)). Several flex arrangements
+   were tried first and each failed differently -- the status refusing to shrink because its
+   min-content propagated up as the container's floor, or the buttons spilling out of their own
+   box and drawing over the heading. minmax(0, ...) is the part that matters: it lets the status
+   column reach zero width, so it can never widen this row. */
+.feature-header .topbar-right {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.feature-actions {
+  display: flex;
+  align-items: center;
+  /* Tighter than the 16px this row used to use: it buys back roughly the dozen pixels that
+     otherwise clipped the tail of "Reset & Re-Check" at the widths where both side panels are
+     open, and is imperceptible at comfortable widths. */
+  gap: 10px;
+}
+.feature-header .feature-actions > form,
+.feature-header .feature-actions button {
+  flex: none;
+  white-space: nowrap;
+}
+.feature-header #check-status {
+  min-width: 0;
+  overflow: hidden;
+}
+.feature-header .status-badge {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* Idle: the summary text sits directly inside the badge (no spinner), so the badge itself is
+   the element that ellipsizes -- which needs a block box, not the flex row it uses when there
+   IS a spinner to line up beside. */
+.feature-header .status-badge.status-idle {
+  display: block;
+  text-overflow: ellipsis;
+}
+/* Running: the text has its own span next to the spinner, so that span truncates and the
+   spinner keeps its size. */
+.feature-header .status-badge.status-running > span:not(.spinner) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feature-header .status-badge .spinner { flex: none; }
 
 /* Collapsible top table (Updates/Issues) -- the header row toggles a slide animation on the
    table below it. .topbar-right opts back out of the pointer cursor/click-to-toggle since it
