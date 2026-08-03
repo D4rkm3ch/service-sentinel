@@ -157,3 +157,105 @@ def test_answer_builds_the_system_prompt_and_dispatches_to_complete_chat():
 def test_answer_raises_on_empty_history():
     with pytest.raises(ValueError):
         chat.answer([])
+
+
+# ---------------------------------------------------------------------------
+# Live log reading -- the AI pulls a named container's actual current logs
+# ---------------------------------------------------------------------------
+
+def _seed_container(name="romm-db"):
+    db.upsert_container_state(name, "owner/romm", "latest", "sha256:a")
+
+
+def test_naming_a_container_fetches_its_live_logs():
+    _seed_container()
+    with patch("app.chat.get_container_logs_since", return_value="FATAL: disk full") as mock_logs:
+        block = chat._live_logs_for("why is romm-db unhealthy?")
+
+    assert "Live logs" in block
+    assert "romm-db" in block
+    assert "FATAL: disk full" in block
+    assert mock_logs.call_args.args[0] == "romm-db"
+
+
+def test_a_question_naming_no_container_fetches_nothing():
+    _seed_container()
+    with patch("app.chat.get_container_logs_since") as mock_logs:
+        assert chat._live_logs_for("how are things looking overall?") == ""
+    mock_logs.assert_not_called()
+
+
+def test_the_longest_matching_name_wins():
+    """A container called "romm" must not swallow a question about "romm-db"."""
+    _seed_container("romm")
+    _seed_container("romm-db")
+    assert chat._containers_mentioned_in("what about romm-db?") == ["romm-db"]
+
+
+def test_matching_is_case_insensitive_and_ignores_surrounding_punctuation():
+    _seed_container("Sonarr")
+    assert chat._containers_mentioned_in("is SONARR ok?") == ["Sonarr"]
+
+
+def test_an_operator_renamed_container_is_matched_by_its_display_name():
+    _seed_container("romm-db")
+    db.set_container_display_name("romm-db", "Media DB")
+    try:
+        # Asked by the name the operator actually sees, resolved to the real container.
+        assert chat._containers_mentioned_in("what's up with Media DB?") == ["romm-db"]
+    finally:
+        db.reset_container_display_name("romm-db")
+
+
+def test_live_log_fetching_is_bounded_to_a_couple_of_containers():
+    for name in ("alpha", "beta", "gamma", "delta"):
+        _seed_container(name)
+    mentioned = chat._containers_mentioned_in("compare alpha beta gamma delta please")
+    assert len(mentioned) == chat._LIVE_LOG_MAX_CONTAINERS
+
+
+def test_an_over_long_log_is_truncated_to_the_most_recent_output():
+    _seed_container()
+    with patch("app.chat.get_container_logs_since", return_value="x" * 50000):
+        block = chat._live_logs_for("romm-db logs?")
+    assert "truncated" in block
+    assert len(block) < 50000
+
+
+def test_a_failing_log_fetch_never_breaks_the_answer():
+    """An unreachable Docker socket must degrade to "no live logs", not a failed reply."""
+    _seed_container()
+    with patch("app.chat.get_container_logs_since", side_effect=RuntimeError("socket gone")):
+        assert chat._live_logs_for("romm-db logs?") == ""
+
+
+def test_a_container_with_no_recent_output_says_so_explicitly():
+    _seed_container()
+    with patch("app.chat.get_container_logs_since", return_value=""):
+        block = chat._live_logs_for("romm-db logs?")
+    assert "no log output" in block
+
+
+def test_answer_appends_live_logs_to_the_system_prompt():
+    _seed_container()
+    with patch("app.chat.get_container_logs_since", return_value="ERROR connection reset"), \
+         patch("app.chat.ai_provider.complete_chat", return_value="ok") as mock_chat:
+        chat.answer([{"role": "user", "content": "what do romm-db's logs say?"}])
+
+    system = mock_chat.call_args.kwargs["system"]
+    assert "## Updates" in system            # the snapshot is still there
+    assert "ERROR connection reset" in system  # and the live logs are appended to it
+
+
+def test_live_logs_are_keyed_off_the_newest_turn_only():
+    """A follow-up that names nothing must not re-pull logs for a container mentioned earlier --
+    that would re-fetch the same output on every subsequent message."""
+    _seed_container()
+    with patch("app.chat.get_container_logs_since", return_value="stale") as mock_logs, \
+         patch("app.chat.ai_provider.complete_chat", return_value="ok"):
+        chat.answer([
+            {"role": "user", "content": "tell me about romm-db"},
+            {"role": "assistant", "content": "it's fine"},
+            {"role": "user", "content": "and now?"},
+        ])
+    mock_logs.assert_not_called()

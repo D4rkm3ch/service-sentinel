@@ -31,6 +31,16 @@ from app.main import app  # noqa: E402
 # for its own narrow scope and restores it afterward.
 _main.RATE_LIMITING_ENABLED = False
 
+# A failing registry lookup is retried with a real wall-clock sleep between attempts (see
+# reconcile._digest_with_retry), and a large share of this suite deliberately simulates one --
+# at the shipped 2-retry default, every such test would sit through 4 seconds of sleeping for a
+# failure it's asserting on deliberately, roughly tripling the suite's runtime. Zeroing the
+# DELAY rather than the retry count keeps tests exercising the real retry path (they still make
+# all 3 attempts, still end up with the same error result) without paying for it in wall time.
+from app import reconcile as _reconcile  # noqa: E402
+
+_reconcile._REGISTRY_RETRY_DELAY_SECONDS = 0
+
 
 @pytest.fixture(scope="session")
 def client():

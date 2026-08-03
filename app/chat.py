@@ -10,8 +10,11 @@ Deliberately mirrors summarizer.py/release_notes.py's shape: this module holds t
 logic (snapshot + prompt assembly), main.py stays thin routing glue over answer()."""
 
 import logging
+import re
+from datetime import datetime, timedelta, timezone
 
 from app import ai_provider, db
+from app.docker_client import get_container_logs_since
 from app.schedule_spec import describe as describe_schedule
 
 logger = logging.getLogger("service_sentinel.chat")
@@ -41,6 +44,16 @@ _SECTIONS = (
     ("compose", "Configuration Health"),
 )
 
+# Live log fetching (see _live_logs_for). Bounded hard on both axes: a couple of containers per
+# question and a few thousand characters each, since this is appended to the snapshot on top of
+# the conversation itself and every turn pays for it again. The window is deliberately short --
+# "what is this container doing right now" is the question this answers, not "what happened
+# last week", which is what the Runtime Health check itself is for.
+_LIVE_LOG_MAX_CONTAINERS = 2
+_LIVE_LOG_MAX_CHARS = 4000
+_LIVE_LOG_MAX_LINES = 200
+_LIVE_LOG_LOOKBACK_HOURS = 2
+
 SYSTEM_PROMPT_HEADER = """You are the AI assistant built into Service Sentinel, a homelab \
 Docker container monitoring tool. Answer the operator's questions about their system using the \
 current system state provided below.
@@ -51,9 +64,14 @@ asks you to take an action like that, say plainly that you can't, and point them
 the app they'd do it themselves (the Updates, Runtime, Configuration, or Settings pages).
 
 Be concise and specific: reference the actual container, service, and finding names from the \
-snapshot rather than giving generic advice, whenever the snapshot has something relevant. If \
-the answer isn't in the snapshot, say you don't have that information rather than guessing -- \
-you only see the summary below, not full container logs or the raw compose files themselves.
+information below rather than giving generic advice. If the answer isn't there, say you don't \
+have that information rather than guessing.
+
+When the operator names a specific container, that container's most recent log output is \
+fetched live and included below under "Live logs" -- read it and answer from what it actually \
+says. If they ask about logs without naming a container, ask which one they mean, since only \
+named containers get fetched. You do not have the raw compose files themselves, only the \
+configuration findings summarized below.
 
 Current system state:
 """
@@ -110,6 +128,84 @@ def build_context_snapshot() -> str:
     return "\n\n".join(sections)
 
 
+def _known_container_names() -> dict[str, str]:
+    """Every container name the chat could be asked about, mapped from the name a person would
+    actually type to the real Docker container name. Includes operator-assigned display names
+    (the rename feature) alongside the real ones, since someone who renamed a container to
+    "Media DB" will ask about "Media DB", not the raw name."""
+    names: dict[str, str] = {}
+    for row in db.list_tracked_containers_with_status():
+        names[row["container_name"]] = row["container_name"]
+    for finding in db.list_findings("logs"):
+        names[finding["subject"]] = finding["subject"]
+    display_names = db.get_container_display_names(list(names)) if names else {}
+    for real, shown in display_names.items():
+        if shown:
+            names[shown] = real
+    return names
+
+
+def _containers_mentioned_in(message: str) -> list[str]:
+    """Real container names referenced by the newest user message. Longest candidate first, so
+    asking about "romm-db" doesn't match a container merely called "romm" instead; bounded so
+    one question can't fan out into fetching logs for a whole fleet."""
+    known = _known_container_names()
+    if not known:
+        return []
+    lowered = message.lower()
+    found: list[str] = []
+    for candidate in sorted(known, key=len, reverse=True):
+        real = known[candidate]
+        if real in found:
+            continue
+        # Hyphens and underscores are part of a container name, not word boundaries, so \b
+        # would happily match "db" inside "romm-db" -- these lookarounds treat them as name
+        # characters instead.
+        if re.search(r"(?<![\w.-])" + re.escape(candidate.lower()) + r"(?![\w.-])", lowered):
+            found.append(real)
+        if len(found) >= _LIVE_LOG_MAX_CONTAINERS:
+            break
+    return found
+
+
+def _live_logs_for(message: str) -> str:
+    """Recent raw log output for whichever containers the newest message names, ready to append
+    to the system prompt -- the "read the logs in real time" path. Read-only (it's a Docker
+    logs fetch, the same call the Runtime Health check already makes) and entirely best-effort:
+    a container that's gone, an unreachable socket, or a fetch that raises simply contributes
+    nothing rather than failing the whole answer.
+
+    Unlike the Runtime Health check this does NOT keyword-filter or touch checkpoints -- the
+    operator asked about this container specifically, so what's wanted is what it's actually
+    saying right now, and reading logs here must never influence what the scheduled check
+    considers already-seen."""
+    names = _containers_mentioned_in(message)
+    if not names:
+        return ""
+
+    since = (datetime.now(timezone.utc) - timedelta(hours=_LIVE_LOG_LOOKBACK_HOURS)).isoformat()
+    sections = []
+    for name in names:
+        try:
+            text = get_container_logs_since(name, since, _LIVE_LOG_MAX_LINES)
+        except Exception:
+            logger.exception("Live log fetch failed for %s", name)
+            continue
+        if not text:
+            sections.append(f"### {name}\n(no log output in the last {_LIVE_LOG_LOOKBACK_HOURS} hours)")
+            continue
+        if len(text) > _LIVE_LOG_MAX_CHARS:
+            text = "(truncated -- showing the most recent output)\n" + text[-_LIVE_LOG_MAX_CHARS:]
+        sections.append(f"### {name}\n```\n{text}\n```")
+
+    if not sections:
+        return ""
+    body = "\n\n".join(sections)
+    return (
+        f"\n\n## Live logs (fetched just now, last {_LIVE_LOG_LOOKBACK_HOURS} hours)\n\n{body}"
+    )
+
+
 def _clean_history(history) -> list[dict]:
     """Validates and bounds whatever the client sent: keeps only well-formed {role, content}
     turns (role user/assistant, content a non-empty string), trims each to MAX_MESSAGE_CHARS,
@@ -139,5 +235,8 @@ def answer(history: list[dict]) -> str:
     messages = _clean_history(history)
     if not messages:
         raise ValueError("No message to answer.")
-    system = SYSTEM_PROMPT_HEADER + build_context_snapshot()
+    # Live logs are keyed off the newest user turn only -- fetching for every container named
+    # anywhere in the conversation would re-pull the same logs on every follow-up and grow
+    # without bound.
+    system = SYSTEM_PROMPT_HEADER + build_context_snapshot() + _live_logs_for(messages[-1]["content"])
     return ai_provider.complete_chat(system=system, messages=messages, max_tokens=_MAX_TOKENS)

@@ -129,6 +129,15 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     checked = 0
     findings_found = 0
     excerpts_by_container: dict[str, str] = {}
+    # Captured BEFORE any log is fetched, and used as the checkpoint value written at the end
+    # (see the set_log_watch_checkpoints call below, and db's own docstring for that function).
+    # Stamping the check's start time rather than a "now" taken after everything finished is
+    # what stops lines a container emits DURING a long check -- after its own fetch, before the
+    # write -- from falling into a gap that the next "since the checkpoint" fetch skips over
+    # entirely. The cost is re-reading a few seconds of overlap next check, which is harmless
+    # (the same lines simply match the same keywords and dedupe into the same finding); the
+    # alternative silently loses them.
+    check_started_at = db.now_iso()
     # Checkpoints are still fetched (and, further down, still written) regardless of this
     # toggle -- other things display "last checked" from them, and flipping the toggle back on
     # later should pick up incrementally right away rather than having lost that history. Only
@@ -203,13 +212,24 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
         if docker_client is not None:
             docker_client.close()
 
-    db.set_log_watch_checkpoints(checked_ok_names)
     db.clear_log_check_errors(checked_ok_names)
     db.record_log_check_errors(failed)
     if failed:
         notify_logs_check_errors([{"container_name": name, "error": err} for name, err in failed.items()])
 
+    # A container's checkpoint only moves forward once its logs have actually been ANALYZED,
+    # not merely fetched -- a real defect this fixes: the stamp used to happen here, before
+    # triage ran, so a failed/rate-limited/cancelled AI call still advanced every checkpoint
+    # past logs nothing ever looked at. The next check then fetched "since the checkpoint",
+    # found nothing new, and those logs (and any issue in them) were gone for good.
+    #
+    # Split in two: containers that fetched cleanly and had nothing worth sending to the AI are
+    # genuinely caught up right now, so they advance immediately. Anything queued for triage
+    # waits until the chunk carrying it actually comes back successfully (see _triage_chunk).
+    caught_up_names = [n for n in checked_ok_names if n not in excerpts_by_container]
+
     if not excerpts_by_container:
+        db.set_log_watch_checkpoints(caught_up_names, at=check_started_at)
         return {"checked": checked, "findings_found": 0, "errors": len(failed), "rate_limited": 0, "cancelled": cancelled}
 
     ai_provider.reset_rate_limited_count()
@@ -230,6 +250,11 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     # phase does -- safe to mutate from multiple worker threads at once.
     progress_lock = threading.Lock()
     done_count = 0
+    # Containers whose triage call actually came back -- only these earn a checkpoint advance
+    # (see the caught_up_names comment above). A chunk that raised, or was skipped because the
+    # check was cancelled, contributes nothing here, so its containers keep their old
+    # checkpoint and get re-examined on the next check.
+    triaged_ok_names: list[str] = []
 
     def _triage_chunk(chunk: dict[str, str]) -> None:
         nonlocal triage_errors, done_count, cancelled
@@ -258,6 +283,7 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
                 triage_errors += 1
             else:
                 findings.extend(result)
+                triaged_ok_names.extend(chunk)
             done_count += 1
             current = done_count
         if on_progress:
@@ -266,6 +292,12 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     max_workers = min(ai_provider.concurrency_limit(), total_chunks)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         list(pool.map(_triage_chunk, chunks))
+
+    # Now that triage has run, every container whose logs were genuinely looked at this round
+    # -- the ones with nothing to send, plus the ones whose triage chunk succeeded -- moves its
+    # checkpoint forward. Containers in a failed or skipped chunk are deliberately absent, so
+    # the next check re-fetches exactly the logs that never got analyzed.
+    db.set_log_watch_checkpoints(caught_up_names + triaged_ok_names, at=check_started_at)
 
     new_findings = []
     for finding in findings:

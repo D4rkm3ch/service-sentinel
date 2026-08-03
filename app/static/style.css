@@ -213,6 +213,42 @@
 
 * { box-sizing: border-box; }
 
+/* Themed scrollbars -- the OS default chrome (a bright light-grey trough on most platforms)
+   read as a foreign strip pasted onto the app's own dark panels. Both syntaxes are given
+   because no single one is universal: `scrollbar-color`/`scrollbar-width` are the standard
+   (Firefox, and newer Chromium), the ::-webkit-scrollbar pseudo-elements cover the WebKit/
+   Chromium family that has supported them for far longer. A browser that understands both
+   applies the standard properties and ignores the pseudo-elements, so they can't conflict.
+   Colors come from the same theme tokens as everything else, so this follows light/dark and
+   the accent picker with no per-theme rule of its own. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  /* Fully rounded, inset from the track by a transparent border so the thumb reads as a
+     floating pill rather than a bar wedged edge-to-edge against the content. background-clip
+     is what stops that border from being painted in the thumb color. */
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-dim);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* App-shell layout tokens -- not colors, so unlike the palette above these are the same in
    every theme. --sidebar-width switches between the collapsed/expanded values via the
    [data-sidebar] attribute the head's blocking script (and the sidebar toggle) stamps on <html>
@@ -223,15 +259,16 @@
 :root {
   --topbar-height: 56px;
   --sidebar-width-collapsed: 60px;
-  /* Matches --chat-panel-width below (300px each) so the page reads symmetric when both the
-     sidebar and the chat panel are open at once -- meeting in the middle of what the two used
-     to be (220px / 360px) rather than just widening one side or narrowing the other alone. */
-  --sidebar-width-expanded: 300px;
+  /* Deliberately NOT the same as --chat-panel-width below: the two were briefly matched at
+     300px for symmetry, but the nav only ever holds five short labels and read as wasted space
+     at that width, while the chat genuinely uses everything it's given. Sized to the longest
+     label ("Configuration") plus its icon and padding, and no more. */
+  --sidebar-width-expanded: 210px;
   --sidebar-width: var(--sidebar-width-collapsed);
   /* Chat widget (see the "Chat widget" section below) -- 0 while closed so opening it animates
      both the panel's own slide-in and the page's push-left from one variable, same pattern as
      --sidebar-width just above. */
-  --chat-panel-width: 300px;
+  --chat-panel-width: 320px;
   --chat-open-width: 0px;
 }
 html[data-sidebar="expanded"] {
@@ -993,7 +1030,17 @@ html[data-chat="open"] .chat-panel {
 .chat-log {
   flex: 1;
   overflow-y: auto;
-  padding: 14px;
+  /* Asymmetric on purpose, and it's the scrollbar that makes it symmetric in practice: the
+     scrollbar sits inside this box on the right, so an even 14px all round actually renders as
+     14px of clear space on the left and 14px + the scrollbar's own width on the right, leaving
+     the whole conversation visibly crowded against the left wall. The right padding is dropped
+     by roughly a scrollbar's width to even that back out, and the left trimmed slightly so the
+     assistant's bubble sits a little further left overall. */
+  padding: 14px 6px 14px 10px;
+  /* Reserves the scrollbar's space whether or not there's currently enough conversation to
+     scroll, so the messages don't visibly shift sideways the moment a reply pushes the log
+     over the edge. */
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 12px;

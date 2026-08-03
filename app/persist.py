@@ -56,7 +56,7 @@ def run_and_persist_check(on_progress: ProgressFunc | None = None) -> dict:
     there's nothing for that phase to do this round. See persist_check_outcome()'s docstring
     for why a phase that doesn't report progress here looks exactly like a hang."""
     reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
-    outcome = reconcile.run_check(on_progress=reconcile_progress)
+    outcome = reconcile.run_check(on_progress=reconcile_progress, retries=db.get_update_check_retries())
     persist_check_outcome(outcome, on_progress=on_progress)
     return outcome
 
@@ -593,7 +593,8 @@ def run_and_persist_single_check(container_name: str, on_progress: ProgressFunc 
     outcome's container list is deliberately just the one container, and pruning against a
     1-item list would delete every other tracked container's state."""
     reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
-    outcome = reconcile.run_check_one(container_name, on_progress=reconcile_progress)
+    outcome = reconcile.run_check_one(container_name, on_progress=reconcile_progress,
+                                      retries=db.get_update_check_retries())
     persist_check_outcome(outcome, on_progress=on_progress, prune=False)
     return outcome
 
@@ -628,7 +629,8 @@ def run_and_persist_many_check(container_names: list[str], on_progress: Progress
     prune=False and force_stack_analysis are threaded through for the same reasons as that
     function's own docstring explains."""
     reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
-    outcome = reconcile.run_check_many(container_names, on_progress=reconcile_progress)
+    outcome = reconcile.run_check_many(container_names, on_progress=reconcile_progress,
+                                       retries=db.get_update_check_retries())
     persist_check_outcome(outcome, on_progress=on_progress, prune=False, force_stack_analysis=force_stack_analysis)
     return outcome
 
@@ -647,7 +649,8 @@ def run_and_persist_many_reset_and_check(container_names: list[str], on_progress
             db.delete_update(existing["id"])
 
     reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
-    outcome = reconcile.run_check_many(container_names, on_progress=reconcile_progress)
+    outcome = reconcile.run_check_many(container_names, on_progress=reconcile_progress,
+                                       retries=db.get_update_check_retries())
     persist_check_outcome(outcome, on_progress=on_progress, prune=False, force_stack_analysis=force_stack_analysis)
     return outcome
 

@@ -157,7 +157,7 @@ def test_empty_outcome_never_wipes_existing_state():
 
 
 def test_run_and_persist_check_wraps_reconcile_and_persists(monkeypatch):
-    def fake_run_check(on_progress=None):
+    def fake_run_check(on_progress=None, retries=0):
         return _outcome(_c("qbittorrent", "update_available"))
 
     monkeypatch.setattr("app.persist.reconcile.run_check", fake_run_check)

@@ -21,6 +21,7 @@ something is ever slow or breaks, we know exactly which piece did it.
 
 import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Callable
@@ -30,6 +31,42 @@ from app.docker_client import TrackedContainer, list_tracked_containers
 from app.registry import get_latest_digest
 
 logger = logging.getLogger("service_sentinel.reconcile")
+
+# Seconds between registry retry attempts (see _digest_with_retry). Deliberately short and
+# fixed rather than an escalating backoff: the failures this exists for -- a momentary rate
+# limit, a transient 5xx, a DNS blip -- clear in seconds, and a check fans out over every
+# unique image at once, so a long or growing delay would stretch the whole check's wall time
+# for every retrying image rather than just quietly recovering.
+_REGISTRY_RETRY_DELAY_SECONDS = 2.0
+
+
+def _digest_with_retry(image_repo: str, tag: str, retries: int) -> str | None:
+    """get_latest_digest() with `retries` extra attempts on failure.
+
+    get_latest_digest() swallows every httpx error internally and returns None (see its own
+    body), so None -- not an exception -- is what a failed lookup actually looks like here;
+    that's what's retried. An exception escaping it at all would be a genuine bug rather than
+    the flaky-network case this is for, so it's caught for the same reason (one bad image must
+    never abort a whole check) but not retried.
+
+    retries=0 is exactly the old single-attempt behavior."""
+    for attempt in range(retries + 1):
+        try:
+            digest = get_latest_digest(image_repo, tag)
+        except Exception:
+            logger.exception("Registry check raised for %s:%s", image_repo, tag)
+            return None
+        if digest is not None:
+            return digest
+        if attempt < retries:
+            logger.info(
+                "Registry check failed for %s:%s -- retrying in %.0fs (attempt %d/%d)",
+                image_repo, tag, _REGISTRY_RETRY_DELAY_SECONDS, attempt + 1, retries,
+            )
+            time.sleep(_REGISTRY_RETRY_DELAY_SECONDS)
+    if retries:
+        logger.warning("Registry check for %s:%s still failing after %d retries", image_repo, tag, retries)
+    return None
 
 
 def _check_one(container: TrackedContainer, latest_digest: str | None) -> dict:
@@ -61,7 +98,8 @@ def _check_one(container: TrackedContainer, latest_digest: str | None) -> dict:
 
 
 def _fetch_latest_digests(containers: list[TrackedContainer],
-                           on_progress: Callable[[int, int], None] | None) -> dict[str, dict]:
+                           on_progress: Callable[[int, int], None] | None,
+                           retries: int = 0) -> dict[str, dict]:
     """Fetches the registry's latest digest once per unique (image_repo, tag) among the given
     containers -- not once per container -- and returns every container's own result dict,
     keyed by container name, in the same shape _check_one always has. Progress still reports
@@ -84,11 +122,7 @@ def _fetch_latest_digests(containers: list[TrackedContainer],
     def _fetch_group(key: tuple[str, str]) -> None:
         nonlocal done_count
         image_repo, tag = key
-        try:
-            latest_digest = get_latest_digest(image_repo, tag)
-        except Exception:
-            logger.exception("Registry check failed for %s:%s", image_repo, tag)
-            latest_digest = None
+        latest_digest = _digest_with_retry(image_repo, tag, retries)
 
         members = groups[key]
         for member in members:
@@ -108,7 +142,7 @@ def _fetch_latest_digests(containers: list[TrackedContainer],
 
 
 def _run_checks(containers: list[TrackedContainer], checked_at: str,
-                 on_progress: Callable[[int, int], None] | None) -> dict:
+                 on_progress: Callable[[int, int], None] | None, retries: int = 0) -> dict:
     """Shared body for run_check()/run_check_many() below -- both just gather a different list
     of TrackedContainer and hand it here. Preserves the input list's own order in the returned
     "containers" list regardless of which unique-image group finishes its (deduplicated,
@@ -119,7 +153,7 @@ def _run_checks(containers: list[TrackedContainer], checked_at: str,
             on_progress(0, 0)
         return {"containers": [], "errors": 0, "checked_at": checked_at}
 
-    result_by_name = _fetch_latest_digests(containers, on_progress)
+    result_by_name = _fetch_latest_digests(containers, on_progress, retries)
     results = [result_by_name[c.name] for c in containers]
     errors = sum(1 for r in results if r["status"] == "error")
 
@@ -130,7 +164,7 @@ def _run_checks(containers: list[TrackedContainer], checked_at: str,
     return {"containers": results, "errors": errors, "checked_at": checked_at}
 
 
-def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
+def run_check(on_progress: Callable[[int, int], None] | None = None, retries: int = 0) -> dict:
     """Returns {"containers": [...], "errors": int, "checked_at": iso timestamp}.
 
     Each entry in "containers" is a plain dict: container_name, image_repo, tag, status (one
@@ -156,10 +190,11 @@ def run_check(on_progress: Callable[[int, int], None] | None = None) -> dict:
         logger.exception("Could not reach the Docker socket")
         return {"containers": [], "errors": 1, "checked_at": checked_at}
 
-    return _run_checks(containers, checked_at, on_progress)
+    return _run_checks(containers, checked_at, on_progress, retries)
 
 
-def run_check_one(container_name: str, on_progress: Callable[[int, int], None] | None = None) -> dict:
+def run_check_one(container_name: str, on_progress: Callable[[int, int], None] | None = None,
+                   retries: int = 0) -> dict:
     """Same shape and semantics as run_check() above, scoped to a single already-tracked
     container by name -- backs the per-update "Reset & re-check" button (Stage 6), which needs
     to re-check just the one container a user clicked into rather than the whole fleet. Nothing
@@ -184,11 +219,7 @@ def run_check_one(container_name: str, on_progress: Callable[[int, int], None] |
 
     if on_progress:
         on_progress(0, 1)
-    try:
-        latest_digest = get_latest_digest(container.image_repo, container.tag)
-    except Exception:
-        logger.exception("Registry check failed for %s", container.name)
-        latest_digest = None
+    latest_digest = _digest_with_retry(container.image_repo, container.tag, retries)
     result = _check_one(container, latest_digest)
     if on_progress:
         on_progress(1, 1)
@@ -197,7 +228,8 @@ def run_check_one(container_name: str, on_progress: Callable[[int, int], None] |
     return {"containers": [result], "errors": errors, "checked_at": checked_at}
 
 
-def run_check_many(container_names: list[str], on_progress: Callable[[int, int], None] | None = None) -> dict:
+def run_check_many(container_names: list[str], on_progress: Callable[[int, int], None] | None = None,
+                    retries: int = 0) -> dict:
     """Same shape and semantics as run_check() above, scoped to a set of already-tracked
     containers by name -- backs the stack-level "Reset & re-check" button, which needs to
     re-check every service in one compose stack without touching the other tracked containers.
@@ -216,4 +248,4 @@ def run_check_many(container_names: list[str], on_progress: Callable[[int, int],
 
     name_set = set(container_names)
     containers = [c for c in all_containers if c.name in name_set]
-    return _run_checks(containers, checked_at, on_progress)
+    return _run_checks(containers, checked_at, on_progress, retries)

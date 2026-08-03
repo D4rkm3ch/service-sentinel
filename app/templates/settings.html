@@ -232,6 +232,27 @@ compose stack. This costs noticeably more tokens.</p>
 </section>
 
 <section class="panel">
+  <h2 class="settings-heading-lg">Update Checks</h2>
+
+  <div class="settings-subsection settings-subsection-first">
+    <h4>Retries</h4>
+    <p class="meta">How many times to retry a failed registry lookup before recording it as an
+error - registries occasionally rate limit or time out on an otherwise healthy container</p>
+    <div class="stepper-row">
+      <div class="stepper">
+        <button type="button" class="stepper-btn" onclick="adjustRetries(-1)">&minus;</button>
+        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+               id="update_retries_input" min="{{ update_retry_min }}" max="{{ update_retry_max }}"
+               value="{{ update_check_retries }}" onchange="saveRetries(this.value)"
+               onkeydown="if (event.key === 'Enter') this.blur();">
+        <button type="button" class="stepper-btn" onclick="adjustRetries(1)">+</button>
+      </div>
+      <span class="saved-indicator-slot" id="saved-update_retries"></span>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
   <h2 class="settings-heading-lg">Lookback Window</h2>
 
   <div class="settings-subsection settings-subsection-first">
@@ -587,6 +608,46 @@ function saveConcurrency(provider, rawValue) {
     value = clamped;
   }
   fetch('/settings/ai/' + provider + '-concurrency', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'value=' + encodeURIComponent(value),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      input.value = data.value;
+      slot.innerHTML = '<span class="saved-indicator">Saved</span>';
+    } else {
+      slot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+    }
+  }).catch(() => {
+    slot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  });
+}
+
+function adjustRetries(delta) {
+  const input = document.getElementById('update_retries_input');
+  const min = parseInt(input.min, 10);
+  const max = parseInt(input.max, 10);
+  let value = parseInt(input.value, 10);
+  if (isNaN(value)) value = min;
+  value = Math.min(max, Math.max(min, value + delta));
+  input.value = value;
+  saveRetries(value);
+}
+
+function saveRetries(rawValue) {
+  const input = document.getElementById('update_retries_input');
+  const slot = document.getElementById('saved-update_retries');
+  const min = parseInt(input.min, 10);
+  const max = parseInt(input.max, 10);
+  let value = parseInt(rawValue, 10);
+  if (isNaN(value)) value = min;
+  // Same snap-into-range treatment as the concurrency fields above rather than rejecting.
+  const clamped = Math.min(max, Math.max(min, value));
+  if (clamped !== value) {
+    input.value = clamped;
+    value = clamped;
+  }
+  fetch('/settings/updates/retries', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'value=' + encodeURIComponent(value),

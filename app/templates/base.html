@@ -565,19 +565,52 @@
         if (evt.key === "Escape" && document.documentElement.dataset.chat === "open") setOpen(false);
       });
 
-      // The conversation as the server needs to see it: plain-text markdown per turn, NOT the
-      // rendered HTML shown in the DOM -- re-sending rendered HTML back to the model next turn
-      // would feed it its own tags. Lives only here/in the DOM (no server-side persistence),
-      // so it resets on navigation and on Clear, same as the visible log. Capped so a long-lived
-      // open panel can't grow the request payload unboundedly (the server bounds it too).
-      var history = [];
+      // The conversation, kept in two forms per turn: `content` is the plain markdown the
+      // server needs (re-sending the rendered HTML would feed the model its own tags back),
+      // and `html` is the already-sanitized markup to re-render into the log. Capped so a
+      // long-lived conversation can't grow the request payload unboundedly (the server bounds
+      // it independently too).
+      //
+      // Persisted in sessionStorage, which is exactly the lifetime this needs: it survives
+      // navigating between pages and closing/reopening the panel (both of which used to wipe
+      // the conversation, since it only ever lived in this variable), but dies with the tab.
+      // The key carries the app version, so a Service Sentinel upgrade starts a fresh
+      // conversation rather than replaying one whose rendered HTML or system context came from
+      // the previous build -- no migration code needed, the old key is simply never read again.
+      var HISTORY_KEY = "service-sentinel-chat-history-v{{ app_version }}";
       var MAX_HISTORY = 20;
       var pending = false;
+      var history = [];
+
+      function persistHistory() {
+        try {
+          sessionStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        } catch (e) { /* private browsing, quota, etc. -- the panel still works, just won't persist */ }
+      }
+
+      function restoreHistory() {
+        var saved = null;
+        try { saved = sessionStorage.getItem(HISTORY_KEY); } catch (e) { return; }
+        if (!saved) return;
+        try { history = JSON.parse(saved) || []; } catch (e) { history = []; return; }
+        if (!history.length) return;
+        history.forEach(function (turn) {
+          if (turn.role === "assistant") {
+            // Stored html came from the server's own sanitizer (render_markdown) before it was
+            // ever saved, so re-inserting it is exactly as safe as displaying it was first time.
+            appendMessage("assistant", turn.html || turn.content, !!turn.html);
+          } else {
+            appendMessage("user", turn.content, false);
+          }
+        });
+        if (emptyState) emptyState.hidden = true;
+      }
 
       if (clearBtn) {
         clearBtn.addEventListener("click", function () {
           log.querySelectorAll(".chat-msg").forEach(function (el) { el.remove(); });
           history = [];
+          try { sessionStorage.removeItem(HISTORY_KEY); } catch (e) { /* see persistHistory */ }
           if (emptyState) emptyState.hidden = false;
         });
       }
@@ -604,6 +637,7 @@
         if (emptyState) emptyState.hidden = true;
         appendMessage("user", text, false);
         history.push({ role: "user", content: text });
+        persistHistory();
         input.value = "";
 
         pending = true;
@@ -614,14 +648,23 @@
         fetch("/chat/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ history: history.slice(-MAX_HISTORY) }),
+          // Only role/content go to the server -- the stored `html` is purely for re-rendering
+          // the log on this side, and the route rejects unrecognized keys' turns anyway.
+          body: JSON.stringify({
+            history: history.slice(-MAX_HISTORY).map(function (t) {
+              return { role: t.role, content: t.content };
+            }),
+          }),
         }).then(function (r) { return r.json(); }).then(function (data) {
           thinking.remove();
           if (data && data.ok) {
             appendMessage("assistant", data.html, true);
-            history.push({ role: "assistant", content: data.markdown });
+            history.push({ role: "assistant", content: data.markdown, html: data.html });
             if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+            persistHistory();
           } else {
+            // Errors aren't persisted -- a "couldn't reach the provider" bubble is about that
+            // one attempt, and replaying it on every future page load would be noise.
             appendMessage("error", (data && data.error) || "Something went wrong.", false);
           }
         }).catch(function () {
@@ -636,6 +679,10 @@
 
       if (sendBtn) sendBtn.addEventListener("click", submit);
       if (input) input.addEventListener("keydown", function (evt) { if (evt.key === "Enter") submit(); });
+
+      // Replays any conversation still alive in this tab -- must run after appendMessage is
+      // defined, so it sits at the end of this IIFE rather than up with the other setup.
+      restoreHistory();
     })();
 
     // Light/dark theme toggle -- the actual switch on click; the matching read happens in the

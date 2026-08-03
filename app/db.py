@@ -1545,12 +1545,20 @@ def get_log_watch_checkpoints(container_names: list[str]) -> dict[str, str]:
         return {r["container_name"]: r["last_checked_at"] for r in cur.fetchall()}
 
 
-def set_log_watch_checkpoints(container_names: list[str]) -> None:
+def set_log_watch_checkpoints(container_names: list[str], at: str | None = None) -> None:
     """Batched equivalent of set_log_watch_checkpoint -- stamps every given container's
-    checkpoint to "now" in a single connection/transaction."""
+    checkpoint in a single connection/transaction.
+
+    `at` (an ISO timestamp) exists so the log watcher can stamp checkpoints with the time the
+    check STARTED rather than the time it finished writing them: anything a container logs
+    while a long check is still running would otherwise land in the gap between its own fetch
+    and the post-check stamp, and be skipped forever by the next check's "since the
+    checkpoint" fetch. Stamping the start time instead means that window gets re-fetched next
+    time (a few harmless duplicate lines) rather than silently dropped. Defaults to now for
+    any caller that doesn't care."""
     if not container_names:
         return
-    now = now_iso()
+    now = at or now_iso()
     with get_conn() as conn:
         conn.executemany(
             """
@@ -1912,6 +1920,27 @@ def get_openai_compat_concurrency() -> int:
 
 def set_openai_compat_concurrency(value: int) -> None:
     _set_setting("openai_compat_concurrency", str(value))
+
+
+# How many extra attempts a single container's registry digest lookup gets before it's recorded
+# as a check error (see reconcile._fetch_group). A real-world report: update checks failing on
+# containers that were perfectly fine, because a registry lookup is one HTTP call to a
+# third-party host with a 10s timeout and exactly one shot -- a momentary rate limit, DNS
+# hiccup, or 5xx surfaced as a hard "check failed" the operator then had to notice and re-run
+# by hand. 0 restores the old single-attempt behavior; the max keeps a pathological registry
+# outage from stretching one check out indefinitely. Clamped by the route in main.py that
+# writes it; read paths trust the stored value since nothing else can write it.
+UPDATE_RETRY_MIN = 0
+UPDATE_RETRY_MAX = 10
+UPDATE_RETRY_DEFAULT = 2
+
+
+def get_update_check_retries() -> int:
+    return int(_get_setting("update_check_retries", str(UPDATE_RETRY_DEFAULT)))
+
+
+def set_update_check_retries(value: int) -> None:
+    _set_setting("update_check_retries", str(value))
 
 
 def get_github_token() -> str:

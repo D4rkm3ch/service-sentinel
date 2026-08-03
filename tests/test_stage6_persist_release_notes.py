@@ -182,7 +182,7 @@ def test_run_and_persist_check_reports_both_stages_in_order(monkeypatch):
     actually calls): proves the "checking" stage from reconcile.run_check() and the
     "release_notes" stage from persist_check_outcome() both reach the same on_progress
     callback, in order, with the stage name that lets the UI tell them apart."""
-    def fake_run_check(on_progress=None):
+    def fake_run_check(on_progress=None, retries=0):
         if on_progress:
             on_progress(0, 1)
             on_progress(1, 1)
@@ -275,7 +275,7 @@ def test_run_and_persist_single_check_does_not_touch_an_unchanged_row_that_alrea
         persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
     first_id = db.list_tracked_containers_with_status()[0]["id"]
 
-    def fake_run_check_one(container_name, on_progress=None):
+    def fake_run_check_one(container_name, on_progress=None, retries=0):
         assert container_name == "sonarr"
         return _outcome(_c("sonarr", "update_available"))  # exact same transition as before
 
@@ -294,7 +294,7 @@ def test_run_and_persist_single_reset_and_check_forces_a_fresh_row_and_refetch(m
     persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
     first_id = db.list_tracked_containers_with_status()[0]["id"]
 
-    def fake_run_check_one(container_name, on_progress=None):
+    def fake_run_check_one(container_name, on_progress=None, retries=0):
         return _outcome(_c("sonarr", "update_available"))  # exact same transition as before
 
     monkeypatch.setattr("app.persist.reconcile.run_check_one", fake_run_check_one)
@@ -310,7 +310,7 @@ def test_run_and_persist_single_reset_and_check_forces_a_fresh_row_and_refetch(m
 
 def test_run_and_persist_single_reset_and_check_is_a_noop_if_nothing_was_tracked_yet(monkeypatch):
     """No existing row to delete -- must not raise, just behave like a normal fresh check."""
-    def fake_run_check_one(container_name, on_progress=None):
+    def fake_run_check_one(container_name, on_progress=None, retries=0):
         return _outcome(_c("sonarr", "up_to_date", latest_digest="sha256:old"))
 
     monkeypatch.setattr("app.persist.reconcile.run_check_one", fake_run_check_one)

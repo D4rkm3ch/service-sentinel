@@ -1618,6 +1618,9 @@ def settings_page(request: Request):
             "openai_compat_concurrency": db.get_openai_compat_concurrency(),
             "ai_concurrency_min": db.AI_CONCURRENCY_MIN,
             "ai_concurrency_max": db.AI_CONCURRENCY_MAX,
+            "update_check_retries": db.get_update_check_retries(),
+            "update_retry_min": db.UPDATE_RETRY_MIN,
+            "update_retry_max": db.UPDATE_RETRY_MAX,
             "github_token_configured": bool(db.get_github_token()),
             "auth_secret_configured": bool(db.get_auth_secret()),
             "auth_username": db.get_auth_username(),
@@ -1912,6 +1915,22 @@ async def save_openai_compat_concurrency(request: Request):
     if error:
         return {"ok": False, "message": error}
     db.set_openai_compat_concurrency(value)
+    return {"ok": True, "value": value}
+
+
+@app.post("/settings/updates/retries")
+async def save_update_check_retries(request: Request):
+    """How many extra attempts a failing registry lookup gets before the container is recorded
+    as a check error (see reconcile._digest_with_retry). Same inline-validated number-field
+    shape as the AI concurrency routes above."""
+    form = await request.form()
+    try:
+        value = int(form.get("value", ""))
+    except (TypeError, ValueError):
+        return {"ok": False, "message": "Enter a whole number."}
+    if not (db.UPDATE_RETRY_MIN <= value <= db.UPDATE_RETRY_MAX):
+        return {"ok": False, "message": f"Must be between {db.UPDATE_RETRY_MIN} and {db.UPDATE_RETRY_MAX}."}
+    db.set_update_check_retries(value)
     return {"ok": True, "value": value}
 
 
