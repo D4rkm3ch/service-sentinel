@@ -15,11 +15,16 @@
     the layout only has to be learned once.
 
     The two panels above the modules are the app's own configuration rather than any one
-    module's: General for what all three modules inherit (timezone, the default schedule, where
-    notifications are delivered), and Connections & Access for what Service Sentinel talks out to
-    and who is allowed in. Everything in that second one is also offered up front by the
-    first-launch onboarding wizard (see _onboarding_modal.html) -- it lives here as well so any
-    of it can be changed later.
+    module's: Timing & Delivery for what all three modules inherit (the timezone schedules are
+    read in, the schedule they fall back to, and where their notifications go), and Connections &
+    Access for what Service Sentinel talks out to and who is allowed in. Everything in that
+    second one is also offered up front by the first-launch onboarding wizard (see
+    _onboarding_modal.html) -- it lives here as well so any of it can be changed later.
+
+    No panel carries an intro paragraph. Five headings and their subsection headings say enough
+    on their own, and a sentence under each one was three extra lines to scroll past every time
+    for something only ever read once. The per-control help text stays -- that explains what a
+    setting actually does, which the heading above it genuinely can't.
 
     Every panel collapses, and its open/closed state is remembered per browser -- see the
     restore script at the end of this file and the shared toggle handler in base.html. -#}
@@ -46,14 +51,12 @@
 
 <section class="panel settings-panel">
   <div class="settings-panel-header collapsible-header collapsed" role="button" tabindex="0"
-       aria-expanded="false" aria-controls="settings-general-body"
-       data-collapse-target="settings-general-body" data-collapse-key="general">
-    <h2 class="settings-heading-lg">General</h2>
+       aria-expanded="false" aria-controls="settings-timing-body"
+       data-collapse-target="settings-timing-body" data-collapse-key="timing">
+    <h2 class="settings-heading-lg">Timing &amp; Delivery</h2>
     <span class="collapse-arrow" aria-hidden="true">&#9662;</span>
   </div>
-  <div class="collapse-body" id="settings-general-body" style="max-height:0">
-    <p class="meta">The three settings that aren't about any one module on its own.</p>
-
+  <div class="collapse-body" id="settings-timing-body" style="max-height:0">
     <div class="settings-subsection settings-subsection-first">
       <h4>Timezone</h4>
       <form class="schedule-fields" hx-post="/settings/timezone" hx-trigger="change" hx-target="#saved-timezone" hx-swap="innerHTML">
@@ -66,7 +69,7 @@
       </form>
     </div>
 
-    <div class="settings-subsection" id="general_schedule_section">
+    <div class="settings-subsection" id="default_schedule_section">
       <h4>Default Schedule</h4>
       <p class="meta">Used by any module that isn't set to its own custom schedule</p>
       {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
@@ -74,8 +77,11 @@
 
     <div class="settings-subsection" id="notification_delivery_section">
       <h4>Notification Delivery</h4>
+      {#- No "above"/"below" here: this panel has already moved once, and a sentence that points
+          at where another panel sits is one more thing to remember to update when it moves
+          again. -#}
       <p class="meta">Where every module's notifications are sent. Each module chooses what it
-sends and at which level in its own panel above.</p>
+sends, and at which level, in its own panel.</p>
       {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', 'Enable notifications', "toggleAppriseField(this.checked)") }}
 
       <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated - see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for the exact format each service needs.</p>
@@ -102,9 +108,6 @@ sends and at which level in its own panel above.</p>
     <span class="collapse-arrow" aria-hidden="true">&#9662;</span>
   </div>
   <div class="collapse-body" id="settings-connections-body" style="max-height:0">
-    <p class="meta">What Service Sentinel talks out to, and who is allowed in. All of it is
-offered up front the first time you launch; this is where to change it afterwards.</p>
-
     <div class="settings-subsection settings-subsection-first" id="ai_provider_section">
       <h4>AI Provider</h4>
       <select name="ai_provider" class="mono field-input" onchange="toggleAiProvider(this.value)"

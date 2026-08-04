@@ -22,7 +22,7 @@ def test_the_ai_provider_is_a_subsection_of_connections_rather_than_leading_the_
     grouping this is part of."""
     text = client.get("/settings").text
     connections = text.index('id="settings-connections-body"')
-    assert text.index('id="settings-general-body"') < connections < text.index('id="settings-updates-body"')
+    assert text.index('id="settings-timing-body"') < connections < text.index('id="settings-updates-body"')
     assert text.index("<h4>AI Provider</h4>") > connections
 
 

@@ -2403,13 +2403,11 @@ a.feature-card-issue-slot:hover {
 .settings-panel-header.collapsed + .collapse-body {
   overflow: hidden;
 }
-/* A section's own intro paragraph (a direct child of .panel, above the first subsection) --
-   same reasoning as .settings-subsection .meta below: the default 24px .meta margin plus the
-   next subsection's own top margin/padding compounded into a visibly oversized gap between the
-   description and the first heading beneath it. */
-.panel > .meta {
-  margin-bottom: 10px;
-}
+/* There was a `.panel > .meta` rule here, tightening the bottom margin on a section's own intro
+   paragraph. No panel has one any more -- the headings say enough on their own, and a sentence
+   under each was three more lines to scroll past every visit -- and the rule had in fact stopped
+   matching anything even before that, when the panels' contents moved inside a .collapse-body
+   and stopped being direct children. Verified zero matches across every page before deleting. */
 .settings-subsection {
   border-top: 1px solid var(--border);
   padding-top: 14px;

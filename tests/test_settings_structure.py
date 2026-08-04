@@ -8,9 +8,11 @@ two panels nobody opens twice (AI keys, the login) sat at the top while the two 
 get revisited were three and a half screens below them.
 
 Now each module owns one panel holding everything about it, the three module panels are the same
-shape as each other, what genuinely applies to all three is in General at the top, and install-
-day credentials are in Setup at the bottom. Every panel starts collapsed and remembers whether
-it was left open, so the page is five rows at rest instead of four and a half screens.
+shape as each other, and the app's own configuration sits above them in two panels named for
+their contents: Timing & Delivery for what all three modules inherit, Connections & Access for
+what Service Sentinel talks out to and who is allowed in. Every panel starts collapsed and
+remembers whether it was left open, so the page is five rows at rest instead of four and a half
+screens.
 
 Browser-verified alongside these: the collapsed page is five rows and ~795px tall, clicking a
 header slides it open, the state survives a reload, Enter on a focused header toggles it, and a
@@ -39,14 +41,14 @@ def _panel_bodies(text):
 # ---------------------------------------------------------------------------
 
 def test_the_page_is_five_panels_in_a_deliberate_order(client):
-    """The app's own two panels first -- General for what the modules inherit, Connections &
-    Access for what Service Sentinel talks out to and who is allowed in -- then the three
-    modules in the app's usual order."""
+    """The app's own two panels first -- Timing & Delivery for what the modules inherit,
+    Connections & Access for what Service Sentinel talks out to and who is allowed in -- then the
+    three modules in the app's usual order."""
     text = client.get("/settings").text
     # Matched on the panel headings specifically -- a bare ">Updates<" also hits the sidebar's
     # own nav link, which sits above all of this in the document.
     order = [text.index(f'settings-heading-lg">{title}</h2>') for title in
-             ("General", "Connections &amp; Access", "Updates", "Runtime Health",
+             ("Timing &amp; Delivery", "Connections &amp; Access", "Updates", "Runtime Health",
               "Configuration Health")]
     assert order == sorted(order)
     assert text.count('class="panel settings-panel"') == 5
@@ -54,7 +56,7 @@ def test_the_page_is_five_panels_in_a_deliberate_order(client):
 
 def test_the_old_mechanism_panels_are_gone(client):
     """Each of these was a top-level panel; every one of them now lives inside the module it
-    belongs to, or -- for the two that were genuinely shared -- inside General."""
+    belongs to, or -- for the two that were genuinely shared -- inside Timing & Delivery."""
     text = client.get("/settings").text
     for stale in (">Deep Analysis<", ">Cross-Service Analysis<", ">Update Checks<",
                   ">Scheduling<", ">Access Control</h2>", ">AI Provider</h2>"):
@@ -90,17 +92,20 @@ def test_the_asymmetries_between_modules_are_only_the_real_ones(client):
     assert "cross_service_analysis_compose" not in bodies["compose"]
 
 
-def test_general_holds_exactly_what_all_three_modules_share(client):
+def test_timing_and_delivery_holds_exactly_what_all_three_modules_share(client):
+    """The panel is named for its contents rather than for how important it is -- "General" said
+    only that these settings weren't specific to anything, which is true of a junk drawer too."""
     text = client.get("/settings").text
-    general = text[text.index('id="settings-general-body"'):text.index('id="settings-updates-body"')]
-    assert "<h4>Timezone</h4>" in general
-    assert "<h4>Default Schedule</h4>" in general
-    # The master notification switch and the Apprise URL are delivery, shared by all three; each
-    # module still chooses what it sends and at which level in its own panel.
-    assert "<h4>Notification Delivery</h4>" in general
-    assert 'id="apprise_urls_field"' in general
-    assert "notify_master_enabled" in general
-    assert "severity_buttons" not in general
+    panel = text[text.index('id="settings-timing-body"'):text.index('id="settings-connections-body"')]
+    # Timing: the timezone schedules are read in, and the schedule the modules fall back to.
+    assert "<h4>Timezone</h4>" in panel
+    assert "<h4>Default Schedule</h4>" in panel
+    # Delivery: where notifications go. Each module still chooses what it sends and at which
+    # level in its own panel, so the severity pickers stay out of here.
+    assert "<h4>Notification Delivery</h4>" in panel
+    assert 'id="apprise_urls_field"' in panel
+    assert "notify_master_enabled" in panel
+    assert "severity_buttons" not in panel
 
 
 def test_connections_and_access_holds_everything_the_onboarding_wizard_asks(client):
@@ -148,7 +153,7 @@ def test_collapsed_bodies_actually_clip(client):
 
 def test_each_panel_carries_the_key_its_state_is_remembered_under(client):
     text = client.get("/settings").text
-    for key in ("general", "connections", "updates", "logs", "compose"):
+    for key in ("timing", "connections", "updates", "logs", "compose"):
         assert f'data-collapse-key="{key}"' in text
 
 
@@ -156,7 +161,7 @@ def test_the_headers_behave_like_buttons(client):
     """Checked per header rather than by counting across the page -- the sidebar toggle and the
     accent swatch legitimately carry aria-expanded of their own."""
     text = client.get("/settings").text
-    for key in ("general", "connections", "updates", "logs", "compose"):
+    for key in ("timing", "connections", "updates", "logs", "compose"):
         at = text.index(f'data-collapse-key="{key}"')
         header = text[text.rindex("<div", 0, at):text.index(">", at) + 1]
         assert 'role="button"' in header, key
@@ -209,3 +214,20 @@ def test_the_ai_analysis_blurb_matches_how_many_toggles_the_module_has(client):
     assert "Both cost noticeably more tokens" in bodies["logs"]
     assert "Costs noticeably more tokens" in bodies["compose"]
     assert "Both cost" not in bodies["compose"]
+
+
+def test_no_panel_carries_an_intro_paragraph(client):
+    """Five headings and their subsection headings say enough on their own. A sentence under each
+    panel heading was three more lines to scroll past on every visit for something read once, and
+    it pushed the first real control further from the heading that named it.
+
+    The per-control help text is a different thing and stays: "Retries" doesn't explain what it
+    retries or why, and "Lookback Window" doesn't say it's still capped by the last real check."""
+    text = client.get("/settings").text
+    for body in ("timing", "connections", "updates", "logs", "compose"):
+        start = text.index(f'id="settings-{body}-body"')
+        opening = text[start:text.index("<div", start + 1)]
+        assert 'class="meta"' not in opening, f"{body} panel has an intro paragraph again"
+    # The help text that explains individual controls is untouched.
+    assert "How many times to retry a failed registry lookup" in text
+    assert "still\ncapped by your last actual check" in text or "capped by your last actual check" in text
