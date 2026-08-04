@@ -27,9 +27,10 @@ MODULES = ("updates", "logs", "compose")
 
 
 def _panel_bodies(text):
-    """The rendered page sliced into one chunk per module panel."""
+    """The rendered page sliced into one chunk per module panel. The three sit last, so the tail
+    bound is the inline restore script that follows them."""
     bounds = [text.index(f'id="settings-{m}-body"') for m in MODULES]
-    bounds.append(text.index('id="settings-setup-body"'))
+    bounds.append(text.index("service-sentinel-settings-open"))
     return {m: text[bounds[i]:bounds[i + 1]] for i, m in enumerate(MODULES)}
 
 
@@ -38,13 +39,15 @@ def _panel_bodies(text):
 # ---------------------------------------------------------------------------
 
 def test_the_page_is_five_panels_in_a_deliberate_order(client):
-    """General first (it's what the modules below inherit from), the three modules in the app's
-    usual order, then Setup -- the one panel you close after install and never reopen."""
+    """The app's own two panels first -- General for what the modules inherit, Connections &
+    Access for what Service Sentinel talks out to and who is allowed in -- then the three
+    modules in the app's usual order."""
     text = client.get("/settings").text
     # Matched on the panel headings specifically -- a bare ">Updates<" also hits the sidebar's
     # own nav link, which sits above all of this in the document.
     order = [text.index(f'settings-heading-lg">{title}</h2>') for title in
-             ("General", "Updates", "Runtime Health", "Configuration Health", "Setup")]
+             ("General", "Connections &amp; Access", "Updates", "Runtime Health",
+              "Configuration Health")]
     assert order == sorted(order)
     assert text.count('class="panel settings-panel"') == 5
 
@@ -100,22 +103,21 @@ def test_general_holds_exactly_what_all_three_modules_share(client):
     assert "severity_buttons" not in general
 
 
-def test_setup_holds_the_install_day_credentials_including_access_control(client):
-    """Access control is offered up front in the first-launch onboarding modal, and stays here
-    so the choice made there can be revisited -- or made for the first time by anyone who
-    dismissed the modal."""
+def test_connections_and_access_holds_everything_the_onboarding_wizard_asks(client):
+    """Every step of the first-launch wizard has a home here, so nothing it offers is only ever
+    reachable from a modal that shows once and never returns."""
     text = client.get("/settings").text
-    setup = text[text.index('id="settings-setup-body"'):]
-    assert "<h4>AI Provider</h4>" in setup
-    assert "<h4>Access Control</h4>" in setup
-    assert 'id="auth_secret_field"' in setup
-    assert "github_api_key_field" in setup or "github" in setup
+    panel = text[text.index('id="settings-connections-body"'):text.index('id="settings-updates-body"')]
+    assert "<h4>AI Provider</h4>" in panel
+    assert "<h4>GitHub" in panel
+    assert "<h4>Access Control</h4>" in panel
+    assert 'id="auth_secret_field"' in panel
 
 
 def test_access_control_is_offered_in_onboarding_as_well_as_settings(client):
     """Two entry points to the same routes, deliberately: the modal so it isn't missed on a fresh
     install, the Settings subsection so it can be changed afterwards."""
-    modal = (ROOT / "app" / "templates" / "_access_control_onboarding_modal.html").read_text()
+    modal = (ROOT / "app" / "templates" / "_onboarding_modal.html").read_text()
     settings = client.get("/settings").text
     assert "/settings/access-control/credentials" in modal
     assert "/settings/access-control/credentials" in settings
@@ -146,7 +148,7 @@ def test_collapsed_bodies_actually_clip(client):
 
 def test_each_panel_carries_the_key_its_state_is_remembered_under(client):
     text = client.get("/settings").text
-    for key in ("general", "updates", "logs", "compose", "setup"):
+    for key in ("general", "connections", "updates", "logs", "compose"):
         assert f'data-collapse-key="{key}"' in text
 
 
@@ -154,7 +156,7 @@ def test_the_headers_behave_like_buttons(client):
     """Checked per header rather than by counting across the page -- the sidebar toggle and the
     accent swatch legitimately carry aria-expanded of their own."""
     text = client.get("/settings").text
-    for key in ("general", "updates", "logs", "compose", "setup"):
+    for key in ("general", "connections", "updates", "logs", "compose"):
         at = text.index(f'data-collapse-key="{key}"')
         header = text[text.rindex("<div", 0, at):text.index(">", at) + 1]
         assert 'role="button"' in header, key
@@ -173,8 +175,9 @@ def test_the_saved_state_is_restored_inline_rather_than_with_the_other_scripts()
     back open on each page load."""
     text = SETTINGS.read_text()
     assert "service-sentinel-settings-open" in text
-    # Inline in this template, after the panels and before base.html's own script block.
-    assert text.index("service-sentinel-settings-open") > text.index('id="settings-setup-body"')
+    # Inline in this template, after the panels and before base.html's own script block. Read
+    # from the raw template, so the module panels are still the un-rendered Jinja loop.
+    assert text.index("service-sentinel-settings-open") > text.index('id="settings-{{ feature }}-body"')
 
 
 def test_a_deep_link_beats_the_saved_state():

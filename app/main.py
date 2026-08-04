@@ -1839,19 +1839,26 @@ async def save_auth_lan_bypass(request: Request):
     return _saved(request)
 
 
-@app.get("/settings/access-control/onboarding-modal")
-def access_control_onboarding_modal(request: Request):
-    """Auto-loaded (hx-trigger="load") from a slot in base.html on every single page, rather than
-    threaded through every route's own template context -- this app has dozens of routes that
-    render a full page, and adding one more context key to all of them individually would be easy
-    to miss on the next new route. Renders nothing once the operator has made a real decision
-    either way: an explicit onboarding choice (db.get_auth_onboarding_done()), or -- for an
-    install upgrading from before this modal existed -- a secret it already finds configured, so
-    upgrading never re-interrupts someone who set this up long ago."""
+@app.get("/settings/onboarding-modal")
+def onboarding_modal(request: Request):
+    """The first-launch setup wizard: AI provider, then GitHub, then access control. Auto-loaded
+    (hx-trigger="load") from a slot in base.html on every single page, rather than threaded
+    through every route's own template context -- this app has dozens of routes that render a
+    full page, and adding one more context key to all of them individually would be easy to miss
+    on the next new route.
+
+    Access control is the last step and the only one that dismisses this for good, which is why
+    the gate below still reads as it did when this asked that one question alone: an explicit
+    onboarding choice (db.get_auth_onboarding_done()), or -- for an install upgrading from before
+    the modal existed -- a secret it already finds configured, so upgrading never re-interrupts
+    someone who set this up long ago. The two steps ahead of it are both skippable and both live
+    in Settings > Connections & Access as well, so nothing is only reachable from here."""
     needs_onboarding = not (db.get_auth_onboarding_done() or bool(db.get_auth_secret()))
     if not needs_onboarding:
         return Response(content="", media_type="text/html")
-    return templates.TemplateResponse(request, "_access_control_onboarding_modal.html", {})
+    return templates.TemplateResponse(
+        request, "_onboarding_modal.html", {"ai_provider": db.get_ai_provider()}
+    )
 
 
 @app.post("/settings/ai/gemini-model")

@@ -13,15 +13,17 @@ from pathlib import Path
 SETTINGS_TEMPLATE = Path(__file__).resolve().parent.parent / "app" / "templates" / "settings.html"
 
 
-def test_the_ai_provider_keys_sit_at_the_very_bottom_of_the_page(client):
-    """This ordering is the reverse of what it once was, and deliberately so. AI Provider led the
-    page on the reasoning that this is an AI program first -- but it's a page of API keys you set
-    on install day and never open again, and it was pushing the things operators actually revisit
-    below three and a half screens of scroll. It's the last panel now, under Setup. See
-    test_settings_structure.py for the grouping this is part of."""
+def test_the_ai_provider_is_a_subsection_of_connections_rather_than_leading_the_page(client):
+    """AI Provider used to be a top-level panel leading the page, on the reasoning that this is an
+    AI program first. It's a subsection now, sharing Connections & Access with the GitHub token
+    and the app's own login -- they're one category (what it talks out to, and who is allowed in)
+    and they're all asked up front by the onboarding wizard anyway. The panel sits second, above
+    the modules but below the settings they inherit. See test_settings_structure.py for the
+    grouping this is part of."""
     text = client.get("/settings").text
-    assert text.index(">Setup<") > text.index(">Configuration Health<")
-    assert text.index("<h4>AI Provider</h4>") > text.index('id="settings-setup-body"')
+    connections = text.index('id="settings-connections-body"')
+    assert text.index('id="settings-general-body"') < connections < text.index('id="settings-updates-body"')
+    assert text.index("<h4>AI Provider</h4>") > connections
 
 
 def test_registry_error_toggle_sits_between_enable_notifications_and_severity_buttons(client):

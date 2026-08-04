@@ -250,7 +250,7 @@
        (see the route's own docstring for why) -- renders nothing once the operator has made a
        real access-control decision, the first-launch "set a username/password or turn this off"
        modal otherwise. -->
-  <div id="onboarding-modal-slot" hx-get="/settings/access-control/onboarding-modal" hx-trigger="load" hx-swap="innerHTML"></div>
+  <div id="onboarding-modal-slot" hx-get="/settings/onboarding-modal" hx-trigger="load" hx-swap="innerHTML"></div>
 
   <!-- Chat widget -- floating, present on every page (not a sidebar destination) so a
        conversation can keep going while navigating between pages. Look-only by construction:

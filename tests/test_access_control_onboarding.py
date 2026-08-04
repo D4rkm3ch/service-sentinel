@@ -39,7 +39,7 @@ def teardown_function(_):
 # ---------------------------------------------------------------------------
 
 def test_modal_renders_on_a_fresh_install_with_no_decision_made_yet(client):
-    resp = client.get("/settings/access-control/onboarding-modal")
+    resp = client.get("/settings/onboarding-modal")
     assert resp.status_code == 200
     assert "onboarding-modal-overlay" in resp.text
     assert "Set up access control" in resp.text
@@ -47,7 +47,7 @@ def test_modal_renders_on_a_fresh_install_with_no_decision_made_yet(client):
 
 def test_modal_renders_nothing_once_onboarding_is_explicitly_marked_done(client):
     db.set_auth_onboarding_done(True)
-    resp = client.get("/settings/access-control/onboarding-modal")
+    resp = client.get("/settings/onboarding-modal")
     assert resp.status_code == 200
     assert resp.text == ""
 
@@ -58,14 +58,14 @@ def test_modal_renders_nothing_once_a_secret_is_already_configured(client):
     made this decision long ago."""
     db.set_auth_secret(_SECRET)
     token = base64.b64encode(f"anyone:{_SECRET}".encode()).decode()
-    resp = client.get("/settings/access-control/onboarding-modal", headers={"Authorization": f"Basic {token}"})
+    resp = client.get("/settings/onboarding-modal", headers={"Authorization": f"Basic {token}"})
     assert resp.status_code == 200
     assert resp.text == ""
 
 
 def test_modal_is_auto_loaded_from_every_page_via_base_html(client):
     text = client.get("/").text
-    assert 'hx-get="/settings/access-control/onboarding-modal"' in text
+    assert 'hx-get="/settings/onboarding-modal"' in text
     assert 'hx-trigger="load"' in text
 
 
@@ -80,7 +80,7 @@ def test_enabling_credentials_marks_onboarding_done_and_hides_the_modal_afterwar
     assert db.get_auth_onboarding_done() is True
 
     token = base64.b64encode(f"{_USERNAME}:{_SECRET}".encode()).decode()
-    resp = client.get("/settings/access-control/onboarding-modal", headers={"Authorization": f"Basic {token}"})
+    resp = client.get("/settings/onboarding-modal", headers={"Authorization": f"Basic {token}"})
     assert resp.text == ""
 
 
@@ -90,7 +90,7 @@ def test_disabling_marks_onboarding_done_and_hides_the_modal_afterward(client):
     assert resp.json()["ok"] is True
     assert db.get_auth_onboarding_done() is True
 
-    resp = client.get("/settings/access-control/onboarding-modal")
+    resp = client.get("/settings/onboarding-modal")
     assert resp.text == ""
 
 
@@ -99,5 +99,5 @@ def test_disabling_marks_onboarding_done_and_hides_the_modal_afterward(client):
 # ---------------------------------------------------------------------------
 
 def test_modal_includes_a_lan_bypass_toggle_posting_to_the_real_route(client):
-    resp = client.get("/settings/access-control/onboarding-modal")
+    resp = client.get("/settings/onboarding-modal")
     assert '/settings/access-control/lan-bypass' in resp.text

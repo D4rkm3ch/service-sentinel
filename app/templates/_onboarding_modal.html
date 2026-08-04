@@ -1,0 +1,254 @@
+{% import "_toggle_switch.html" as ts %}
+{#- First-launch setup, shown once (see the onboarding-modal route) and never again after the
+    access-control step is answered. Three steps, in the order that matters to a fresh install:
+    the AI provider first because nothing this app does works without one, GitHub second because
+    it only raises a rate limit, and access control last because it's the one that changes how
+    the very next request is authenticated -- answering it reloads the page.
+
+    Every field here posts to exactly the same route its counterpart in Settings does, so there's
+    no second copy of any save/test logic to keep in step. Both of the first two steps are
+    skippable: they can all be set (or changed) later in Settings > Connections & Access. -#}
+<div class="onboarding-modal-overlay">
+  <div class="onboarding-modal panel">
+
+    <div class="onboarding-step" data-step="1">
+      <p class="onboarding-step-count">Step 1 of 3</p>
+      <h2 class="settings-heading-lg">Connect an AI provider</h2>
+      <p class="meta">Service Sentinel reads your containers' logs, release notes and compose
+files, and needs a model to make sense of them. Pick a provider and paste a key.</p>
+
+      <div class="settings-subsection settings-subsection-first">
+        <select id="onboarding_provider_select" class="mono field-input" onchange="onboardingProviderChanged(this.value)">
+          <option value="anthropic" {{ 'selected' if ai_provider == 'anthropic' else '' }}>Anthropic (Claude)</option>
+          <option value="gemini" {{ 'selected' if ai_provider == 'gemini' else '' }}>Google Gemini</option>
+          <option value="openai" {{ 'selected' if ai_provider == 'openai' else '' }}>OpenAI (GPT)</option>
+          <option value="openai_compat" {{ 'selected' if ai_provider == 'openai_compat' else '' }}>OpenAI-compatible (Ollama, LM Studio, ...)</option>
+        </select>
+
+        {#- One key field for the three hosted providers, since they differ only in the hint and
+            the route -- both swapped by onboardingProviderChanged below. -#}
+        <div id="onboarding_hosted_fields" class="{{ 'hidden' if ai_provider == 'openai_compat' else '' }}" style="margin-top:12px">
+          <p class="meta" id="onboarding_key_hint"></p>
+          <input type="password" id="onboarding_ai_key_field" class="mono field-input" autocomplete="off"
+                 placeholder="API key" style="width:100%">
+        </div>
+
+        <div id="onboarding_compat_fields" class="{{ '' if ai_provider == 'openai_compat' else 'hidden' }}" style="margin-top:12px">
+          <p class="meta">Any server speaking the OpenAI API. Point it at the server's /v1 base
+URL and name the model exactly as the server knows it.</p>
+          <input type="text" id="onboarding_compat_base_url" class="mono field-input"
+                 placeholder="http://ollama:11434/v1" style="width:100%; margin-bottom:8px">
+          <input type="text" id="onboarding_compat_model" class="mono field-input"
+                 placeholder="Model, e.g. llama3.1:8b" style="width:100%; margin-bottom:8px">
+          <input type="password" id="onboarding_compat_key" class="mono field-input" autocomplete="off"
+                 placeholder="API key (optional)" style="width:100%">
+        </div>
+      </div>
+
+      <div class="onboarding-actions">
+        <button type="button" class="button-quiet" onclick="onboardingGoTo(2)">Skip for now</button>
+        <button type="button" id="onboarding_ai_save_btn" onclick="onboardingSaveAiKey()">Test &amp; Continue</button>
+        <span id="onboarding_ai_result"></span>
+      </div>
+    </div>
+
+    <div class="onboarding-step hidden" data-step="2">
+      <p class="onboarding-step-count">Step 2 of 3</p>
+      <h2 class="settings-heading-lg">GitHub <span class="badge badge-lg badge-sev-suggestion">Optional</span></h2>
+      <p class="meta">Release notes come from GitHub. Without a token you get 60 requests an
+hour, which a large stack can exhaust; with one, 5,000. A fine-grained token with no permissions
+at all is enough -- it only ever reads public repositories. Get one from
+<a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.</p>
+
+      <div class="settings-subsection settings-subsection-first">
+        <input type="password" id="onboarding_github_field" class="mono field-input" autocomplete="off"
+               placeholder="ghp_..." style="width:100%">
+      </div>
+
+      <div class="onboarding-actions">
+        <button type="button" class="button-quiet" onclick="onboardingGoTo(1)">Back</button>
+        <button type="button" class="button-quiet" onclick="onboardingGoTo(3)">Skip</button>
+        <button type="button" id="onboarding_github_save_btn" onclick="onboardingSaveGithub()">Test &amp; Continue</button>
+        <span id="onboarding_github_result"></span>
+      </div>
+    </div>
+
+    <div class="onboarding-step hidden" data-step="3">
+      <p class="onboarding-step-count">Step 3 of 3</p>
+      <h2 class="settings-heading-lg">Set up access control</h2>
+      <p class="meta">Service Sentinel has no login by default - anyone who can reach this address
+can use it. Set a username and password now, or explicitly turn this off if you're comfortable
+running without one (e.g. a private network you trust). You can change this later in
+Settings.</p>
+
+      <div class="settings-subsection settings-subsection-first">
+        <input type="text" id="onboarding_username_field" class="mono field-input" autocomplete="off"
+               placeholder="Username" style="width:100%; margin-bottom:8px">
+        <input type="password" id="onboarding_password_field" class="mono field-input" autocomplete="off"
+               placeholder="Password (min. 8 characters)" style="width:100%">
+        <div style="margin-top:12px">
+          {{ ts.toggle_switch('onboarding_lan_bypass', false, '/settings/access-control/lan-bypass',
+                               'Skip login for devices on the local network') }}
+        </div>
+      </div>
+
+      <div class="onboarding-actions">
+        <button type="button" class="button-quiet" onclick="onboardingGoTo(2)">Back</button>
+        <button type="button" class="button-danger" onclick="onboardingDisable()">Don't require a login</button>
+        <button type="button" onclick="onboardingEnable()">Enable Access Control</button>
+        <span id="onboarding_result"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Hint text and save route per provider -- the three hosted ones share one field, so both are
+// swapped when the select changes rather than rendering three near-identical blocks.
+const ONBOARDING_PROVIDERS = {
+  anthropic: { url: '/settings/ai/anthropic-key', placeholder: 'sk-ant-...',
+               hint: 'Get a key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>' },
+  gemini: { url: '/settings/ai/gemini-key', placeholder: 'AIza...',
+            hint: 'Get a key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>' },
+  openai: { url: '/settings/ai/openai-key', placeholder: 'sk-...',
+            hint: 'Get a key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>' },
+};
+
+function onboardingGoTo(step) {
+  document.querySelectorAll('.onboarding-step').forEach(el => {
+    el.classList.toggle('hidden', el.dataset.step !== String(step));
+  });
+}
+
+function onboardingProviderChanged(provider) {
+  const compat = provider === 'openai_compat';
+  document.getElementById('onboarding_hosted_fields').classList.toggle('hidden', compat);
+  document.getElementById('onboarding_compat_fields').classList.toggle('hidden', !compat);
+  if (!compat) {
+    const spec = ONBOARDING_PROVIDERS[provider];
+    document.getElementById('onboarding_key_hint').innerHTML = spec.hint;
+    document.getElementById('onboarding_ai_key_field').placeholder = spec.placeholder;
+  }
+  // Persist the choice immediately, so skipping the key still leaves the right provider
+  // selected -- and so the key saved below lands against the provider actually shown.
+  fetch('/settings/ai/provider', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'ai_provider=' + encodeURIComponent(provider),
+  });
+}
+
+function onboardingSaveAiKey() {
+  const provider = document.getElementById('onboarding_provider_select').value;
+  const slot = document.getElementById('onboarding_ai_result');
+  const btn = document.getElementById('onboarding_ai_save_btn');
+  let url, body;
+
+  if (provider === 'openai_compat') {
+    const baseUrl = document.getElementById('onboarding_compat_base_url').value.trim();
+    const model = document.getElementById('onboarding_compat_model').value.trim();
+    if (!baseUrl || !model) {
+      slot.innerHTML = '<span class="test-result-error">Enter a base URL and a model name.</span>';
+      return;
+    }
+    url = '/settings/ai/openai-compat';
+    body = 'base_url=' + encodeURIComponent(baseUrl) +
+           '&model=' + encodeURIComponent(model) +
+           '&api_key=' + encodeURIComponent(document.getElementById('onboarding_compat_key').value.trim());
+  } else {
+    const key = document.getElementById('onboarding_ai_key_field').value.trim();
+    if (!key) {
+      slot.innerHTML = '<span class="test-result-error">Enter a key first.</span>';
+      return;
+    }
+    url = ONBOARDING_PROVIDERS[provider].url;
+    body = 'api_key=' + encodeURIComponent(key);
+  }
+
+  slot.innerHTML = '<span class="meta">Testing…</span>';
+  btn.disabled = true;
+  fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        slot.innerHTML = '';
+        onboardingGoTo(2);
+      } else {
+        slot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+      }
+    })
+    .catch(() => {
+      slot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+    })
+    .finally(() => { btn.disabled = false; });
+}
+
+function onboardingSaveGithub() {
+  const token = document.getElementById('onboarding_github_field').value.trim();
+  const slot = document.getElementById('onboarding_github_result');
+  const btn = document.getElementById('onboarding_github_save_btn');
+  if (!token) {
+    slot.innerHTML = '<span class="test-result-error">Enter a token, or skip this step.</span>';
+    return;
+  }
+  slot.innerHTML = '<span class="meta">Testing…</span>';
+  btn.disabled = true;
+  fetch('/settings/ai/github-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'api_key=' + encodeURIComponent(token),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      slot.innerHTML = '';
+      onboardingGoTo(3);
+    } else {
+      slot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+    }
+  }).catch(() => {
+    slot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  }).finally(() => { btn.disabled = false; });
+}
+
+function onboardingEnable() {
+  const username = document.getElementById('onboarding_username_field').value.trim();
+  const password = document.getElementById('onboarding_password_field').value.trim();
+  const resultSlot = document.getElementById('onboarding_result');
+  if (!username || !password) {
+    resultSlot.innerHTML = '<span class="test-result-error">Enter a username and password.</span>';
+    return;
+  }
+  fetch('/settings/access-control/credentials', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'username=' + encodeURIComponent(username) + '&secret=' + encodeURIComponent(password),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      // A page reload rather than just hiding the overlay client-side -- enabling access
+      // control means the very next request needs a Basic Auth credential the browser doesn't
+      // have cached yet; reloading immediately prompts for it instead of leaving the operator
+      // to discover that on whatever they happen to click next.
+      window.location.reload();
+    } else {
+      resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+    }
+  }).catch(() => {
+    resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  });
+}
+
+function onboardingDisable() {
+  fetch('/settings/access-control/disable', { method: 'POST' }).then(() => {
+    window.location.reload();
+  });
+}
+
+// Fills in the first step's hint/placeholder for whichever provider is selected on arrival,
+// without the POST onboardingProviderChanged would otherwise fire for a choice nobody made.
+(function () {
+  const provider = document.getElementById('onboarding_provider_select').value;
+  if (provider === 'openai_compat') return;
+  const spec = ONBOARDING_PROVIDERS[provider];
+  document.getElementById('onboarding_key_hint').innerHTML = spec.hint;
+  document.getElementById('onboarding_ai_key_field').placeholder = spec.placeholder;
+})();
+</script>

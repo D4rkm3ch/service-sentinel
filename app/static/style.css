@@ -1392,6 +1392,20 @@ button:disabled, button:disabled:hover {
   cursor: not-allowed;
 }
 
+/* Same shape as the rest of the family but with no border and a muted label -- for the
+   secondary way out of a step (Back, Skip) that has to sit beside the real action without
+   competing with it for attention. */
+.button-quiet {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+}
+.button-quiet:hover {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+
 .button-danger {
   background: transparent;
   border: 1px solid var(--error);
@@ -2290,11 +2304,42 @@ a.feature-card-issue-slot:hover {
   padding: 20px;
 }
 .onboarding-modal {
-  max-width: 440px;
+  /* Wider than it was when this asked one question -- the OpenAI-compatible step needs room for
+     a base URL, a model name and a key stacked up without any of them wrapping. */
+  max-width: 480px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
   margin: 0;
+}
+/* Only one step is in the document flow at a time; the others keep their markup so a Back
+   button doesn't have to rebuild anything, and so a value typed then stepped away from is
+   still there on return. */
+.onboarding-step-count {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+/* Wraps rather than squeezing: step 3 carries three buttons plus a result message, which is
+   more than fits on one line at this width. The result slot is pushed to its own full-width
+   line so an error message never shoves the buttons around. */
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.onboarding-actions > span {
+  flex-basis: 100%;
+  text-align: right;
+}
+.onboarding-actions > span:empty {
+  display: none;
 }
 
 /* Settings page -- unified bubble sections */
