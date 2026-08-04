@@ -42,10 +42,11 @@ def test_deep_analysis_and_cross_service_copy_is_shortened(client):
 
 
 def test_release_notes_section_is_renamed_and_intro_merged():
+    """The heading is plain "Lookback Window" now that it sits inside the Updates panel -- see
+    test_logs_lookback_window.py. Only the dropped intro sentence is still this test's business."""
     from pathlib import Path
     text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "settings.html").read_text()
-    assert ">Lookback Window<" in text
-    assert "<h4>Release Notes</h4>" in text
+    assert "<h4>Lookback Window</h4>" in text
     assert "If you've missed several releases" not in text
 
 
@@ -125,25 +126,38 @@ def test_enable_notifications_toggle_wires_up_the_gating_js(client):
     assert "function toggleNotifyErrorsField" in text
 
 
-def test_deep_analysis_is_ordered_updates_runtime_configuration_and_updates_renamed(client):
-    """A real-world reorder/rename request: Deep Analysis reads Updates Pending, Runtime Health,
-    Configuration Health top to bottom (Updates used to trail Logs/Compose, titled plainly
-    "Updates")."""
+def test_the_modules_are_ordered_updates_runtime_configuration(client):
+    """A real-world reorder request, originally about the Deep Analysis panel's three rows.
+    Settings is grouped by module now (see test_settings_structure.py), so the ordering it asked
+    for is the ordering of the panels themselves -- and it holds for every setting at once
+    rather than needing re-asserting per panel."""
     text = _settings_text(client)
-    section = text[text.index(">Deep Analysis<"):text.index(">Cross-Service Analysis<")]
-    assert section.index(">Updates Pending<") < section.index(">Runtime Health<") < section.index(">Configuration Health<")
+    assert text.index(">Updates<") < text.index(">Runtime Health<") < text.index(">Configuration Health<")
 
 
-def test_cross_service_analysis_rows_are_renamed(client):
+def test_the_per_module_rows_no_longer_repeat_their_own_module_name(client):
+    """"Update Notifications" inside a Notifications panel made sense; inside the Updates panel
+    it's saying Updates twice. Each module's panel heading carries the name, so the subsections
+    within it are plain."""
     text = _settings_text(client)
-    section = text[text.index(">Cross-Service Analysis<"):text.index(">Notifications<")]
-    assert ">Update Analysis<" in section
-    assert ">Runtime Analysis<" in section
+    for stale in (">Update Notifications<", ">Runtime Notifications<", ">Configuration Notifications<",
+                  ">Update Analysis<", ">Runtime Analysis<", ">Updates Pending<"):
+        assert stale not in text
+    assert text.count("<h4>Notifications</h4>") == 3
+    assert text.count("<h4>Schedule</h4>") == 3
 
 
-def test_notifications_rows_are_renamed(client):
+def test_deep_and_cross_service_analysis_are_one_subsection_now(client):
+    """Two top-level panels carrying the same "costs noticeably more tokens" warning as each
+    other -- they're the same kind of decision, so they're one subsection with the warning
+    stated once."""
     text = _settings_text(client)
-    section = text[text.index(">Notifications<"):]
-    assert ">Update Notifications<" in section
-    assert ">Runtime Notifications<" in section
-    assert ">Configuration Notifications<" in section
+    assert ">Deep Analysis<" not in text
+    assert ">Cross-Service Analysis<" not in text
+    assert text.count("<h4>AI Analysis</h4>") == 3
+    # The toggles themselves are untouched -- only their grouping changed.
+    for feature in ("updates", "logs", "compose"):
+        assert f'id="deep_analysis_{feature}"' in text
+    for feature in ("updates", "logs"):
+        assert f'id="cross_service_analysis_{feature}"' in text
+    assert 'id="cross_service_analysis_compose"' not in text

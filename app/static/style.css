@@ -2313,6 +2313,51 @@ a.feature-card-issue-slot:hover {
   text-transform: none;
   letter-spacing: normal;
 }
+
+/* Each Settings panel is an accordion now: the whole page is five collapsed rows at rest
+   rather than four and a half screens of scroll. The arrow sits at the far right rather than
+   trailing the heading the way the feature pages' own collapsible headers do -- here the entire
+   row is the click target, and an arrow tucked against the title makes the rest of that row
+   read as inert when it isn't. */
+.settings-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  /* Cancels the heading's own bottom margin while collapsed, so a shut panel is a tidy single
+     row; the body below supplies its own spacing once open. */
+  margin-bottom: -4px;
+}
+.settings-panel-header .settings-heading-lg {
+  margin-bottom: 0;
+}
+.settings-panel-header .collapse-arrow {
+  margin-left: 0;
+}
+.settings-panel-header:hover .settings-heading-lg,
+.settings-panel-header:focus-visible .settings-heading-lg {
+  color: var(--accent);
+}
+.settings-panel-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+/* The body's first child is a subsection (or the panel's own intro paragraph) whose top spacing
+   assumes a heading directly above it -- which there no longer is once the header is its own
+   flex row, so the gap is restored here instead. */
+.settings-panel .collapse-body > :first-child {
+  margin-top: 14px;
+}
+/* .collapse-body sits at overflow:visible at rest for the feature pages' sake (see its own
+   comment for the sticky-<th> reason). Those bodies start OPEN, so nothing ever needed
+   clipping; these start closed at max-height:0, and without this every collapsed panel's
+   contents spilled straight down the page on top of the panels below. Scoped to the shut state
+   so an open panel is unaffected, and the toggle script's own inline overflow -- which only
+   exists while a panel has been opened at least once -- still wins where it matters. */
+.settings-panel-header.collapsed + .collapse-body {
+  overflow: hidden;
+}
 /* A section's own intro paragraph (a direct child of .panel, above the first subsection) --
    same reasoning as .settings-subsection .meta below: the default 24px .meta margin plus the
    next subsection's own top margin/padding compounded into a visibly oversized gap between the

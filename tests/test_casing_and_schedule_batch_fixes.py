@@ -73,16 +73,24 @@ def test_dead_dashboard_template_was_removed():
     assert not (ROOT / "app" / "templates" / "dashboard.html").exists()
 
 
-def test_collapse_state_no_longer_written_to_or_read_from_localstorage():
-    """Scoped to the collapsible-top-table script specifically, not the whole file -- base.html
-    legitimately uses localStorage elsewhere now (the sidebar collapse state and the light/dark
-    theme, both meant to persist across page loads on purpose, unlike the table)."""
+def test_the_top_tables_collapse_state_is_never_written_to_localstorage():
+    """The feature pages' top table must open on every fresh load, never remembering that it was
+    shut last time. The shared toggle handler DOES persist now, but only for headers carrying a
+    data-collapse-key -- that's the Settings page's panels, where remembering is the point (see
+    test_settings_structure.py). Opting in by attribute is what keeps these two behaviors in one
+    handler without either leaking into the other, so this checks the table's own header simply
+    never carries the key."""
     text = (ROOT / "app" / "templates" / "base.html").read_text()
     collapsible_block = text[text.index("Collapsible top table"):]
-    assert "localStorage" not in collapsible_block
+    # The persistence path is entirely gated on the attribute.
+    assert 'var key = header.getAttribute("data-collapse-key");\n        if (!key) return;' in collapsible_block
     # The click-to-toggle behavior itself must still be present.
     assert "collapsible-header" in collapsible_block
     assert "scrollHeight" in collapsible_block
+
+    header = (ROOT / "app" / "templates" / "_feature_header.html").read_text()
+    assert "collapsible-header" in header
+    assert "data-collapse-key" not in header
 
 
 def test_schedule_time_label_renamed_to_at_in_every_mode():

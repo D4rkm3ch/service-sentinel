@@ -5,392 +5,477 @@
 {% import "_api_key_field.html" as akf %}
 {% block title %}Settings - Service Sentinel{% endblock %}
 {% block content %}
+{#- The page is grouped by MODULE, not by mechanism. It used to be the other way round --
+    one panel per concern (Deep Analysis, Cross-Service Analysis, Update Checks, Lookback
+    Window, Scheduling, Notifications), which meant a single module's settings were scattered
+    across six of them: configuring Updates alone was six separate stops down a four-and-a-half
+    screen page. Now each module owns one panel containing everything about it, in the order you
+    reason about it -- when it runs, what it looks at, how hard it tries, how deeply it thinks,
+    how it tells you -- and the three panels are deliberately the same shape as each other so
+    the layout only has to be learned once.
 
-<section class="panel">
-  <h2 class="settings-heading-lg">Access Control</h2>
+    What genuinely applies to all three (timezone, the default schedule, where notifications are
+    delivered) lives in General at the top. What's set once at install and never touched again
+    (AI provider keys, the login) lives in Setup at the bottom.
 
-  <div class="settings-subsection settings-subsection-first">
-    <p class="meta">Service Sentinel has no login by default - it assumes you're running it on a
+    Every panel collapses, and its open/closed state is remembered per browser -- see the
+    restore script at the end of this file and the shared toggle handler in base.html. -#}
+
+{%- set modules = [
+  ('updates', 'Updates'),
+  ('logs', 'Runtime Health'),
+  ('compose', 'Configuration Health'),
+] -%}
+{%- set deep_analysis_labels = {
+  'updates': 'Suggest upgrade guidance for pending updates',
+  'logs': 'Suggest fixes for Runtime Health findings',
+  'compose': 'Suggest fixes for Configuration Health findings',
+} -%}
+{%- set cross_service_labels = {
+  'updates': 'Analyze cross-service impact for pending updates',
+  'logs': 'Analyze cross-service impact for Runtime Health findings',
+} -%}
+{%- set notify_error_labels = {
+  'updates': "Notify when a container's registry can't be reached",
+  'logs': "Notify when a container's logs can't be fetched",
+  'compose': "Notify when a compose file can't be checked",
+} -%}
+
+<section class="panel settings-panel">
+  <div class="settings-panel-header collapsible-header collapsed" role="button" tabindex="0"
+       aria-expanded="false" aria-controls="settings-general-body"
+       data-collapse-target="settings-general-body" data-collapse-key="general">
+    <h2 class="settings-heading-lg">General</h2>
+    <span class="collapse-arrow" aria-hidden="true">&#9662;</span>
+  </div>
+  <div class="collapse-body" id="settings-general-body" style="max-height:0">
+    <p class="meta">The three settings that aren't about any one module on its own.</p>
+
+    <div class="settings-subsection settings-subsection-first">
+      <h4>Timezone</h4>
+      <form class="schedule-fields" hx-post="/settings/timezone" hx-trigger="change" hx-target="#saved-timezone" hx-swap="innerHTML">
+        <select name="timezone" class="mono">
+          {% for tz in available_timezones %}
+          <option value="{{ tz }}" {{ 'selected' if tz == timezone else '' }}>{{ tz }}</option>
+          {% endfor %}
+        </select>
+        <span class="saved-indicator-slot" id="saved-timezone"></span>
+      </form>
+    </div>
+
+    <div class="settings-subsection" id="general_schedule_section">
+      <h4>Default Schedule</h4>
+      <p class="meta">Used by any module that isn't set to its own custom schedule</p>
+      {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
+    </div>
+
+    <div class="settings-subsection" id="notification_delivery_section">
+      <h4>Notification Delivery</h4>
+      <p class="meta">Where every module's notifications are sent. Each module chooses what it
+sends and at which level in its own panel above.</p>
+      {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', 'Enable notifications', "toggleAppriseField(this.checked)") }}
+
+      <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated - see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for the exact format each service needs.</p>
+      <input type="text" name="apprise_urls" id="apprise_urls_field" class="mono field-input"
+             placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}
+             data-saved-value="{{ notify.apprise_urls }}"
+             value="{{ notify.apprise_urls }}">
+      <div class="api-key-row">
+        <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
+          Test &amp; Save
+        </button>
+        <button type="button" class="icon-button" title="Reset to last saved value" onclick="cancelAppriseEdit()">&#10226;</button>
+        <span id="apprise-test-result"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+{#- One panel per module, generated from the same loop so the three are structurally identical
+    by construction rather than by anyone remembering to keep them in step. The asymmetries are
+    real and only where the feature genuinely differs: Updates alone has registry retries,
+    Configuration Health has no lookback window (it hashes files rather than reading a time
+    range) and no cross-service analysis. -#}
+{% for feature, title in modules %}
+<section class="panel settings-panel">
+  <div class="settings-panel-header collapsible-header collapsed" role="button" tabindex="0"
+       aria-expanded="false" aria-controls="settings-{{ feature }}-body"
+       data-collapse-target="settings-{{ feature }}-body" data-collapse-key="{{ feature }}">
+    <h2 class="settings-heading-lg">{{ title }}</h2>
+    <span class="collapse-arrow" aria-hidden="true">&#9662;</span>
+  </div>
+  <div class="collapse-body" id="settings-{{ feature }}-body" style="max-height:0">
+
+    {#- Keeps the id the Overview page's own Schedule row links to (see _feature_card.html). -#}
+    <div class="settings-subsection settings-subsection-first" id="{{ feature }}_schedule_section">
+      <h4>Schedule</h4>
+      {{ ts.toggle_switch(feature ~ '_scheduling_enabled', features[feature].enabled, '/settings/toggle/' ~ feature,
+                           'Scheduling enabled' if features[feature].enabled else 'Scheduling disabled',
+                           "toggleFeatureScheduling('" ~ feature ~ "', this.checked)", feature ~ '_scheduling_toggle_label') }}
+      <div id="{{ feature }}_scheduling_gated" class="{{ 'faded' if not features[feature].enabled else '' }}">
+        <div style="margin-top:8px">
+          {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
+                               'Using own schedule' if not features[feature].use_master else 'Using general schedule',
+                               "toggleScheduleOverride('" ~ feature ~ "', this.checked)", feature ~ '_schedule_toggle_label') }}
+        </div>
+        <div id="{{ feature }}_schedule_wrapper" class="schedule-wrapper {{ 'faded' if features[feature].use_master else '' }}">
+          {{ sf.schedule_fields(feature, features[feature].spec, '/settings/schedule/' ~ feature, features[feature].use_master) }}
+        </div>
+      </div>
+    </div>
+
+    {% if feature == 'updates' %}
+    <div class="settings-subsection">
+      <h4>Lookback Window</h4>
+      <p class="meta">How far back to look for missed releases, combined into one summary - still
+capped by your last actual check</p>
+      <select name="release_notes_lookback" class="mono field-input" hx-post="/settings/release-notes-lookback"
+              hx-trigger="change" hx-target="#saved-release-notes-lookback">
+        <option value="since_check" {{ 'selected' if release_notes_lookback == 'since_check' else '' }}>No limit (since last check)</option>
+        <option value="7" {{ 'selected' if release_notes_lookback == '7' else '' }}>Last 7 days</option>
+        <option value="30" {{ 'selected' if release_notes_lookback == '30' else '' }}>Last 30 days</option>
+        <option value="90" {{ 'selected' if release_notes_lookback == '90' else '' }}>Last 90 days</option>
+        <option value="180" {{ 'selected' if release_notes_lookback == '180' else '' }}>Last 6 months</option>
+        <option value="365" {{ 'selected' if release_notes_lookback == '365' else '' }}>Last year</option>
+      </select>
+      <span class="saved-indicator-slot" id="saved-release-notes-lookback"></span>
+    </div>
+
+    <div class="settings-subsection">
+      <h4>Retries</h4>
+      <p class="meta">How many times to retry a failed registry lookup before recording it as an
+error - registries occasionally rate limit or time out on an otherwise healthy container</p>
+      <div class="stepper-row">
+        <div class="stepper">
+          <button type="button" class="stepper-btn" onclick="adjustRetries(-1)">&minus;</button>
+          <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+                 id="update_retries_input" min="{{ update_retry_min }}" max="{{ update_retry_max }}"
+                 value="{{ update_check_retries }}" onchange="saveRetries(this.value)"
+                 onkeydown="if (event.key === 'Enter') this.blur();">
+          <button type="button" class="stepper-btn" onclick="adjustRetries(1)">+</button>
+        </div>
+        <span class="saved-indicator-slot" id="saved-update_retries"></span>
+      </div>
+    </div>
+    {% elif feature == 'logs' %}
+    <div class="settings-subsection">
+      <h4>Lookback Window</h4>
+      <p class="meta">How far back to look without a checkpoint</p>
+      <select name="logs_lookback" class="mono field-input" hx-post="/settings/logs-lookback"
+              hx-trigger="change" hx-target="#saved-logs-lookback">
+        <option value="1" {{ 'selected' if logs_lookback == '1' else '' }}>Last 1 hour</option>
+        <option value="3" {{ 'selected' if logs_lookback == '3' else '' }}>Last 3 hours</option>
+        <option value="6" {{ 'selected' if logs_lookback == '6' else '' }}>Last 6 hours</option>
+        <option value="12" {{ 'selected' if logs_lookback == '12' else '' }}>Last 12 hours</option>
+        <option value="24" {{ 'selected' if logs_lookback == '24' else '' }}>Last 24 hours</option>
+        <option value="72" {{ 'selected' if logs_lookback == '72' else '' }}>Last 3 days</option>
+        <option value="168" {{ 'selected' if logs_lookback == '168' else '' }}>Last 7 days</option>
+      </select>
+      <span class="saved-indicator-slot" id="saved-logs-lookback"></span>
+      <div style="margin-top:12px">
+        {{ ts.toggle_switch('logs_use_checkpoint', logs_use_checkpoint, '/settings/logs-use-checkpoint',
+                             'Only look at logs since the last check - turn off to always rescan the window above') }}
+      </div>
+    </div>
+    {% endif %}
+
+    {#- Deep Analysis and Cross-Service Analysis were two separate top-level panels carrying the
+        same "this costs noticeably more tokens" warning as each other. They're the same kind of
+        decision -- spend more tokens for a deeper answer -- so they're one subsection now, with
+        that warning stated once. -#}
+    <div class="settings-subsection">
+      <h4>AI Analysis</h4>
+      {#- Configuration Health has no cross-service analysis, so it's one toggle, not two. -#}
+      <p class="meta">{{ 'Both cost' if feature in cross_service_labels else 'Costs' }} noticeably more tokens per result.</p>
+      <span class="toggle-with-label">
+        <label class="toggle-switch">
+          <input type="checkbox" id="deep_analysis_{{ feature }}" {{ 'checked' if deep_analysis[feature] else '' }}
+                 onchange="handleDeepAnalysisToggle(this, '{{ feature }}')">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">{{ deep_analysis_labels[feature] }}</span>
+        <span class="saved-indicator-slot" id="saved-deep_analysis_{{ feature }}"></span>
+      </span>
+      {% if feature in cross_service_labels %}
+      <div style="margin-top:8px">
+        <span class="toggle-with-label">
+          <label class="toggle-switch">
+            <input type="checkbox" id="cross_service_analysis_{{ feature }}" {{ 'checked' if cross_service_analysis[feature] else '' }}
+                   onchange="handleCrossServiceAnalysisToggle(this, '{{ feature }}')">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">{{ cross_service_labels[feature] }}</span>
+          <span class="saved-indicator-slot" id="saved-cross_service_analysis_{{ feature }}"></span>
+        </span>
+      </div>
+      {% endif %}
+    </div>
+
+    {#- Keeps the id the Overview page's own Notifications row links to. -#}
+    <div class="settings-subsection" id="{{ feature }}_notify_section">
+      <h4>Notifications</h4>
+      {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature,
+                           'Enable notifications', "toggleNotifyErrorsField('" ~ feature ~ "', this.checked)") }}
+      <div style="margin-top:8px">
+        {{ ts.toggle_switch('notify_' ~ feature ~ '_include_errors', notify[feature ~ '_include_errors'],
+                             '/settings/notify/' ~ feature ~ '-include-errors', notify_error_labels[feature],
+                             disabled=not notify.features[feature].enabled) }}
+      </div>
+      <p class="meta" style="margin-top:8px">Minimum level to receive a notification</p>
+      <div>
+        {% if feature == 'updates' %}
+        {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
+        {% else %}
+        {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</section>
+{% endfor %}
+
+<section class="panel settings-panel">
+  <div class="settings-panel-header collapsible-header collapsed" role="button" tabindex="0"
+       aria-expanded="false" aria-controls="settings-setup-body"
+       data-collapse-target="settings-setup-body" data-collapse-key="setup">
+    <h2 class="settings-heading-lg">Setup</h2>
+    <span class="collapse-arrow" aria-hidden="true">&#9662;</span>
+  </div>
+  <div class="collapse-body" id="settings-setup-body" style="max-height:0">
+    <p class="meta">Credentials and endpoints. Set these once when you install Service Sentinel;
+you shouldn't need to come back here.</p>
+
+    <div class="settings-subsection settings-subsection-first" id="ai_provider_section">
+      <h4>AI Provider</h4>
+      <select name="ai_provider" class="mono field-input" onchange="toggleAiProvider(this.value)"
+              hx-post="/settings/ai/provider" hx-trigger="change" hx-target="#saved-ai-provider">
+        <option value="anthropic" {{ 'selected' if ai_provider == 'anthropic' else '' }}>Anthropic (Claude)</option>
+        <option value="gemini" {{ 'selected' if ai_provider == 'gemini' else '' }}>Google Gemini</option>
+        <option value="openai" {{ 'selected' if ai_provider == 'openai' else '' }}>OpenAI (GPT)</option>
+        <option value="openai_compat" {{ 'selected' if ai_provider == 'openai_compat' else '' }}>OpenAI-compatible (Ollama, LM Studio, ...)</option>
+      </select>
+      <span class="saved-indicator-slot" id="saved-ai-provider"></span>
+    </div>
+
+    <div class="settings-subsection {{ '' if ai_provider == 'anthropic' else 'hidden' }}" id="anthropic-provider-section">
+      <h4>Anthropic</h4>
+      <p class="meta">Get a key from
+<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a></p>
+      {{ akf.api_key_field('anthropic', anthropic_key_configured, 'sk-ant-...', '/settings/ai/anthropic-key') }}
+      <div style="margin-top:10px">
+        <select name="anthropic_model" class="mono field-input" hx-post="/settings/ai/anthropic-model" hx-trigger="change" hx-target="#saved-anthropic_model">
+          {% for value, label in anthropic_models %}
+          <option value="{{ value }}" {{ 'selected' if value == anthropic_model else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
+      </div>
+      <div class="stepper-row">
+        <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 2 free, 4 paid)</label>
+        <div class="stepper">
+          <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', -1)">&minus;</button>
+          <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+                 id="anthropic_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+                 value="{{ anthropic_concurrency }}" onchange="saveConcurrency('anthropic', this.value)"
+                 onkeydown="if (event.key === 'Enter') this.blur();">
+          <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', 1)">+</button>
+        </div>
+        <span class="saved-indicator-slot" id="saved-anthropic_concurrency"></span>
+      </div>
+    </div>
+
+    <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'hidden' }}" id="gemini-provider-section">
+      <h4>Gemini</h4>
+      <p class="meta">Get a key from
+<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a></p>
+      {{ akf.api_key_field('gemini', gemini_key_configured, 'AIza...', '/settings/ai/gemini-key') }}
+      <div style="margin-top:10px">
+        <select name="gemini_model" class="mono field-input" hx-post="/settings/ai/gemini-model" hx-trigger="change" hx-target="#saved-gemini_model">
+          {% for value, label in gemini_models %}
+          <option value="{{ value }}" {{ 'selected' if value == gemini_model else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <span class="saved-indicator-slot" id="saved-gemini_model"></span>
+      </div>
+      <div class="stepper-row">
+        <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 1 free, 4 paid)</label>
+        <div class="stepper">
+          <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', -1)">&minus;</button>
+          <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+                 id="gemini_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+                 value="{{ gemini_concurrency }}" onchange="saveConcurrency('gemini', this.value)"
+                 onkeydown="if (event.key === 'Enter') this.blur();">
+          <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', 1)">+</button>
+        </div>
+        <span class="saved-indicator-slot" id="saved-gemini_concurrency"></span>
+      </div>
+    </div>
+
+    <div class="settings-subsection {{ '' if ai_provider == 'openai' else 'hidden' }}" id="openai-provider-section">
+      <h4>OpenAI</h4>
+      <p class="meta">Get a key from
+<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></p>
+      {{ akf.api_key_field('openai', openai_key_configured, 'sk-...', '/settings/ai/openai-key') }}
+      <div style="margin-top:10px">
+        <select name="openai_model" class="mono field-input" hx-post="/settings/ai/openai-model" hx-trigger="change" hx-target="#saved-openai_model">
+          {% for value, label in openai_models %}
+          <option value="{{ value }}" {{ 'selected' if value == openai_model else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <span class="saved-indicator-slot" id="saved-openai_model"></span>
+      </div>
+      <div class="stepper-row">
+        <label class="meta" for="openai_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 4)</label>
+        <div class="stepper">
+          <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', -1)">&minus;</button>
+          <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+                 id="openai_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+                 value="{{ openai_concurrency }}" onchange="saveConcurrency('openai', this.value)"
+                 onkeydown="if (event.key === 'Enter') this.blur();">
+          <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', 1)">+</button>
+        </div>
+        <span class="saved-indicator-slot" id="saved-openai_concurrency"></span>
+      </div>
+    </div>
+
+    <div class="settings-subsection {{ '' if ai_provider == 'openai_compat' else 'hidden' }}" id="openai_compat-provider-section">
+      <h4>OpenAI-compatible</h4>
+      <p class="meta">Any server speaking the OpenAI API - Ollama, LM Studio, llama.cpp, vLLM, OpenRouter.
+Point it at the server's /v1 base URL and name the model exactly as the server knows it.<br>
+The web search fallback for release notes isn't available with this provider.</p>
+      <div style="margin-top:6px">
+        <input type="text" class="mono field-input" id="openai_compat_base_url_field"
+               placeholder="http://ollama:11434/v1" value="{{ openai_compat_base_url }}" style="max-width:360px">
+      </div>
+      <div style="margin-top:6px">
+        <input type="text" class="mono field-input" id="openai_compat_model_field"
+               placeholder="Model, e.g. llama3.1:8b" value="{{ openai_compat_model }}" style="max-width:360px">
+      </div>
+      <div class="api-key-row">
+        <input type="text" class="mono field-input" id="openai_compat_key_field" autocomplete="off"
+               placeholder="{{ '•••••••• (configured - blank keeps it)' if openai_compat_key_configured else 'API key (optional)' }}">
+        <button type="button" class="btn" onclick="saveOpenAiCompat()">Test &amp; Save</button>
+        <span id="openai_compat_result">{% if openai_compat_base_url and openai_compat_model %}<span class="key-configured-badge">&check; Configured</span>{% endif %}</span>
+      </div>
+      <div class="stepper-row">
+        <label class="meta" for="openai_compat_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 1 for local models)</label>
+        <div class="stepper">
+          <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', -1)">&minus;</button>
+          <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+                 id="openai_compat_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+                 value="{{ openai_compat_concurrency }}" onchange="saveConcurrency('openai_compat', this.value)"
+                 onkeydown="if (event.key === 'Enter') this.blur();">
+          <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', 1)">+</button>
+        </div>
+        <span class="saved-indicator-slot" id="saved-openai_compat_concurrency"></span>
+      </div>
+    </div>
+
+    <div class="settings-subsection">
+      <h4>GitHub <span class="badge badge-lg badge-sev-suggestion">Optional</span></h4>
+      <p class="meta">Get a key (a fine-grained token with no permissions - public read only) from
+<a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.<br>
+This raises the rate limit used for fetching release notes from 60/hr to 5,000/hr.</p>
+      {{ akf.api_key_field('github', github_token_configured, 'ghp_...', '/settings/ai/github-token') }}
+    </div>
+
+    {#- Also offered up front, in the first-launch onboarding modal (see
+        _access_control_onboarding_modal.html) -- it stays here too so the choice made there can
+        be revisited, or made for the first time by anyone who dismissed the modal. -#}
+    <div class="settings-subsection" id="access_control_section">
+      <h4>Access Control</h4>
+      <p class="meta">Service Sentinel has no login by default - it assumes you're running it on a
 private network. If you're exposing it beyond that (a reverse proxy without its own
 sign-in, a port forward), set a username and password here. Your browser will prompt for them
 using its own standard sign-in dialog.</p>
-    <div class="api-key-row" style="margin-bottom:8px">
-      <input type="text" id="auth_username_field" class="mono field-input" autocomplete="off"
-             placeholder="Username" value="{{ auth_username if auth_secret_configured else '' }}"
-             {{ 'disabled' if auth_secret_configured else '' }}>
-    </div>
-    <div class="api-key-row">
-      <input type="password" id="auth_secret_field" class="mono field-input" autocomplete="off"
-             data-placeholder-new="Choose a password"
-             placeholder="{{ '•••••••• (configured)' if auth_secret_configured else 'Choose a password' }}"
-             {{ 'disabled' if auth_secret_configured else '' }}>
-      <button type="button" id="auth_secret_action_btn" onclick="handleAuthSecretButtonClick()">
-        {{ 'Change' if auth_secret_configured else 'Save' }}
-      </button>
-      <button type="button" id="auth_secret_cancel_btn" class="button-danger"
-              onclick="cancelAuthSecretEdit()" style="{{ 'display:none' if auth_secret_configured else '' }}">
-        Cancel
-      </button>
-      {% if auth_secret_configured %}
-      <button type="button" id="auth_secret_remove_btn" class="button-danger" onclick="removeAuthSecret()">
-        Disable
-      </button>
-      {% endif %}
-      <span id="auth_secret_result">{% if auth_secret_configured %}<span class="key-configured-badge">✓ Enabled</span>{% endif %}</span>
-    </div>
-    <div id="auth_lan_bypass_wrapper" class="{{ '' if auth_secret_configured else 'hidden' }}" style="margin-top:12px">
-      {{ ts.toggle_switch('auth_lan_bypass', auth_lan_bypass, '/settings/access-control/lan-bypass',
-                           'Skip login for devices on the local network') }}
-    </div>
-  </div>
-</section>
-
-<section class="panel">
-  <h2 class="settings-heading-lg">AI Provider</h2>
-
-  <div class="settings-subsection settings-subsection-first">
-    <select name="ai_provider" class="mono field-input" onchange="toggleAiProvider(this.value)"
-            hx-post="/settings/ai/provider" hx-trigger="change" hx-target="#saved-ai-provider">
-      <option value="anthropic" {{ 'selected' if ai_provider == 'anthropic' else '' }}>Anthropic (Claude)</option>
-      <option value="gemini" {{ 'selected' if ai_provider == 'gemini' else '' }}>Google Gemini</option>
-      <option value="openai" {{ 'selected' if ai_provider == 'openai' else '' }}>OpenAI (GPT)</option>
-      <option value="openai_compat" {{ 'selected' if ai_provider == 'openai_compat' else '' }}>OpenAI-compatible (Ollama, LM Studio, ...)</option>
-    </select>
-    <span class="saved-indicator-slot" id="saved-ai-provider"></span>
-  </div>
-
-  <div class="settings-subsection {{ '' if ai_provider == 'anthropic' else 'hidden' }}" id="anthropic-provider-section">
-    <h4>Anthropic</h4>
-    <p class="meta">Get a key from
-<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a></p>
-    {{ akf.api_key_field('anthropic', anthropic_key_configured, 'sk-ant-...', '/settings/ai/anthropic-key') }}
-    <div style="margin-top:10px">
-      <select name="anthropic_model" class="mono field-input" hx-post="/settings/ai/anthropic-model" hx-trigger="change" hx-target="#saved-anthropic_model">
-        {% for value, label in anthropic_models %}
-        <option value="{{ value }}" {{ 'selected' if value == anthropic_model else '' }}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
-    </div>
-    <div class="stepper-row">
-      <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 2 free, 4 paid)</label>
-      <div class="stepper">
-        <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', -1)">&minus;</button>
-        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
-               id="anthropic_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
-               value="{{ anthropic_concurrency }}" onchange="saveConcurrency('anthropic', this.value)"
-               onkeydown="if (event.key === 'Enter') this.blur();">
-        <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', 1)">+</button>
+      <div class="api-key-row" style="margin-bottom:8px">
+        <input type="text" id="auth_username_field" class="mono field-input" autocomplete="off"
+               placeholder="Username" value="{{ auth_username if auth_secret_configured else '' }}"
+               {{ 'disabled' if auth_secret_configured else '' }}>
       </div>
-      <span class="saved-indicator-slot" id="saved-anthropic_concurrency"></span>
-    </div>
-  </div>
-
-  <div class="settings-subsection {{ '' if ai_provider == 'gemini' else 'hidden' }}" id="gemini-provider-section">
-    <h4>Gemini</h4>
-    <p class="meta">Get a key from
-<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a></p>
-    {{ akf.api_key_field('gemini', gemini_key_configured, 'AIza...', '/settings/ai/gemini-key') }}
-    <div style="margin-top:10px">
-      <select name="gemini_model" class="mono field-input" hx-post="/settings/ai/gemini-model" hx-trigger="change" hx-target="#saved-gemini_model">
-        {% for value, label in gemini_models %}
-        <option value="{{ value }}" {{ 'selected' if value == gemini_model else '' }}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <span class="saved-indicator-slot" id="saved-gemini_model"></span>
-    </div>
-    <div class="stepper-row">
-      <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 1 free, 4 paid)</label>
-      <div class="stepper">
-        <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', -1)">&minus;</button>
-        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
-               id="gemini_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
-               value="{{ gemini_concurrency }}" onchange="saveConcurrency('gemini', this.value)"
-               onkeydown="if (event.key === 'Enter') this.blur();">
-        <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', 1)">+</button>
+      <div class="api-key-row">
+        <input type="password" id="auth_secret_field" class="mono field-input" autocomplete="off"
+               data-placeholder-new="Choose a password"
+               placeholder="{{ '•••••••• (configured)' if auth_secret_configured else 'Choose a password' }}"
+               {{ 'disabled' if auth_secret_configured else '' }}>
+        <button type="button" id="auth_secret_action_btn" onclick="handleAuthSecretButtonClick()">
+          {{ 'Change' if auth_secret_configured else 'Save' }}
+        </button>
+        <button type="button" id="auth_secret_cancel_btn" class="button-danger"
+                onclick="cancelAuthSecretEdit()" style="{{ 'display:none' if auth_secret_configured else '' }}">
+          Cancel
+        </button>
+        {% if auth_secret_configured %}
+        <button type="button" id="auth_secret_remove_btn" class="button-danger" onclick="removeAuthSecret()">
+          Disable
+        </button>
+        {% endif %}
+        <span id="auth_secret_result">{% if auth_secret_configured %}<span class="key-configured-badge">&check; Enabled</span>{% endif %}</span>
       </div>
-      <span class="saved-indicator-slot" id="saved-gemini_concurrency"></span>
-    </div>
-  </div>
-
-  <div class="settings-subsection {{ '' if ai_provider == 'openai' else 'hidden' }}" id="openai-provider-section">
-    <h4>OpenAI</h4>
-    <p class="meta">Get a key from
-<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></p>
-    {{ akf.api_key_field('openai', openai_key_configured, 'sk-...', '/settings/ai/openai-key') }}
-    <div style="margin-top:10px">
-      <select name="openai_model" class="mono field-input" hx-post="/settings/ai/openai-model" hx-trigger="change" hx-target="#saved-openai_model">
-        {% for value, label in openai_models %}
-        <option value="{{ value }}" {{ 'selected' if value == openai_model else '' }}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <span class="saved-indicator-slot" id="saved-openai_model"></span>
-    </div>
-    <div class="stepper-row">
-      <label class="meta" for="openai_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 4)</label>
-      <div class="stepper">
-        <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', -1)">&minus;</button>
-        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
-               id="openai_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
-               value="{{ openai_concurrency }}" onchange="saveConcurrency('openai', this.value)"
-               onkeydown="if (event.key === 'Enter') this.blur();">
-        <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', 1)">+</button>
-      </div>
-      <span class="saved-indicator-slot" id="saved-openai_concurrency"></span>
-    </div>
-  </div>
-
-  <div class="settings-subsection {{ '' if ai_provider == 'openai_compat' else 'hidden' }}" id="openai_compat-provider-section">
-    <h4>OpenAI-compatible</h4>
-    <p class="meta">Any server speaking the OpenAI API - Ollama, LM Studio, llama.cpp, vLLM, OpenRouter.
-Point it at the server's /v1 base URL and name the model exactly as the server knows it.<br>
-The web search fallback for release notes isn't available with this provider.</p>
-    <div style="margin-top:6px">
-      <input type="text" class="mono field-input" id="openai_compat_base_url_field"
-             placeholder="http://ollama:11434/v1" value="{{ openai_compat_base_url }}" style="max-width:360px">
-    </div>
-    <div style="margin-top:6px">
-      <input type="text" class="mono field-input" id="openai_compat_model_field"
-             placeholder="Model, e.g. llama3.1:8b" value="{{ openai_compat_model }}" style="max-width:360px">
-    </div>
-    <div class="api-key-row">
-      <input type="text" class="mono field-input" id="openai_compat_key_field" autocomplete="off"
-             placeholder="{{ '•••••••• (configured - blank keeps it)' if openai_compat_key_configured else 'API key (optional)' }}">
-      <button type="button" class="btn" onclick="saveOpenAiCompat()">Test &amp; Save</button>
-      <span id="openai_compat_result">{% if openai_compat_base_url and openai_compat_model %}<span class="key-configured-badge">&check; Configured</span>{% endif %}</span>
-    </div>
-    <div class="stepper-row">
-      <label class="meta" for="openai_compat_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 1 for local models)</label>
-      <div class="stepper">
-        <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', -1)">&minus;</button>
-        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
-               id="openai_compat_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
-               value="{{ openai_compat_concurrency }}" onchange="saveConcurrency('openai_compat', this.value)"
-               onkeydown="if (event.key === 'Enter') this.blur();">
-        <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', 1)">+</button>
-      </div>
-      <span class="saved-indicator-slot" id="saved-openai_compat_concurrency"></span>
-    </div>
-  </div>
-
-  <div class="settings-subsection">
-    <h4>GitHub <span class="badge badge-lg badge-sev-suggestion">Optional</span></h4>
-    <p class="meta">Get a key (a fine-grained token with no permissions - public read only) from
-<a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.<br>
-This raises the rate limit used for fetching release notes from 60/hr to 5,000/hr.</p>
-    {{ akf.api_key_field('github', github_token_configured, 'ghp_...', '/settings/ai/github-token') }}
-  </div>
-</section>
-
-<section class="panel">
-  <h2 class="settings-heading-lg">Deep Analysis</h2>
-  <p class="meta">Adds an AI-suggested fix or upgrade guidance alongside each result. This costs
-noticeably more tokens.</p>
-
-  {% for feature, title, label in [
-    ('updates', 'Updates Pending', 'Suggest upgrade guidance for pending updates'),
-    ('logs', 'Runtime Health', 'Suggest fixes for Runtime Health findings'),
-    ('compose', 'Configuration Health', 'Suggest fixes for Configuration Health findings'),
-  ] %}
-  <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
-    <h4>{{ title }}</h4>
-    <span class="toggle-with-label">
-      <label class="toggle-switch">
-        <input type="checkbox" id="deep_analysis_{{ feature }}" {{ 'checked' if deep_analysis[feature] else '' }}
-               onchange="handleDeepAnalysisToggle(this, '{{ feature }}')">
-        <span class="toggle-slider"></span>
-      </label>
-      <span class="toggle-label">{{ label }}</span>
-      <span class="saved-indicator-slot" id="saved-deep_analysis_{{ feature }}"></span>
-    </span>
-  </div>
-  {% endfor %}
-</section>
-
-<section class="panel">
-  <h2 class="settings-heading-lg">Cross-Service Analysis</h2>
-  <p class="meta">Analyzes whether something in one service could affect others in the same
-compose stack. This costs noticeably more tokens.</p>
-
-  {% for feature, title, label in [
-    ('updates', 'Update Analysis', 'Analyze cross-service impact for pending updates'),
-    ('logs', 'Runtime Analysis', 'Analyze cross-service impact for Runtime Health findings'),
-  ] %}
-  <div class="settings-subsection {{ 'settings-subsection-first' if loop.first else '' }}">
-    <h4>{{ title }}</h4>
-    <span class="toggle-with-label">
-      <label class="toggle-switch">
-        <input type="checkbox" id="cross_service_analysis_{{ feature }}" {{ 'checked' if cross_service_analysis[feature] else '' }}
-               onchange="handleCrossServiceAnalysisToggle(this, '{{ feature }}')">
-        <span class="toggle-slider"></span>
-      </label>
-      <span class="toggle-label">{{ label }}</span>
-      <span class="saved-indicator-slot" id="saved-cross_service_analysis_{{ feature }}"></span>
-    </span>
-  </div>
-  {% endfor %}
-</section>
-
-<section class="panel">
-  <h2 class="settings-heading-lg">Update Checks</h2>
-
-  <div class="settings-subsection settings-subsection-first">
-    <h4>Retries</h4>
-    <p class="meta">How many times to retry a failed registry lookup before recording it as an
-error - registries occasionally rate limit or time out on an otherwise healthy container</p>
-    <div class="stepper-row">
-      <div class="stepper">
-        <button type="button" class="stepper-btn" onclick="adjustRetries(-1)">&minus;</button>
-        <input type="number" inputmode="numeric" class="mono field-input stepper-input"
-               id="update_retries_input" min="{{ update_retry_min }}" max="{{ update_retry_max }}"
-               value="{{ update_check_retries }}" onchange="saveRetries(this.value)"
-               onkeydown="if (event.key === 'Enter') this.blur();">
-        <button type="button" class="stepper-btn" onclick="adjustRetries(1)">+</button>
-      </div>
-      <span class="saved-indicator-slot" id="saved-update_retries"></span>
-    </div>
-  </div>
-</section>
-
-<section class="panel">
-  <h2 class="settings-heading-lg">Lookback Window</h2>
-
-  <div class="settings-subsection settings-subsection-first">
-    <h4>Release Notes</h4>
-    <p class="meta">How far back to look for missed releases, combined into one summary - still
-capped by your last actual check</p>
-    <select name="release_notes_lookback" class="mono field-input" hx-post="/settings/release-notes-lookback"
-            hx-trigger="change" hx-target="#saved-release-notes-lookback">
-      <option value="since_check" {{ 'selected' if release_notes_lookback == 'since_check' else '' }}>No limit (since last check)</option>
-      <option value="7" {{ 'selected' if release_notes_lookback == '7' else '' }}>Last 7 days</option>
-      <option value="30" {{ 'selected' if release_notes_lookback == '30' else '' }}>Last 30 days</option>
-      <option value="90" {{ 'selected' if release_notes_lookback == '90' else '' }}>Last 90 days</option>
-      <option value="180" {{ 'selected' if release_notes_lookback == '180' else '' }}>Last 6 months</option>
-      <option value="365" {{ 'selected' if release_notes_lookback == '365' else '' }}>Last year</option>
-    </select>
-    <span class="saved-indicator-slot" id="saved-release-notes-lookback"></span>
-  </div>
-
-  <div class="settings-subsection">
-    <h4>Runtime</h4>
-    <p class="meta">How far back to look without a checkpoint</p>
-    <select name="logs_lookback" class="mono field-input" hx-post="/settings/logs-lookback"
-            hx-trigger="change" hx-target="#saved-logs-lookback">
-      <option value="1" {{ 'selected' if logs_lookback == '1' else '' }}>Last 1 hour</option>
-      <option value="3" {{ 'selected' if logs_lookback == '3' else '' }}>Last 3 hours</option>
-      <option value="6" {{ 'selected' if logs_lookback == '6' else '' }}>Last 6 hours</option>
-      <option value="12" {{ 'selected' if logs_lookback == '12' else '' }}>Last 12 hours</option>
-      <option value="24" {{ 'selected' if logs_lookback == '24' else '' }}>Last 24 hours</option>
-      <option value="72" {{ 'selected' if logs_lookback == '72' else '' }}>Last 3 days</option>
-      <option value="168" {{ 'selected' if logs_lookback == '168' else '' }}>Last 7 days</option>
-    </select>
-    <span class="saved-indicator-slot" id="saved-logs-lookback"></span>
-  </div>
-
-  <div class="settings-subsection">
-    <h4>Checkpoint</h4>
-    {{ ts.toggle_switch('logs_use_checkpoint', logs_use_checkpoint, '/settings/logs-use-checkpoint',
-                         'Only look at logs since the last check - turn off to always rescan the window above') }}
-  </div>
-</section>
-
-<section class="panel">
-  <h2 class="settings-heading-lg">Scheduling</h2>
-
-  <div class="settings-subsection settings-subsection-first">
-    <h4>Timezone</h4>
-    <form class="schedule-fields" hx-post="/settings/timezone" hx-trigger="change" hx-target="#saved-timezone" hx-swap="innerHTML">
-      <select name="timezone" class="mono">
-        {% for tz in available_timezones %}
-        <option value="{{ tz }}" {{ 'selected' if tz == timezone else '' }}>{{ tz }}</option>
-        {% endfor %}
-      </select>
-      <span class="saved-indicator-slot" id="saved-timezone"></span>
-    </form>
-  </div>
-
-  <div class="settings-subsection">
-    <h4>General</h4>
-    <p class="meta">Used by any feature below that isn't set to its own custom schedule</p>
-    {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
-  </div>
-
-  {% for feature, title in [('updates', 'Update Schedule'), ('logs', 'Runtime Schedule'), ('compose', 'Configuration Schedule')] %}
-  <div class="settings-subsection" id="{{ feature }}_schedule_section">
-    <h4>{{ title }}</h4>
-    {{ ts.toggle_switch(feature ~ '_scheduling_enabled', features[feature].enabled, '/settings/toggle/' ~ feature,
-                         'Scheduling enabled' if features[feature].enabled else 'Scheduling disabled',
-                         "toggleFeatureScheduling('" ~ feature ~ "', this.checked)", feature ~ '_scheduling_toggle_label') }}
-    <div id="{{ feature }}_scheduling_gated" class="{{ 'faded' if not features[feature].enabled else '' }}">
-      <div style="margin-top:8px">
-        {{ ts.toggle_switch(feature ~ '_use_own_sched', not features[feature].use_master, '/settings/schedule/use-master/' ~ feature,
-                             'Using own schedule' if not features[feature].use_master else 'Using general schedule',
-                             "toggleScheduleOverride('" ~ feature ~ "', this.checked)", feature ~ '_schedule_toggle_label') }}
-      </div>
-      <div id="{{ feature }}_schedule_wrapper" class="schedule-wrapper {{ 'faded' if features[feature].use_master else '' }}">
-        {{ sf.schedule_fields(feature, features[feature].spec, '/settings/schedule/' ~ feature, features[feature].use_master) }}
+      <div id="auth_lan_bypass_wrapper" class="{{ '' if auth_secret_configured else 'hidden' }}" style="margin-top:12px">
+        {{ ts.toggle_switch('auth_lan_bypass', auth_lan_bypass, '/settings/access-control/lan-bypass',
+                             'Skip login for devices on the local network') }}
       </div>
     </div>
   </div>
-  {% endfor %}
 </section>
 
-<section class="panel">
-  <h2 class="settings-heading-lg">Notifications</h2>
+<script>
+// Re-opens whatever was open last time, and runs HERE -- inline, immediately after the panels
+// above -- rather than with the rest of the page's scripts at the end of base.html. The panels
+// render collapsed, so doing this any later means every panel the operator left open visibly
+// snaps shut and back open on each page load. Running during parse, before the first paint of
+// this region, is what avoids that. The toggling and the saving are in base.html's shared
+// collapsible handler; this is only the read-back.
+//
+// A deep link wins over the saved state: the Overview page's Schedule and Notifications rows
+// link straight to a subsection inside one of these panels, and landing on a collapsed panel
+// would show nothing at all.
+(function () {
+  function hashTarget() {
+    if (window.location.hash.length < 2) return null;
+    try { return document.querySelector(window.location.hash); } catch (e) { return null; }
+  }
 
-  <div class="settings-subsection settings-subsection-first">
-    {{ ts.toggle_switch('notify_master_enabled', notify.enabled, '/settings/notify/enabled/master', 'Enable notifications', "toggleAppriseField(this.checked)") }}
+  function reveal(body) {
+    var header = body.previousElementSibling;
+    if (!header || !header.classList.contains('collapsed')) return;
+    header.classList.remove('collapsed');
+    header.setAttribute('aria-expanded', 'true');
+    // "none" rather than a measured pixel height: on the first pass this runs before layout, so
+    // scrollHeight isn't meaningful yet -- and max-height isn't animatable to or from none
+    // anyway, which is exactly what's wanted for a restore: instant, no transition.
+    body.style.maxHeight = 'none';
+    body.style.overflow = 'visible';
+  }
 
-    <p class="meta" style="margin-top:12px">Apprise URL(s), comma-separated - see <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">the Apprise wiki</a> for the exact format each service needs.</p>
-    <input type="text" name="apprise_urls" id="apprise_urls_field" class="mono field-input"
-           placeholder="discord://webhook_id/webhook_token" {{ 'disabled' if not notify.enabled else '' }}
-           data-saved-value="{{ notify.apprise_urls }}"
-           value="{{ notify.apprise_urls }}">
-    <div class="api-key-row">
-      <button type="button" hx-post="/settings/notify/apprise-test" hx-include="#apprise_urls_field" hx-target="#apprise-test-result" hx-swap="innerHTML">
-        Test &amp; Save
-      </button>
-      <button type="button" class="icon-button" title="Reset to last saved value" onclick="cancelAppriseEdit()">⟲</button>
-      <span id="apprise-test-result"></span>
-    </div>
-  </div>
+  function openForHash() {
+    var target = hashTarget();
+    if (!target) return;
+    document.querySelectorAll('[data-collapse-key]').forEach(function (header) {
+      var body = document.getElementById(header.getAttribute('data-collapse-target'));
+      if (body && body.contains(target)) reveal(body);
+    });
+    // The browser already tried (and failed) to scroll to a target inside a then-collapsed
+    // panel, so it needs asking again now that the panel is open.
+    requestAnimationFrame(function () { target.scrollIntoView(); });
+  }
 
-  {% for feature, title in [('updates', 'Update Notifications'), ('logs', 'Runtime Notifications'), ('compose', 'Configuration Notifications')] %}
-  <div class="settings-subsection" id="{{ feature }}_notify_section">
-    <h4>{{ title }}</h4>
-    {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature,
-                         'Enable notifications', "toggleNotifyErrorsField('" ~ feature ~ "', this.checked)") }}
-    {% if feature == 'updates' %}
-    <div style="margin-top:8px">
-      {{ ts.toggle_switch('notify_updates_include_errors', notify.updates_include_errors, '/settings/notify/updates-include-errors',
-                           "Notify when a container's registry can't be reached", disabled=not notify.features['updates'].enabled) }}
-    </div>
-    <p class="meta" style="margin-top:8px">Minimum level to receive a notification</p>
-    <div>
-      {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
-    </div>
-    {% elif feature == 'logs' %}
-    <div style="margin-top:8px">
-      {{ ts.toggle_switch('notify_logs_include_errors', notify.logs_include_errors, '/settings/notify/logs-include-errors',
-                           "Notify when a container's logs can't be fetched", disabled=not notify.features['logs'].enabled) }}
-    </div>
-    <p class="meta" style="margin-top:8px">Minimum level to receive a notification</p>
-    <div>
-      {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
-    </div>
-    {% else %}
-    <div style="margin-top:8px">
-      {{ ts.toggle_switch('notify_compose_include_errors', notify.compose_include_errors, '/settings/notify/compose-include-errors',
-                           "Notify when a compose file can't be checked", disabled=not notify.features['compose'].enabled) }}
-    </div>
-    <p class="meta" style="margin-top:8px">Minimum level to receive a notification</p>
-    <div>
-      {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
-    </div>
-    {% endif %}
-  </div>
-  {% endfor %}
-</section>
+  var open = {};
+  try { open = JSON.parse(localStorage.getItem('service-sentinel-settings-open') || '{}') || {}; } catch (e) { open = {}; }
+  document.querySelectorAll('[data-collapse-key]').forEach(function (header) {
+    if (open[header.getAttribute('data-collapse-key')] !== true) return;
+    var body = document.getElementById(header.getAttribute('data-collapse-target'));
+    if (body) reveal(body);
+  });
+  openForHash();
+
+  // Arriving at a different anchor on the page you're already on -- the back/forward buttons
+  // after following one of the Overview page's deep links -- is a same-document navigation, so
+  // none of the above re-runs on its own.
+  window.addEventListener('hashchange', openForHash);
+})();
+</script>
 
 <script>
 function toggleAiProvider(active) {

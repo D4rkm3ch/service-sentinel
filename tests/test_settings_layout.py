@@ -13,18 +13,20 @@ from pathlib import Path
 SETTINGS_TEMPLATE = Path(__file__).resolve().parent.parent / "app" / "templates" / "settings.html"
 
 
-def test_ai_provider_and_deep_analysis_come_before_scheduling_and_notifications(client):
-    page = client.get("/settings")
-    ai_provider_pos = page.text.index(">AI Provider<")
-    deep_analysis_pos = page.text.index(">Deep Analysis<")
-    scheduling_pos = page.text.index(">Scheduling<")
-    notifications_pos = page.text.index(">Notifications<")
-    assert ai_provider_pos < deep_analysis_pos < scheduling_pos < notifications_pos
+def test_the_ai_provider_keys_sit_at_the_very_bottom_of_the_page(client):
+    """This ordering is the reverse of what it once was, and deliberately so. AI Provider led the
+    page on the reasoning that this is an AI program first -- but it's a page of API keys you set
+    on install day and never open again, and it was pushing the things operators actually revisit
+    below three and a half screens of scroll. It's the last panel now, under Setup. See
+    test_settings_structure.py for the grouping this is part of."""
+    text = client.get("/settings").text
+    assert text.index(">Setup<") > text.index(">Configuration Health<")
+    assert text.index("<h4>AI Provider</h4>") > text.index('id="settings-setup-body"')
 
 
 def test_registry_error_toggle_sits_between_enable_notifications_and_severity_buttons(client):
     page = client.get("/settings")
-    updates_section = page.text[page.text.index("Update Notifications</h4>"):]
+    updates_section = page.text[page.text.index('id="updates_notify_section"'):]
     enable_pos = updates_section.index("Enable notifications")
     errors_pos = updates_section.index("can&#39;t be reached")
     severity_pos = updates_section.index("Minimum level to receive a notification")
@@ -59,13 +61,14 @@ def test_ai_provider_description_paragraph_is_gone_or_much_shorter(client):
 
 def test_active_provider_label_is_gone_and_dropdown_sits_right_under_the_heading():
     """The "Active provider" <h4> was redundant once the AI Provider blurb above it was
-    removed -- the select now sits directly under the "AI Provider" <h2>."""
+    removed -- the select sits directly under the "AI Provider" heading, which is now a
+    subsection of Setup rather than a panel of its own."""
     text = SETTINGS_TEMPLATE.read_text()
     assert "Active provider" not in text
-    ai_provider_heading = text.index(">AI Provider<")
+    ai_provider_heading = text.index("<h4>AI Provider</h4>")
     select_pos = text.index('name="ai_provider"')
-    deep_analysis_heading = text.index(">Deep Analysis<")
-    assert ai_provider_heading < select_pos < deep_analysis_heading
+    first_provider_block = text.index('id="anthropic-provider-section"')
+    assert ai_provider_heading < select_pos < first_provider_block
 
 
 def test_timezone_explanation_paragraph_is_gone():

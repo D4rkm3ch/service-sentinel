@@ -218,11 +218,12 @@ def test_subject_findings_page_seen_column_renamed_to_detected_and_drops_occurre
 
 def test_collapse_state_does_not_persist_across_page_loads():
     """The collapsed/expanded state of the top table must NOT survive navigating away and back
-    or reloading -- every fresh page load should show the table expanded. Scoped to the
-    collapsible-top-table script specifically (see test_casing_and_schedule_batch_fixes.py's
-    own copy of this check for why: base.html legitimately uses localStorage elsewhere now, for
-    the sidebar collapse state and the light/dark theme, both meant to persist on purpose)."""
+    or reloading -- every fresh page load should show the table expanded. The shared toggle
+    handler gained a persistence path for the Settings page's panels, which do want to be
+    remembered; it's gated behind a data-collapse-key attribute this header deliberately doesn't
+    have, so nothing about the table's own behavior changed."""
     from pathlib import Path
-    text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "base.html").read_text()
-    collapsible_block = text[text.index("Collapsible top table"):]
-    assert "localStorage" not in collapsible_block
+    templates = Path(__file__).resolve().parent.parent / "app" / "templates"
+    header = (templates / "_feature_header.html").read_text()
+    assert "collapsible-header" in header
+    assert "data-collapse-key" not in header, "this table must not opt in to remembered state"

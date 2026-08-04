@@ -97,13 +97,26 @@ def test_logs_use_checkpoint_route_saves(client):
     assert db.get_logs_use_checkpoint() is False
 
 
-def test_settings_page_has_a_lookback_window_section_with_both_subsections(client):
+def test_each_module_carries_its_own_lookback_window_on_the_settings_page(client):
+    """The two lookback settings used to share one "Lookback Window" panel with a Release Notes
+    subsection and a Runtime one, which was really two modules' settings wearing one hat. Now
+    Settings is grouped by module (see test_settings_structure.py), so each lives in its own
+    module's panel and the heading is just "Lookback Window" in both -- the panel around it says
+    which module it belongs to. The checkpoint toggle sits with the window it modifies rather
+    than as a third subsection of its own."""
     text = client.get("/settings").text
-    assert ">Lookback Window<" in text
-    assert "<h4>Release Notes</h4>" in text
-    assert "<h4>Runtime</h4>" in text
-    assert "<h4>Checkpoint</h4>" in text
-    assert "logs_use_checkpoint" in text
+    assert text.count("<h4>Lookback Window</h4>") == 2
+
+    updates = text[text.index('id="settings-updates-body"'):text.index('id="settings-logs-body"')]
+    assert "release_notes_lookback" in updates
+    assert "logs_lookback" not in updates
+
+    logs = text[text.index('id="settings-logs-body"'):text.index('id="settings-compose-body"')]
+    assert "logs_lookback" in logs
+    assert "logs_use_checkpoint" in logs
+
+    compose = text[text.index('id="settings-compose-body"'):]
+    assert "<h4>Lookback Window</h4>" not in compose, "Compose hashes files, it has no time window"
 
 
 # ---------------------------------------------------------------------------
