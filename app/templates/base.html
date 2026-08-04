@@ -40,6 +40,14 @@
         // leaves it open while browsing, since the panel itself re-renders closed by default on
         // every fresh page load otherwise.
         if (localStorage.getItem("service-sentinel-chat") === "open") document.documentElement.dataset.chat = "open";
+        // Its dragged width too (see the chat-resize IIFE), for the same reason: restored down
+        // here the panel would paint at the default 320px first and then jump to the saved
+        // width. Only sanity-bounded here -- the real clamping against the window and sidebar
+        // needs layout, so the resize IIFE re-clamps this as soon as it runs.
+        var savedChatWidth = parseInt(localStorage.getItem("service-sentinel-chat-width"), 10);
+        if (savedChatWidth >= 280 && savedChatWidth <= 2000) {
+          document.documentElement.style.setProperty("--chat-panel-width", savedChatWidth + "px");
+        }
       } catch (e) { /* localStorage unavailable (private browsing, etc.) -- stay on the defaults */ }
       try {
         if (sessionStorage.getItem("service-sentinel-sidebar-peek") === "1") {
@@ -101,6 +109,12 @@
       </symbol>
       <symbol id="icon-close" viewBox="0 0 24 24">
         <line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M6 15H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v1"/>
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="m5 13 4.5 4.5L19 7"/>
       </symbol>
       <symbol id="icon-send" viewBox="0 0 24 24">
         <line x1="4" y1="12" x2="19" y2="12"/><path d="M13 6l6 6-6 6"/>
@@ -239,16 +253,21 @@
   <div id="onboarding-modal-slot" hx-get="/settings/access-control/onboarding-modal" hx-trigger="load" hx-swap="innerHTML"></div>
 
   <!-- Chat widget -- floating, present on every page (not a sidebar destination) so a
-       conversation can keep going while navigating between pages. Look-only: no tools that
-       change anything. Front-end only for now -- there's no AI backend behind it yet, see
-       #chat-empty-state below; the composer just echoes what was typed rather than pretending
-       to answer. -->
+       conversation can keep going while navigating between pages. Look-only by construction:
+       the backend (see app/chat.py) answers from a read-only snapshot of the current system
+       state plus, when a container is named, that container's recent logs. It has no tools and
+       no way to change anything, on this system or in the app's own settings. -->
   <button type="button" id="chat-launcher" class="chat-launcher" aria-label="Open chat" aria-controls="chat-panel">
     <svg class="icon"><use href="#icon-chat"/></svg>
     <span class="chat-launcher-badge" id="chat-launcher-badge" hidden></span>
   </button>
 
   <aside class="chat-panel" id="chat-panel" aria-hidden="true" aria-label="Ask Service Sentinel">
+    {# Drag the panel's left edge to widen or narrow it. role="separator" with aria-valuenow is
+       the pattern screen readers understand for a splitter, and it's focusable so the arrow
+       keys can do the same job as the pointer. #}
+    <div class="chat-resize-handle" id="chat-resize-handle" role="separator" tabindex="0"
+         aria-orientation="vertical" aria-label="Resize chat panel"></div>
     <div class="chat-panel-head">
       <div class="chat-panel-head-text">
         <div class="chat-panel-title">Ask Service Sentinel</div>
@@ -266,7 +285,13 @@
       </div>
     </div>
     <div class="chat-input-row">
-      <input type="text" class="chat-input" id="chat-input" placeholder="Ask about your system…" autocomplete="off">
+      {# A textarea, not a single-line input: a question worth asking the assistant is often
+         several lines of pasted log or config, and typing it into a box that scrolls sideways
+         one character at a time means never being able to read back what you wrote. It starts
+         exactly one row tall and grows with the text (see the auto-grow IIFE). Enter still
+         sends -- Shift+Enter is the newline. #}
+      <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask about your system…"
+                autocomplete="off"></textarea>
       <button type="button" class="chat-send-btn" id="chat-send-btn" aria-label="Send">
         <svg class="icon"><use href="#icon-send"/></svg>
       </button>
@@ -546,9 +571,8 @@
     // can be open at once and the main content area simply narrows from both sides at once,
     // rather than the two competing over the same space.
     //
-    // Front-end only for now -- there's no AI backend wired up yet, so the composer just echoes
-    // what was typed and adds an honest "not connected yet" note rather than pretending to
-    // answer (see #chat-empty-state's own copy).
+    // Its width is draggable and is likewise remembered across navigation -- see the resize
+    // IIFE below this one.
     (function () {
       var STORAGE_KEY = "service-sentinel-chat";
       var launcher = document.getElementById("chat-launcher");
@@ -607,9 +631,9 @@
           if (turn.role === "assistant") {
             // Stored html came from the server's own sanitizer (render_markdown) before it was
             // ever saved, so re-inserting it is exactly as safe as displaying it was first time.
-            appendMessage("assistant", turn.html || turn.content, !!turn.html);
+            appendMessage("assistant", turn.html || turn.content, !!turn.html, turn.content);
           } else {
-            appendMessage("user", turn.content, false);
+            appendMessage("user", turn.content, false, turn.content);
           }
         });
         if (emptyState) emptyState.hidden = true;
@@ -627,13 +651,78 @@
       // asHtml renders already-server-sanitized markdown (the assistant's reply); everything
       // else is set as textContent so a user message or error string is never interpreted as
       // markup.
-      function appendMessage(kind, content, asHtml) {
+      // navigator.clipboard only exists in a secure context, and this app is very often served
+      // over plain http on a LAN address -- exactly the case where it's missing. The hidden-
+      // textarea + execCommand path is the pre-Clipboard-API way of doing it and still works
+      // everywhere, so it's the fallback rather than showing a button that silently does
+      // nothing for most of the people running this.
+      function copyToClipboard(text) {
+        if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+        return new Promise(function (resolve, reject) {
+          var scratch = document.createElement("textarea");
+          scratch.value = text;
+          scratch.setAttribute("readonly", "");
+          // Off-screen but still focusable -- display:none or visibility:hidden would make the
+          // selection (and so the copy) fail.
+          scratch.style.position = "fixed";
+          scratch.style.top = "-1000px";
+          document.body.appendChild(scratch);
+          scratch.select();
+          var copied = false;
+          try { copied = document.execCommand("copy"); } catch (e) { copied = false; }
+          document.body.removeChild(scratch);
+          if (copied) { resolve(); } else { reject(); }
+        });
+      }
+
+      // Every real message gets one -- an answer is often a command or a config snippet meant
+      // to be pasted somewhere, and selecting rendered markdown by hand out of a narrow panel
+      // is miserable. What's copied is the plain markdown, not the rendered HTML: paste it into
+      // an editor and you get the text, not a wall of tags.
+      function buildCopyButton(text) {
+        var actions = document.createElement("div");
+        actions.className = "chat-msg-actions";
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chat-copy-btn";
+        btn.setAttribute("aria-label", "Copy message");
+        btn.innerHTML = '<svg class="icon"><use href="#icon-copy"/></svg><span class="chat-copy-label">Copy</span>';
+        var revert = null;
+        btn.addEventListener("click", function () {
+          copyToClipboard(text).then(function () {
+            setState(btn, "#icon-check", "Copied", "is-copied");
+          }).catch(function () {
+            setState(btn, "#icon-copy", "Failed", "is-failed");
+          });
+        });
+        function setState(button, icon, label, cls) {
+          button.querySelector("use").setAttribute("href", icon);
+          button.querySelector(".chat-copy-label").textContent = label;
+          button.classList.add(cls);
+          // One timer per button, restarted on every click, so hammering it can't leave the
+          // label stuck on "Copied".
+          clearTimeout(revert);
+          revert = setTimeout(function () {
+            button.querySelector("use").setAttribute("href", "#icon-copy");
+            button.querySelector(".chat-copy-label").textContent = "Copy";
+            button.classList.remove("is-copied", "is-failed");
+          }, 1400);
+        }
+        actions.appendChild(btn);
+        return actions;
+      }
+
+      // copyText is the plain-text form of this message, and passing it is also what decides
+      // whether the message gets a copy button at all -- the spinner and the error notices are
+      // called without one, since there's nothing there worth putting on the clipboard.
+      function appendMessage(kind, content, asHtml, copyText) {
         var msg = document.createElement("div");
         msg.className = "chat-msg chat-msg-" + kind;
         var bubble = document.createElement("div");
         bubble.className = "chat-bubble";
         if (asHtml) { bubble.innerHTML = content; } else { bubble.textContent = content; }
         msg.appendChild(bubble);
+        if (copyText) msg.appendChild(buildCopyButton(copyText));
         log.appendChild(msg);
         log.scrollTop = log.scrollHeight;
         return msg;
@@ -644,10 +733,13 @@
         var text = input.value.trim();
         if (!text) return;
         if (emptyState) emptyState.hidden = true;
-        appendMessage("user", text, false);
+        appendMessage("user", text, false, text);
         history.push({ role: "user", content: text });
         persistHistory();
         input.value = "";
+        // Back to one row -- a composer left standing at the height of the question that was
+        // just sent would eat the top of the answer it's waiting for.
+        autoGrow();
 
         pending = true;
         if (sendBtn) sendBtn.disabled = true;
@@ -667,7 +759,7 @@
         }).then(function (r) { return r.json(); }).then(function (data) {
           thinking.remove();
           if (data && data.ok) {
-            appendMessage("assistant", data.html, true);
+            appendMessage("assistant", data.html, true, data.markdown);
             history.push({ role: "assistant", content: data.markdown, html: data.html });
             if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
             persistHistory();
@@ -686,12 +778,148 @@
         });
       }
 
+      // Grows the composer to fit what's been typed, up to three fifths of the panel's height,
+      // and scrolls internally past that. Measured against the panel rather than the window on
+      // purpose: on a short panel a window-relative cap would leave the conversation with
+      // almost nothing.
+      //
+      // Resetting the height to "auto" before reading scrollHeight is the load-bearing line --
+      // scrollHeight of an element already sized to its content just reports that size back, so
+      // without the reset the box can only ever grow, never shrink again when text is deleted.
+      function autoGrow() {
+        if (!input) return;
+        var panelHeight = panel ? panel.getBoundingClientRect().height : window.innerHeight;
+        var cap = Math.round(panelHeight * 0.6);
+        input.style.height = "auto";
+        input.style.maxHeight = cap + "px";
+        // Everything here is border-box (see style.css's universal reset), so a height set to
+        // scrollHeight alone comes up exactly the borders short and leaves the box permanently
+        // scrolled by a couple of pixels even with two lines in it. offsetHeight - clientHeight
+        // is that difference, whatever the border actually is.
+        var chrome = input.offsetHeight - input.clientHeight;
+        input.style.height = Math.min(input.scrollHeight + chrome, cap) + "px";
+      }
+
       if (sendBtn) sendBtn.addEventListener("click", submit);
-      if (input) input.addEventListener("keydown", function (evt) { if (evt.key === "Enter") submit(); });
+      if (input) {
+        input.addEventListener("input", autoGrow);
+        input.addEventListener("keydown", function (evt) {
+          // Enter sends, Shift+Enter (and the IME's own composition Enter, which reports
+          // isComposing) inserts a newline -- the convention every chat composer uses.
+          if (evt.key === "Enter" && !evt.shiftKey && !evt.isComposing) {
+            evt.preventDefault();
+            submit();
+          }
+        });
+        // The cap is a fraction of the panel, so it has to be recomputed whenever the panel's
+        // height can change -- which is any window resize.
+        window.addEventListener("resize", autoGrow);
+        autoGrow();
+      }
 
       // Replays any conversation still alive in this tab -- must run after appendMessage is
       // defined, so it sits at the end of this IIFE rather than up with the other setup.
       restoreHistory();
+    })();
+
+    // Chat panel resizing -- drag its left edge (or focus the handle and use the arrow keys) to
+    // trade width between the conversation and the page. Everything downstream already reads
+    // --chat-panel-width (the panel's own width, the topbar's right inset, body's padding-right
+    // that pushes the content over), so setting that one variable is the whole mechanism.
+    //
+    // The upper bound is expressed as a floor under the CONTENT rather than a ceiling on the
+    // panel, because what actually matters is that the page stays usable: the feature-page
+    // headers keep all their buttons on one row down to roughly this width, and below it they
+    // start clipping. It's recomputed against the live window and sidebar width on every move,
+    // so widening the panel simply stops when the content hits that floor instead of being
+    // allowed to squeeze it away.
+    (function () {
+      var STORAGE_KEY = "service-sentinel-chat-width";
+      var handle = document.getElementById("chat-resize-handle");
+      var panel = document.getElementById("chat-panel");
+      if (!handle || !panel) return;
+
+      var MIN_WIDTH = 280;      // narrower than this and the composer/bubbles stop reading as a conversation
+      var CONTENT_FLOOR = 760;  // see above -- the width the page content is never squeezed below
+      var KEY_STEP = 16;
+
+      function maxWidth() {
+        var sidebar = parseFloat(getComputedStyle(document.documentElement)
+          .getPropertyValue("--sidebar-width")) || 0;
+        // Never return something below MIN_WIDTH: on a genuinely tiny window the floor can't be
+        // honoured at all, and clamping to a negative number would collapse the panel entirely.
+        return Math.max(MIN_WIDTH, window.innerWidth - sidebar - CONTENT_FLOOR);
+      }
+
+      function apply(width, persist) {
+        var clamped = Math.round(Math.min(Math.max(width, MIN_WIDTH), maxWidth()));
+        document.documentElement.style.setProperty("--chat-panel-width", clamped + "px");
+        handle.setAttribute("aria-valuenow", String(clamped));
+        if (persist) {
+          try { localStorage.setItem(STORAGE_KEY, String(clamped)); } catch (e) { /* private browsing, etc. */ }
+        }
+        return clamped;
+      }
+
+      function stored() {
+        try {
+          var saved = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+          return isNaN(saved) ? null : saved;
+        } catch (e) { return null; }
+      }
+
+      // The saved width is re-applied on load, and re-clamped whenever the window or the
+      // sidebar changes size: a width that respected the content floor on a wide monitor won't
+      // on a narrow one, and expanding the sidebar eats into the same budget. Re-clamping
+      // rather than overwriting the stored value means the original width comes back intact
+      // once there's room for it again.
+      var savedWidth = stored();
+      if (savedWidth !== null) apply(savedWidth, false);
+
+      function reclamp() { apply(stored() !== null ? stored() : panel.getBoundingClientRect().width, false); }
+      window.addEventListener("resize", reclamp);
+      // The sidebar's width transitions over ~0.18s, so read it once that has settled.
+      var sidebarToggle = document.getElementById("sidebar-toggle");
+      if (sidebarToggle) sidebarToggle.addEventListener("click", function () { setTimeout(reclamp, 220); });
+
+      var dragging = false;
+
+      handle.addEventListener("pointerdown", function (evt) {
+        // Left button / touch / pen only -- a right-click on the edge shouldn't start a drag.
+        if (evt.button !== 0) return;
+        dragging = true;
+        document.documentElement.dataset.chatResizing = "";
+        // Pointer capture is what keeps the drag alive when the pointer outruns the 7px handle,
+        // which it does immediately on any real drag. Without it the events go to whatever is
+        // under the cursor and the panel stops following after a few pixels.
+        handle.setPointerCapture(evt.pointerId);
+        evt.preventDefault();
+      });
+
+      handle.addEventListener("pointermove", function (evt) {
+        if (!dragging) return;
+        // Measured from the window's right edge, since that's the edge the panel is pinned to.
+        apply(window.innerWidth - evt.clientX, false);
+      });
+
+      function endDrag(evt) {
+        if (!dragging) return;
+        dragging = false;
+        delete document.documentElement.dataset.chatResizing;
+        if (handle.hasPointerCapture(evt.pointerId)) handle.releasePointerCapture(evt.pointerId);
+        // Persist once, at the end -- writing to localStorage on every pointermove would be
+        // dozens of writes a second for no benefit.
+        apply(panel.getBoundingClientRect().width, true);
+      }
+      handle.addEventListener("pointerup", endDrag);
+      handle.addEventListener("pointercancel", endDrag);
+
+      handle.addEventListener("keydown", function (evt) {
+        var step = evt.key === "ArrowLeft" ? KEY_STEP : evt.key === "ArrowRight" ? -KEY_STEP : 0;
+        if (!step) return;
+        evt.preventDefault();
+        apply(panel.getBoundingClientRect().width + step, true);
+      });
     })();
 
     // Light/dark theme toggle -- the actual switch on click; the matching read happens in the

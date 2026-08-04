@@ -367,7 +367,14 @@ code {
      its content, so a long health summary shoved the two 1fr side tracks out of balance and the
      text visibly sat left of true centre. A zero lower bound lets the centre give way instead,
      which -- with the equal 1fr tracks either side -- keeps it midway between the brand and the
-     theme controls at every width, truncating (see .topbar-status) rather than pushing. */
+     theme controls at every width, truncating (see .topbar-status) rather than pushing.
+
+     The zero lower bound alone isn't enough to make it actually give way, though: grid sizes
+     non-flexible tracks before flexible ones, so this auto-max centre track claims its full
+     max-content first and the two 1fr tracks only ever divide what's left. Squeeze the topbar
+     (drag the chat panel wide) and the side tracks hit the automatic min-content floor 1fr
+     carries, the brand overflows its own track, and the summary text runs straight underneath
+     it. .topbar-center's max-width is what actually holds the centre back -- see its rule. */
   grid-template-columns: 1fr minmax(0, auto) 1fr;
   align-items: center;
   padding: 0 20px;
@@ -386,10 +393,21 @@ code {
 
 .topbar-center {
   justify-self: center;
-  /* Both needed for the centre track's minmax(0, auto) to actually take effect on the content
-     inside it -- without them this box would keep its full text width and overflow the track. */
+  /* min-width:0 is needed for the centre track's minmax(0, auto) to take effect on the content
+     inside this box at all -- without it the box keeps its full text width and overflows.
+     The max-width is what stops the centre track claiming space the brand and theme controls
+     still need (see .topbar's own comment on why the track alone won't yield): capping the
+     ITEM caps its max-content contribution, which caps the track. The two 1fr tracks stay
+     equal either side of it, so the summary is still truly centred, it just runs out of room
+     sooner and ellipsizes instead of sliding under the brand.
+
+     100vw minus the panel is the topbar's own width (it's fixed with left:0 and right pinned
+     to the chat panel), and the reserve is what the two side regions plus the padding actually
+     measure -- the brand and hamburger are a fixed 201px, and the widest the theme controls
+     get is the longest accent name in the swatch, with the rest slack so the summary stops
+     with clear air either side rather than exactly touching. */
   min-width: 0;
-  max-width: 100%;
+  max-width: calc(100vw - var(--chat-open-width) - 470px);
 }
 
 .topbar-end {
@@ -1019,6 +1037,44 @@ html[data-chat="open"] .chat-panel {
   transform: translateX(0);
 }
 
+/* The drag target for resizing the panel. A hair wider than the 1px border it straddles, and
+   pulled half its width outside the panel, so it's actually grabbable without the pointer
+   having to land on a single-pixel line -- it overhangs the content by 3px, which is why it's
+   invisible until hovered rather than drawn as a permanent bar down the page. */
+.chat-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  z-index: 1;
+  cursor: col-resize;
+  /* The line only appears once you're on it (or dragging), so the panel's own border-left is
+     what's visible the rest of the time. */
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.chat-resize-handle:hover,
+.chat-resize-handle:focus-visible,
+html[data-chat-resizing] .chat-resize-handle {
+  background: var(--accent);
+  outline: none;
+}
+/* While a drag is in flight every width-driven transition has to be off: the panel's width,
+   the topbar's right edge and body's padding-right all animate on a ~0.2s ease so opening and
+   closing glides, but during a drag that same easing makes the layout lag a frame or two
+   behind the pointer and the whole thing feels like it's made of rubber. Also kills text
+   selection, which otherwise highlights half the page as the pointer sweeps across it. */
+html[data-chat-resizing] body,
+html[data-chat-resizing] .chat-panel,
+html[data-chat-resizing] .topbar {
+  transition: none;
+}
+html[data-chat-resizing] {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .chat-panel-head {
   display: flex;
   align-items: center;
@@ -1139,6 +1195,60 @@ html[data-chat="open"] .chat-panel {
   padding: 9px 12px;
   border-radius: 10px;
 }
+
+/* The copy button's row, under the bubble it belongs to and aligned to the same side, so it
+   reads as part of that message rather than as the start of the next one. */
+.chat-msg-actions {
+  display: flex;
+  margin-top: 3px;
+}
+.chat-msg-user .chat-msg-actions {
+  justify-content: flex-end;
+}
+.chat-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+.chat-copy-btn:hover {
+  color: var(--text);
+  background: var(--code-bg);
+}
+.chat-copy-btn .icon {
+  width: 12px;
+  height: 12px;
+}
+.chat-copy-btn.is-copied {
+  color: var(--accent);
+}
+.chat-copy-btn.is-failed {
+  color: var(--error);
+}
+/* Revealed on hover, but only where hovering is a thing the input device does. A touch screen
+   reports (hover: none) and skips this block entirely, so the button is simply always visible
+   there -- on a phone there's no way to reveal it otherwise, and a control you can't get to is
+   worse than one that's always on show. Keyboard focus reveals it too, for the same reason. */
+@media (hover: hover) {
+  .chat-copy-btn {
+    opacity: 0;
+  }
+  .chat-msg:hover .chat-copy-btn,
+  .chat-msg:focus-within .chat-copy-btn,
+  .chat-copy-btn:focus-visible,
+  .chat-copy-btn.is-copied,
+  .chat-copy-btn.is-failed {
+    opacity: 1;
+  }
+}
 .chat-msg-user .chat-bubble {
   background: var(--accent);
   color: var(--on-accent);
@@ -1205,6 +1315,9 @@ html[data-chat="open"] .chat-panel {
   padding: 12px 14px 14px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  /* The composer grows upward as it fills, so the send button has to stay level with the
+     composer's LAST line rather than floating in the middle of a tall box. */
+  align-items: flex-end;
 }
 .chat-input {
   flex: 1;
@@ -1215,6 +1328,21 @@ html[data-chat="open"] .chat-panel {
   padding: 9px 11px;
   font-size: 13px;
   font-family: inherit;
+  /* A textarea now (see base.html), so it needs the things a textarea doesn't inherit:
+     resize:none because the auto-grow script owns the height and a drag handle would fight it,
+     and an explicit line-height so that script's row arithmetic is a known quantity rather
+     than whatever "normal" resolves to for the current font. */
+  resize: none;
+  line-height: 1.45;
+  /* Both the height and the cap are set inline by the auto-grow script -- the cap is three
+     fifths of the PANEL's height, which only JS can measure, and deliberately not three fifths
+     of the window: a short panel should get a proportionally shorter composer rather than one
+     that swallows the conversation above it. This min-height is the one-row floor it starts
+     from and never goes below. overflow-y:auto is what makes it scroll internally once it hits
+     the cap instead of just growing past it. */
+  min-height: 38px;
+  overflow-y: auto;
+  display: block;
 }
 .chat-input:focus {
   border-color: var(--accent);

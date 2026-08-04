@@ -220,3 +220,44 @@ def test_accent_picker_js_persists_the_real_picks_via_localstorage():
     assert "service-sentinel-accent" in picker_script
     assert "localStorage.setItem" in picker_script
     assert "option.dataset.accent" in picker_script
+
+
+# ---------------------------------------------------------------------------
+# Staying centred, and staying out of the way, as the topbar narrows
+# ---------------------------------------------------------------------------
+
+def _css_rule(selector: str) -> str:
+    css = (Path(__file__).resolve().parent.parent / "app" / "static" / "style.css").read_text()
+    start = css.index(selector + " {")
+    return css[start:css.index("}", start)]
+
+
+def test_the_summary_is_centred_on_the_topbar_not_on_the_space_left_over():
+    """Equal 1fr tracks either side are what put it at true centre. A flex row with
+    space-between would centre it in whatever the two sides didn't use, which visibly drifts
+    the moment either side's content changes width."""
+    assert "grid-template-columns: 1fr minmax(0, auto) 1fr" in _css_rule(".topbar")
+
+
+def test_the_summary_cannot_grow_into_the_brand_or_the_theme_controls():
+    """The centre track's zero lower bound isn't enough on its own: grid sizes non-flexible
+    tracks before flexible ones, so an auto-max centre track claims its full max-content first
+    and the 1fr tracks only ever divide what's left. Squeeze the topbar -- drag the chat panel
+    wide -- and the side tracks bottom out at the min-content floor 1fr carries, the brand
+    overflows its own track, and the summary runs underneath it. Capping the centre ITEM caps
+    its max-content contribution, which is what actually caps the track.
+
+    Measured against the topbar's own width (100vw less the chat panel it's pinned to), so it
+    tightens as the panel widens rather than only reacting to the window."""
+    rule = _css_rule(".topbar-center")
+    assert "max-width: calc(100vw - var(--chat-open-width) - 470px)" in rule
+    assert "min-width: 0" in rule
+
+
+def test_the_summary_ellipsises_rather_than_wrapping_or_pushing():
+    css = (Path(__file__).resolve().parent.parent / "app" / "static" / "style.css").read_text()
+    start = css.index("#topbar-idle-summary-text,")
+    block = css[start:css.index("}", start)]
+    assert "text-overflow: ellipsis" in block
+    assert "overflow: hidden" in block
+    assert "white-space: nowrap" in block
