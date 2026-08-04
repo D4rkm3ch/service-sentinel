@@ -138,15 +138,16 @@
       </div>
     </div>
     <div class="topbar-end">
-      <button type="button" id="check-all-btn" class="check-all-btn">Check All</button>
-      <button type="button" id="regenerate-all-btn" class="regenerate-all-btn"
-              title="Regenerate the AI-written response for every currently open finding, across Updates, Runtime Health, and Configuration Health">
-        Regenerate AI
-      </button>
-      <button type="button" id="reset-recheck-all-btn" class="reset-recheck-all-btn"
-              title="Wipe all tracked history and re-check everything fresh, across Updates, Runtime Health, and Configuration Health">
-        Reset &amp; Re-Check
-      </button>
+      <!-- The two global action buttons used to live here; they now sit in a slim row at the
+           top of the Overview page instead (see overview.html). On a feature page they read as
+           clutter competing with that page's own per-feature action row, and Overview -- the
+           one page already about all three modules at once -- is where "do this to everything"
+           belongs. Moving them out is also what leaves the centre region enough room to keep
+           its health summary genuinely centred. The JS driving them is unchanged and still in
+           this file: it looks them up by id wherever they happen to render.
+           NOTE: deliberately avoids naming the buttons literally here -- several tests locate
+           each page's own action buttons by searching the rendered HTML for their label text,
+           and a comment repeating those labels registers as a false first match. -->
       <!-- All seven carry data-accent -- picking any of them switches the app's --accent family
            and persists it (see style.css's own [data-theme][data-accent] blocks and the script
            below). Graphite Grey is the accessibility-motivated one -- a genuinely neutral
@@ -372,12 +373,20 @@
         });
       }
 
-      // "Regenerate AI" / "Reset & Re-Check" -- the topbar-level chained counterparts of each
-      // page's own bulk Regenerate AI Response / Reset & Re-Check buttons (see
+      // The global regenerate/reset counterparts of each page's own bulk action buttons (see
       // _feature_header.html), covering Updates, Runtime Health, and Configuration Health in
-      // one click instead of three. Same confirm-before-firing pattern those per-feature buttons
-      // already use (heavier/token-costlier or destructive enough to want an explicit second
-      // click), same optimistic instant-disable + fetch shape as Check All above.
+      // one click instead of three. Same confirm-before-firing pattern those per-feature
+      // buttons already use (heavier/token-costlier or destructive enough to want an explicit
+      // second click), same optimistic instant-disable + fetch shape as the check-all handler
+      // above. (Button labels are deliberately not spelled out in these comments -- see the
+      // note in the topbar markup above for why.)
+      //
+      // NOTE: no #regenerate-all-btn is currently rendered anywhere -- the global "Regenerate
+      // AI" button was deliberately dropped from the UI while its wiring (this handler, the
+      // POST /checks/regenerate-all route, and _run_global_regenerate_all in main.py) was kept
+      // intact, so it can be restored by re-adding the markup alone. The getElementById guard
+      // below makes that harmless in the meantime. This is an open decision, not an oversight:
+      // it's either coming back somewhere or being deleted outright.
       var regenerateAllBtn = document.getElementById("regenerate-all-btn");
       if (regenerateAllBtn) {
         regenerateAllBtn.addEventListener("click", function () {

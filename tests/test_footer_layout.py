@@ -52,10 +52,30 @@ def test_footer_does_not_grow_and_has_no_extra_top_margin():
     assert "margin: 0 auto" in rule
 
 
+def _shorthand_values(rule, prop):
+    """Split a shorthand's value into its top-level parts, keeping calc(...)/var(...) whole --
+    a plain .split() would tear `calc(a - b)` into three useless fragments."""
+    line = next(line for line in rule.splitlines() if f"{prop}:" in line)
+    value = line.strip().rstrip(";").split(":", 1)[1]
+    parts, depth, current = [], 0, ""
+    for ch in value:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch.isspace() and depth == 0:
+            if current:
+                parts.append(current)
+                current = ""
+            continue
+        current += ch
+    if current:
+        parts.append(current)
+    return parts
+
+
 def test_main_top_and_bottom_padding_match():
     """The gap before the footer should read the same as the gap after the topbar -- both
-    sides of main's vertical padding must be equal."""
-    rule = _rule("main")
-    padding_line = next(line for line in rule.splitlines() if "padding:" in line)
-    values = padding_line.strip().rstrip(";").split(":", 1)[1].split()
+    sides of main's vertical padding must be equal, which a two-value shorthand guarantees."""
+    values = _shorthand_values(_rule("main"), "padding")
     assert len(values) == 2, f"expected a two-value padding (vertical horizontal), got {values}"

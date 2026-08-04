@@ -119,13 +119,27 @@ def test_check_running_status_lives_in_the_topbar_center_region():
     assert 'id="check-running-banner-cancel"' in center
 
 
-def test_check_all_button_and_theme_controls_live_in_the_topbar_end_region():
+def test_only_the_theme_controls_live_in_the_topbar_end_region():
+    """The topbar end region is now theme controls only. The two global action buttons that
+    used to sit beside them moved onto the Overview page (see the next test) -- they made every
+    content page feel busy, and Overview is the one page that's already about all three modules
+    at once."""
     text = _base_html()
     end_start = text.index('class="topbar-end"')
     end_text = text[end_start:text.index("</header>")]
-    assert 'id="check-all-btn"' in end_text
     assert 'id="accent-swatch-btn"' in end_text
     assert 'id="theme-toggle-btn"' in end_text
+    assert 'id="check-all-btn"' not in end_text
+    assert 'id="reset-recheck-all-btn"' not in end_text
+
+
+def test_the_global_action_buttons_live_on_the_overview_page():
+    """Their ids have to stay exactly as they were -- base.html's handlers and its sitewide
+    disable selector both bind to them by id from wherever they're rendered."""
+    text = (TEMPLATES / "overview.html").read_text()
+    actions = text[text.index('class="global-actions"'):text.index("</section>")]
+    assert 'id="check-all-btn"' in actions
+    assert 'id="reset-recheck-all-btn"' in actions
 
 
 def test_accent_picker_offers_several_named_color_options():

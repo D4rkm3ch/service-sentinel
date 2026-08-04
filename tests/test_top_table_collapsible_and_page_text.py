@@ -121,21 +121,28 @@ def test_collapse_arrow_is_a_larger_font_size_than_the_original_11px():
     assert "11px" not in block
 
 
-def test_log_health_and_compose_health_show_an_issue_count_like_updates_does(client):
+def test_the_three_feature_headings_carry_no_count_but_the_tracked_tables_still_do(client):
+    """These headings used to repeat the module's open/pending total, which the Overview page
+    already reports for all three -- so the count came off them. The "Tracked Containers" and
+    "Tracked Configuration Files" headings further down each page keep theirs: that number
+    isn't shown anywhere else."""
     fid, _ = db.upsert_finding("logs", "header-count-test-container", "OOM", "crash", "critical", "desc")
     db.set_finding_status(fid, "active")
     fid2, _ = db.upsert_finding("compose", "header-count-test.yml", "Missing restart policy", "reliability", "warning", "desc2")
     db.set_finding_status(fid2, "active")
 
-    logs_resp = client.get("/logs")
-    header = logs_resp.text[:logs_resp.text.index("</h1>")]
-    assert 'id="logs-issues-count-badge"' in header
-    assert "(0)" not in header  # the container we just seeded must be counted
+    for path, badge_id in (("/updates", "updates-count-badge"),
+                           ("/logs", "logs-issues-count-badge"),
+                           ("/compose", "compose-issues-count-badge")):
+        resp = client.get(path)
+        heading = resp.text[:resp.text.index("</h1>")]
+        assert badge_id not in heading
+        assert "heading-count" not in heading
 
-    compose_resp = client.get("/compose")
-    header = compose_resp.text[:compose_resp.text.index("</h1>")]
-    assert 'id="compose-issues-count-badge"' in header
-    assert "(0)" not in header
+    # ...while each page's own tracked-items table keeps its count.
+    assert 'id="containers-count-badge"' in client.get("/updates").text
+    assert 'id="logs-containers-table-count-badge"' in client.get("/logs").text
+    assert 'id="compose-files-table-count-badge"' in client.get("/compose").text
 
     db.set_finding_status(fid, "silenced")
     db.set_finding_status(fid2, "silenced")

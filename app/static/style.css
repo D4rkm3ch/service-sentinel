@@ -229,6 +229,7 @@
   width: 10px;
   height: 10px;
 }
+/* Keep --scrollbar-width (declared with the layout tokens below) equal to the width above. */
 ::-webkit-scrollbar-track {
   background: transparent;
 }
@@ -270,6 +271,17 @@
      --sidebar-width just above. */
   --chat-panel-width: 320px;
   --chat-open-width: 0px;
+  /* The single clear gap between the page content and everything that walls it in -- the
+     topbar above, the sidebar rail on the left, the chat panel (or the window edge) on the
+     right, and the footer rule below. One token for all four sides on purpose: the whole point
+     is that the content sits in an evenly-inset box no matter which panels happen to be open.
+     See main's padding for the scrollbar arithmetic that keeps the left and right halves of it
+     actually equal on screen. */
+  --content-gap: 20px;
+  /* Must stay in sync with ::-webkit-scrollbar's width above -- it's the width of the gutter
+     .app-scroll reserves on each edge, which main then subtracts back out of its own padding
+     so the reserved lane and the padding together add up to exactly --content-gap. */
+  --scrollbar-width: 10px;
 }
 html[data-sidebar="expanded"] {
   --sidebar-width: var(--sidebar-width-expanded);
@@ -351,7 +363,12 @@ code {
   height: var(--topbar-height);
   z-index: 40;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  /* minmax(0, auto) on the centre column, not a bare auto: an auto track refuses to size below
+     its content, so a long health summary shoved the two 1fr side tracks out of balance and the
+     text visibly sat left of true centre. A zero lower bound lets the centre give way instead,
+     which -- with the equal 1fr tracks either side -- keeps it midway between the brand and the
+     theme controls at every width, truncating (see .topbar-status) rather than pushing. */
+  grid-template-columns: 1fr minmax(0, auto) 1fr;
   align-items: center;
   padding: 0 20px;
   border-bottom: 1px solid var(--border);
@@ -369,6 +386,10 @@ code {
 
 .topbar-center {
   justify-self: center;
+  /* Both needed for the centre track's minmax(0, auto) to actually take effect on the content
+     inside it -- without them this box would keep its full text width and overflow the track. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .topbar-end {
@@ -413,6 +434,19 @@ code {
   display: flex;
   align-items: center;
   gap: 14px;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* Truncates instead of wrapping or widening the centre track -- the summary is informational,
+   so losing its tail on a narrow window is the right trade against pushing itself off-centre. */
+.topbar-status .status-badge {
+  min-width: 0;
+  overflow: hidden;
+}
+#topbar-idle-summary-text,
+#check-running-banner-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .topbar-status-cancel {
@@ -549,20 +583,35 @@ html[data-sidebar="expanded"] .sidebar-label {
      instead of shifting a few pixels depending on whether a scrollbar happens to exist) --
      but scoped to the app's one actual scroll container, the reserved strip sits inside the
      content region below the topbar, rather than carving a dead lane down the viewport's
-     whole right edge that the fixed topbar could never extend into. */
-  scrollbar-gutter: stable;
+     whole right edge that the fixed topbar could never extend into.
+
+     both-edges, not plain stable: with a lane reserved on the right only, this box's content
+     area sat a scrollbar's width left of the region it's drawn in, so main's margin:auto
+     centered its max-width column against a lopsided box and every page rendered with a
+     visibly wider gap on the chat-panel side than on the sidebar side. Reserving a matching
+     lane on the left costs the same width it always did on the right and makes the box
+     symmetrical, so "centered" means centered and the flush-width case gets equal lanes too.
+     main then subtracts one lane back out of its own padding (see below) so the total inset
+     stays --content-gap rather than growing by a scrollbar. */
+  scrollbar-gutter: stable both-edges;
 }
 
 main {
   max-width: 1260px;
   width: 100%;
   margin: 0 auto;
-  /* Vertical padding matches .panel's own margin-bottom (20px, the same gap used between every
-     panel/table sitewide) so the gap from the topbar to the first panel -- and from the last
-     panel to the footer -- reads the same as the gap between any two panels, instead of the
-     larger 32px it used to be. Top and bottom stay equal to each other on purpose (see
-     test_footer_layout.py's test_main_top_and_bottom_padding_match). */
-  padding: 20px 24px;
+  /* One even --content-gap inset on all four sides: vertically it also happens to match
+     .panel's own margin-bottom, so the gap from the topbar to the first panel -- and from the
+     last panel to the footer -- reads the same as the gap between any two panels. Top and
+     bottom stay equal to each other on purpose (see test_footer_layout.py's
+     test_main_top_and_bottom_padding_match).
+
+     Horizontally the padding is one scrollbar short of that, because .app-scroll already
+     reserves a scrollbar-wide lane on each edge (see its scrollbar-gutter above): lane +
+     padding is what the eye actually reads as the gap, so subtracting the lane here is what
+     makes the rendered inset --content-gap on every side rather than --content-gap plus a
+     scrollbar left and right. */
+  padding: var(--content-gap) calc(var(--content-gap) - var(--scrollbar-width));
   flex: 1 0 auto;
 }
 
@@ -864,7 +913,9 @@ a {
   max-width: 1260px;
   width: 100%;
   margin: 0 auto;
-  padding: 16px 24px;
+  /* Horizontal padding tracks main's exactly (same scrollbar-lane subtraction) so the rule
+     above this text starts and ends flush with the panels main stacks up above it. */
+  padding: 16px calc(var(--content-gap) - var(--scrollbar-width));
   border-top: 1px solid var(--border);
   font-size: 11px;
   color: var(--text-dim);
@@ -872,6 +923,20 @@ a {
   text-align: center;
   flex-shrink: 0;
 }
+/* A browser with no scrollbar-gutter support reserves no lane at all, so there's nothing to
+   subtract back out and the full gap belongs on the padding. (In practice that's Safari, whose
+   overlay scrollbars take no layout width either way -- so this restores the intended inset
+   rather than trading one asymmetry for another.) Placed after both rules above deliberately:
+   it sets longhands against their shorthands at equal specificity, so source order is the only
+   thing deciding the winner. */
+@supports not (scrollbar-gutter: stable) {
+  main,
+  .app-footer {
+    padding-left: var(--content-gap);
+    padding-right: var(--content-gap);
+  }
+}
+
 .app-footer a {
   color: var(--text-dim);
 }
@@ -1453,6 +1518,17 @@ tr:hover .row-chevron {
    Regenerate AI Response / Reset & Re-Check buttons (see _feature_header.html's .button-warn/
    .button-danger) -- these are the topbar-level, chained-across-all-three-features counterparts
    of those. */
+/* The global "do this to all three modules" actions, in a slim row at the top of Overview (see
+   overview.html). Right-aligned so they sit clear of the module rows below rather than reading
+   as a heading for them. */
+.global-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
 .check-all-btn, .regenerate-all-btn, .reset-recheck-all-btn {
   padding: 6px 14px;
   font-size: 12px;
@@ -1511,39 +1587,54 @@ tr:hover .row-chevron {
      once wrapping was switched off, and clipping is the far less broken-looking of the two. */
   overflow: hidden;
 }
-/* flex:none, so "Updates Found (10) ▾" is never squeezed and the arrow can never be pushed
-   onto a line of its own -- the two things the report called out. A flex row (rather than
-   plain inline text) keeps the title, count and arrow laid out as one unbreakable unit. */
+/* A flex row rather than plain inline text so the title and the arrow lay out as one unit and
+   the arrow can never be pushed onto a line of its own. Shrinkable, but only as the very last
+   resort: .topbar-right beside it takes essentially all of any reduction first (see its
+   shrink factor and min-content floor below), so this only gives way once the row is too
+   narrow to hold the buttons at all -- at which point ellipsizing the heading text is the
+   mildest thing left to sacrifice, and much better than the tail of a button disappearing. */
 .feature-header h1 {
   margin: 0;
   display: flex;
   align-items: baseline;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   white-space: nowrap;
 }
-.feature-header h1 .feature-title-text,
+/* The text is the one part allowed to shorten; the arrow (and the count, where one is still
+   used) keep their full size and stay pinned to its end. */
+.feature-header h1 .feature-title-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .feature-header h1 .heading-count,
 .feature-header h1 .collapse-arrow {
   flex: none;
 }
 
-/* Deliberately WITHOUT min-width:0, unlike the title and the status below it: the default
-   min-width:auto is what makes this refuse to shrink narrower than the buttons it holds. With
-   min-width:0 it shrank happily while its flex:none buttons kept their size, so they spilled
-   out of the box leftwards and rendered on top of the heading. */
 /* A two-column grid rather than a flex row, because grid states the intent directly instead of
    leaving it to shrink-factor negotiation: the actions column is sized to its buttons (auto)
    and the status column takes only what's left (minmax(0, 1fr)). Several flex arrangements
    were tried first and each failed differently -- the status refusing to shrink because its
    min-content propagated up as the container's floor, or the buttons spilling out of their own
    box and drawing over the heading. minmax(0, ...) is the part that matters: it lets the status
-   column reach zero width, so it can never widen this row. */
+   column reach zero width, so it can never widen this row.
+
+   min-content, not 0, is the floor: the status column can still collapse all the way (its own
+   track allows it), but the actions column can't, so this stops shrinking exactly when the
+   buttons are touching. It used to be min-width:0, which let the box keep narrowing past that
+   point while the flex:none buttons inside kept their size -- they overflowed and the header's
+   own overflow:hidden then sliced the tail off "Reset & Re-Check". The lopsided shrink factor
+   is the other half of it: this absorbs essentially all of any reduction (down to that floor)
+   before the heading beside it gives up a single pixel. */
 .feature-header .topbar-right {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1000 100000 auto;
+  min-width: min-content;
 }
 .feature-actions {
   display: flex;

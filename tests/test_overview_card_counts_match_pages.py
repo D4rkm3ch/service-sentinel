@@ -39,8 +39,17 @@ def test_overview_updates_hero_excludes_silenced_containers(client):
         card = resp.text[resp.text.index('id="card-updates"'):resp.text.index('id="card-logs"')]
         assert "1 pending update" in card
 
+        # The count badge that used to sit beside "Updates Found" is gone (the Overview hero
+        # checked just above is now the only place that total is reported), so the agreement
+        # between the two is checked against the rows the page actually renders instead.
+        # Scoped to the pending-updates table specifically -- the silenced container still
+        # appears further down in "Tracked Containers", which lists every tracked container
+        # regardless of whether its update is silenced.
         updates_resp = client.get("/updates")
-        assert 'id="updates-count-badge">(1)' in updates_resp.text
+        table = updates_resp.text[updates_resp.text.index('id="updates-collapse-body"'):]
+        table = table[:table.index("Tracked Containers")]
+        assert "ovcount-visible" in table
+        assert "ovcount-silenced" not in table
     finally:
         _cleanup_container("ovcount-visible")
         _cleanup_container("ovcount-silenced")

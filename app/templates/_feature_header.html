@@ -1,8 +1,7 @@
 <div class="feature-header collapsible-header" data-collapse-target="{{ feature }}-collapse-body">
-  {# The title text sits in its own span so it can truncate on its own when horizontal space
-     runs out (both side panels open on a narrow window), while the count and the collapse
-     arrow beside it stay pinned and fully visible -- see .feature-header in style.css for the
-     full "what yields first" order. #}
+  {# The title text sits in its own span so it and the collapse arrow lay out as one
+     unbreakable unit -- see .feature-header in style.css for the full "what yields first"
+     order when horizontal space runs out. #}
   <h1>
     <span class="feature-title-text">
       {%- if feature == "updates" -%}Updates Found
@@ -10,9 +9,10 @@
       {%- elif feature == "compose" -%}Configuration Health
       {%- endif -%}
     </span>
-    {%- if feature == "updates" and updates_count is defined %} <span class="heading-count" id="updates-count-badge">({{ updates_count }})</span>
-    {%- elif issues is defined %} <span class="heading-count" id="{{ feature }}-issues-count-badge">({{ issues|length }})</span>
-    {%- endif -%}
+    {#- No count beside these three headings: the Overview page already reports every module's
+        pending/open total, so repeating it here was pure duplication. The "Tracked Containers"
+        and "Tracked Configuration Files" headings further down each page DO keep their own
+        count -- that number isn't shown anywhere else. -#}
     <span class="collapse-arrow" aria-hidden="true">▾</span>
   </h1>
   <div class="topbar-right">

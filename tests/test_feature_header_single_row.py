@@ -31,11 +31,33 @@ def test_header_never_wraps_to_a_second_row():
     assert "overflow: hidden" in rule
 
 
-def test_title_count_and_arrow_stay_together_on_one_line():
+def test_title_and_arrow_stay_together_on_one_line():
+    """nowrap keeps the arrow welded to the end of the heading text rather than dropping to a
+    line of its own -- the original report's complaint."""
     rule = _rule(".feature-header h1")
     assert "white-space: nowrap" in rule
-    # flex:none is what stops the heading being squeezed until the arrow is pushed off the line.
-    assert "flex: none" in rule
+
+
+def test_only_the_heading_text_ellipsizes_and_the_arrow_keeps_its_size():
+    text_rule = _rule(".feature-header h1 .feature-title-text")
+    assert "text-overflow: ellipsis" in text_rule
+    assert "overflow: hidden" in text_rule
+    assert "min-width: 0" in text_rule
+    fixed = _rule(".feature-header h1 .heading-count,\n.feature-header h1 .collapse-arrow")
+    assert "flex: none" in fixed
+
+
+def test_the_heading_only_gives_up_space_once_the_buttons_are_touching():
+    """The priority order the whole row hangs on: the status summary collapses first, then the
+    heading text ellipsizes, and the buttons never lose so much as their last character. Two
+    things enforce it -- the actions box floors at min-content (it used to be min-width: 0,
+    which let it keep narrowing while its flex:none buttons kept their size, so they overflowed
+    and the header's overflow:hidden sliced the tail off "Reset & Re-Check"), and its enormous
+    shrink factor means it absorbs every pixel of any reduction until it hits that floor."""
+    rule = _rule(".feature-header .topbar-right")
+    assert "min-width: min-content" in rule
+    assert "flex: 1000 100000 auto" in rule
+    assert "flex: 0 1 auto" in _rule(".feature-header h1")
 
 
 def test_action_buttons_never_wrap_or_shrink():
