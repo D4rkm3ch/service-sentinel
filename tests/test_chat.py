@@ -85,7 +85,7 @@ def test_snapshot_reports_pending_updates_and_open_findings_by_name():
     assert "Failed to parse release title" in snapshot
     assert "Unauthenticated access enabled" in snapshot
     # The three module headers are always present, even the clean one.
-    for label in ("Updates", "Runtime Health", "Configuration Health"):
+    for label in ("Versions", "Runtime", "Configuration"):
         assert label in snapshot
 
 
@@ -150,7 +150,7 @@ def test_answer_builds_the_system_prompt_and_dispatches_to_complete_chat():
     assert result == "the reply"
     kwargs = mock_chat.call_args.kwargs
     assert kwargs["system"].startswith(chat.SYSTEM_PROMPT_HEADER)
-    assert "## Updates" in kwargs["system"]  # the live snapshot is appended to the header
+    assert "## Versions" in kwargs["system"]  # the live snapshot is appended to the header
     assert kwargs["messages"] == [{"role": "user", "content": "what's pending?"}]
 
 
@@ -243,7 +243,7 @@ def test_answer_appends_live_logs_to_the_system_prompt():
         chat.answer([{"role": "user", "content": "what do romm-db's logs say?"}])
 
     system = mock_chat.call_args.kwargs["system"]
-    assert "## Updates" in system            # the snapshot is still there
+    assert "## Versions" in system            # the snapshot is still there
     assert "ERROR connection reset" in system  # and the live logs are appended to it
 
 

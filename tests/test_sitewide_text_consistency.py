@@ -40,20 +40,23 @@ def test_no_lowercase_log_or_compose_health_survives_anywhere_in_templates_or_ro
 
 
 def test_overview_cards_show_title_cased_feature_names(client):
+    """The "Health" suffix these carried is gone (see test_module_names.py), but the
+    capitalization this test exists for still holds on the names that remain."""
     resp = client.get("/")
-    assert "Runtime Health" in resp.text
-    assert "Configuration Health" in resp.text
+    assert "Versions" in resp.text
+    assert "Runtime" in resp.text
+    assert "Configuration" in resp.text
     assert "Runtime health" not in resp.text
     assert "Configuration health" not in resp.text
 
 
 def test_settings_page_shows_title_cased_feature_names_everywhere(client):
+    """Settings is grouped by module now, so each name appears once as a panel heading rather
+    than repeated across several mechanism panels -- the subsections inside no longer restate
+    it (see test_settings_copy_pass.py). Capitalization is what this test is about, and it
+    holds."""
     resp = client.get("/settings")
     assert "Runtime health" not in resp.text
     assert "Configuration health" not in resp.text
-    # Deep Analysis and Scheduling still title each subsection "Runtime Health"/"Configuration
-    # Health"; Cross-Service Analysis and Notifications now have their own distinct titles
-    # ("Runtime Analysis"/"Update Analysis", "Runtime Notifications"/etc) -- see
-    # test_settings_copy_pass.py for those.
-    assert resp.text.count("Runtime Health") >= 3
-    assert resp.text.count("Configuration Health") >= 2
+    for name in ("Versions", "Runtime", "Configuration"):
+        assert f'settings-heading-lg">{name}</h2>' in resp.text

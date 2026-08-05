@@ -39,9 +39,9 @@ _ITEMS_PER_SECTION = 12
 
 # (feature key, human label) for each monitored module, in the order the Overview shows them.
 _SECTIONS = (
-    ("updates", "Updates"),
-    ("logs", "Runtime Health"),
-    ("compose", "Configuration Health"),
+    ("updates", "Versions"),
+    ("logs", "Runtime"),
+    ("compose", "Configuration"),
 )
 
 # Live log fetching (see _live_logs_for). Bounded hard on both axes: a couple of containers per

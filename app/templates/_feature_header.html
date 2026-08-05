@@ -4,9 +4,9 @@
      order when horizontal space runs out. #}
   <h1>
     <span class="feature-title-text">
-      {%- if feature == "updates" -%}Updates Found
-      {%- elif feature == "logs" -%}Runtime Health
-      {%- elif feature == "compose" -%}Configuration Health
+      {%- if feature == "updates" -%}Versions
+      {%- elif feature == "logs" -%}Runtime
+      {%- elif feature == "compose" -%}Configuration
       {%- endif -%}
     </span>
     {#- No count beside these three headings: the Overview page already reports every module's
@@ -50,7 +50,7 @@
       </button>
     </form>
     <form method="post" action="/logs/reset-and-recheck"
-          onsubmit="return confirm('This wipes all Runtime Health history and tracking state, then re-checks everything fresh. Continue?')">
+          onsubmit="return confirm('This wipes all Runtime history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger logs-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
         Reset &amp; Re-Check
       </button>
@@ -63,7 +63,7 @@
       </button>
     </form>
     <form method="post" action="/compose/reset-and-recheck"
-          onsubmit="return confirm('This wipes all Configuration Health history and tracking state, then re-checks everything fresh. Continue?')">
+          onsubmit="return confirm('This wipes all Configuration history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger compose-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
         Reset &amp; Re-Check
       </button>

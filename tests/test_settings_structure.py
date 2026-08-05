@@ -48,8 +48,8 @@ def test_the_page_is_five_panels_in_a_deliberate_order(client):
     # Matched on the panel headings specifically -- a bare ">Updates<" also hits the sidebar's
     # own nav link, which sits above all of this in the document.
     order = [text.index(f'settings-heading-lg">{title}</h2>') for title in
-             ("Timing &amp; Delivery", "Connections &amp; Access", "Updates", "Runtime Health",
-              "Configuration Health")]
+             ("Timing &amp; Delivery", "Connections &amp; Access", "Versions", "Runtime",
+              "Configuration")]
     assert order == sorted(order)
     assert text.count('class="panel settings-panel"') == 5
 

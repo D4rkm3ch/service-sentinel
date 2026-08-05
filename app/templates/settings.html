@@ -30,18 +30,18 @@
     restore script at the end of this file and the shared toggle handler in base.html. -#}
 
 {%- set modules = [
-  ('updates', 'Updates'),
-  ('logs', 'Runtime Health'),
-  ('compose', 'Configuration Health'),
+  ('updates', 'Versions'),
+  ('logs', 'Runtime'),
+  ('compose', 'Configuration'),
 ] -%}
 {%- set deep_analysis_labels = {
   'updates': 'Suggest upgrade guidance for pending updates',
-  'logs': 'Suggest fixes for Runtime Health findings',
-  'compose': 'Suggest fixes for Configuration Health findings',
+  'logs': 'Suggest fixes for Runtime findings',
+  'compose': 'Suggest fixes for Configuration findings',
 } -%}
 {%- set cross_service_labels = {
   'updates': 'Analyze cross-service impact for pending updates',
-  'logs': 'Analyze cross-service impact for Runtime Health findings',
+  'logs': 'Analyze cross-service impact for Runtime findings',
 } -%}
 {%- set notify_error_labels = {
   'updates': "Notify when a container's registry can't be reached",
@@ -286,7 +286,7 @@ using its own standard sign-in dialog.</p>
 {#- One panel per module, generated from the same loop so the three are structurally identical
     by construction rather than by anyone remembering to keep them in step. The asymmetries are
     real and only where the feature genuinely differs: Updates alone has registry retries,
-    Configuration Health has no lookback window (it hashes files rather than reading a time
+    Configuration has no lookback window (it hashes files rather than reading a time
     range) and no cross-service analysis. -#}
 {% for feature, title in modules %}
 <section class="panel settings-panel">

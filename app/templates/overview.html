@@ -2,18 +2,18 @@
 {% block title %}Overview - Service Sentinel{% endblock %}
 {% block content %}
 
-{# Global actions -- the "do this across Updates, Runtime Health and Configuration Health at
+{# Global actions -- the "do this across Versions, Runtime and Configuration at
    once" counterparts of each feature page's own buttons. They lived in the topbar until they
    made every content page feel busy; Overview is the one page that's already about all three
    modules at once, so they sit above the module rows they act on. The ids are what base.html's
    own handlers bind to, so they must stay as-is. #}
 <section class="global-actions">
   <button type="button" id="check-all-btn" class="check-all-btn"
-          title="Run a full check for Updates, Runtime Health and Configuration Health, one after another">
+          title="Run a full check for Versions, Runtime and Configuration, one after another">
     Check All
   </button>
   <button type="button" id="reset-recheck-all-btn" class="reset-recheck-all-btn"
-          title="Wipe all tracked history and re-check everything fresh, across Updates, Runtime Health, and Configuration Health">
+          title="Wipe all tracked history and re-check everything fresh, across Versions, Runtime, and Configuration">
     Reset &amp; Re-Check
   </button>
 </section>

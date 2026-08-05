@@ -185,8 +185,8 @@ def test_regenerate_route_regenerates_the_summary_in_place_without_changing_the_
     assert update["status"] == "unread"  # regenerating resets it back to unread
 
 
-def test_back_link_row_puts_updates_first_and_names_the_stack_link_generically(client, tmp_path):
-    """Updates always comes first regardless of whether this container is in a stack; the
+def test_back_link_row_puts_the_module_first_and_names_the_stack_link_generically(client, tmp_path):
+    """The module link always comes first regardless of whether this container is in a stack; the
     stack link (only present for containers in a real multi-service compose stack -- Stage 12
     territory, but the matching code is already live) is always labeled "Back to Stack",
     never the stack's own (possibly AI-generated) display name."""
@@ -198,7 +198,7 @@ def test_back_link_row_puts_updates_first_and_names_the_stack_link_generically(c
 
         detail = client.get(f"/updates/{sonarr['id']}")
         assert "Back to Stack" in detail.text
-        updates_pos = detail.text.index("Back to Updates")
+        updates_pos = detail.text.index("Back to Versions")
         stack_pos = detail.text.index("Back to Stack")
         assert updates_pos < stack_pos
     finally:

@@ -48,10 +48,14 @@ def test_base_html_has_the_collapse_toggle_script():
     assert "scrollHeight" in text
 
 
-def test_updates_heading_says_updates_found_not_just_updates(client):
-    resp = client.get("/updates")
-    assert "Updates Found" in resp.text
-    assert "<h1>\n    Updates\n" not in resp.text
+def test_each_module_page_is_headed_by_its_module_name(client):
+    """The heading used to read "Updates Found", which named the result rather than the module
+    and left this page the odd one out beside "Runtime Health"/"Configuration Health". All three
+    are now headed by the module itself -- see test_module_names.py for the rename."""
+    assert '<span class="feature-title-text">Versions</span>' in client.get("/updates").text
+    assert '<span class="feature-title-text">Runtime</span>' in client.get("/logs").text
+    assert '<span class="feature-title-text">Configuration</span>' in client.get("/compose").text
+    assert "Updates Found" not in client.get("/updates").text
 
 
 def test_logs_and_compose_no_longer_show_the_redundant_issues_subheading(client):
@@ -62,9 +66,12 @@ def test_logs_and_compose_no_longer_show_the_redundant_issues_subheading(client)
     assert "<h2>Issues" not in compose_resp.text
 
 
-def test_log_health_and_compose_health_headings_are_capitalized(client):
-    assert "Runtime Health" in client.get("/logs").text
-    assert "Configuration Health" in client.get("/compose").text
+def test_the_module_headings_are_title_cased(client):
+    """The "Health" suffix these carried is gone (it wasn't earning its place next to two other
+    long labels), but the capitalization this test was originally about still holds."""
+    assert "Runtime" in client.get("/logs").text
+    assert "runtime health" not in client.get("/logs").text.lower().replace("runtime health check", "")
+    assert "Configuration" in client.get("/compose").text
 
 
 def test_second_table_headings_renamed_and_capitalized(client):

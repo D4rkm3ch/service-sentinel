@@ -523,7 +523,7 @@ def healthz():
 # Overview
 # ---------------------------------------------------------------------------
 
-_CARD_TITLES = {"updates": "Updates", "logs": "Runtime Health", "compose": "Configuration Health"}
+_CARD_TITLES = {"updates": "Versions", "logs": "Runtime", "compose": "Configuration"}
 _CARD_TAB_URLS = {"updates": "/updates", "logs": "/logs", "compose": "/compose"}
 
 
@@ -620,9 +620,9 @@ def _build_card(feature: str, title: str, tab_url: str) -> dict:
 @app.get("/")
 def overview(request: Request):
     cards = [
-        _build_card("updates", "Updates", "/updates"),
-        _build_card("logs", "Runtime Health", "/logs"),
-        _build_card("compose", "Configuration Health", "/compose"),
+        _build_card("updates", "Versions", "/updates"),
+        _build_card("logs", "Runtime", "/logs"),
+        _build_card("compose", "Configuration", "/compose"),
     ]
     return templates.TemplateResponse(
         request, "overview.html", {"cards": cards, "active_tab": "overview"}

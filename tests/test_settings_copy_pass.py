@@ -126,13 +126,16 @@ def test_enable_notifications_toggle_wires_up_the_gating_js(client):
     assert "function toggleNotifyErrorsField" in text
 
 
-def test_the_modules_are_ordered_updates_runtime_configuration(client):
+def test_the_modules_are_ordered_versions_runtime_configuration(client):
     """A real-world reorder request, originally about the Deep Analysis panel's three rows.
     Settings is grouped by module now (see test_settings_structure.py), so the ordering it asked
     for is the ordering of the panels themselves -- and it holds for every setting at once
     rather than needing re-asserting per panel."""
     text = _settings_text(client)
-    assert text.index(">Updates<") < text.index(">Runtime Health<") < text.index(">Configuration Health<")
+    heading = 'settings-heading-lg">{}</h2>'
+    assert (text.index(heading.format("Versions"))
+            < text.index(heading.format("Runtime"))
+            < text.index(heading.format("Configuration")))
 
 
 def test_the_per_module_rows_no_longer_repeat_their_own_module_name(client):

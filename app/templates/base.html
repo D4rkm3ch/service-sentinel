@@ -217,7 +217,7 @@
       <svg class="icon"><use href="#icon-home"/></svg><span class="sidebar-label">Overview</span>
     </a>
     <a href="/updates" class="sidebar-link {{ 'active' if active_tab == 'updates' else '' }}">
-      <svg class="icon"><use href="#icon-updates"/></svg><span class="sidebar-label">Updates</span>
+      <svg class="icon"><use href="#icon-updates"/></svg><span class="sidebar-label">Versions</span>
     </a>
     <a href="/logs" class="sidebar-link {{ 'active' if active_tab == 'logs' else '' }}">
       <svg class="icon"><use href="#icon-logs"/></svg><span class="sidebar-label">Runtime</span>
@@ -399,7 +399,7 @@
       }
 
       // The global regenerate/reset counterparts of each page's own bulk action buttons (see
-      // _feature_header.html), covering Updates, Runtime Health, and Configuration Health in
+      // _feature_header.html), covering Versions, Runtime, and Configuration in
       // one click instead of three. Same confirm-before-firing pattern those per-feature
       // buttons already use (heavier/token-costlier or destructive enough to want an explicit
       // second click), same optimistic instant-disable + fetch shape as the check-all handler
@@ -415,7 +415,7 @@
       var regenerateAllBtn = document.getElementById("regenerate-all-btn");
       if (regenerateAllBtn) {
         regenerateAllBtn.addEventListener("click", function () {
-          if (!confirm("This regenerates the AI response for every currently open finding across Updates, Runtime Health, and Configuration Health. Continue?")) return;
+          if (!confirm("This regenerates the AI response for every currently open finding across Versions, Runtime, and Configuration. Continue?")) return;
           applyRunningState(true);
           fetch("/checks/regenerate-all", { method: "POST" });
         });
@@ -424,7 +424,7 @@
       var resetRecheckAllBtn = document.getElementById("reset-recheck-all-btn");
       if (resetRecheckAllBtn) {
         resetRecheckAllBtn.addEventListener("click", function () {
-          if (!confirm("This wipes all tracked history for Updates, Runtime Health, and Configuration Health, then re-checks everything fresh. Continue?")) return;
+          if (!confirm("This wipes all tracked history for Versions, Runtime, and Configuration, then re-checks everything fresh. Continue?")) return;
           applyRunningState(true);
           fetch("/checks/reset-and-recheck-all", { method: "POST" });
         });
