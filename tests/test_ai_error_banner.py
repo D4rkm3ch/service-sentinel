@@ -8,7 +8,16 @@ The record is server-side (app.db.get_last_ai_error/set_last_ai_error/dismiss_la
 held in whichever browser tab happened to be open when the failure occurred, so it survives the
 once-a-second topbar poll and any page navigation, and is only ever cleared by an explicit
 dismissal (POST /ai-error/dismiss) -- never by time, and never by a later check simply succeeding
-without the operator having looked."""
+without the operator having looked.
+
+A second real-world report went further: a bad key or an exhausted quota used to burn through
+every remaining container/file in the check, each one repeating the identical failure, before the
+check finally ended -- when the very first failure already showed it wasn't going to work. A
+FATAL classification (see ai_provider._classify_ai_error) now also cancels the running check, via
+the exact same mechanism the sitewide Cancel button already sets -- see the cancellation tests
+below. A request that's simply too large for the model's context window is deliberately NOT
+fatal: that's about the one item's payload size, not the provider itself, so the next (possibly
+smaller) item still gets its own attempt."""
 
 from unittest.mock import MagicMock, patch
 
@@ -16,7 +25,7 @@ import anthropic
 import openai
 import pytest
 
-from app import ai_provider, db
+from app import ai_provider, check_state, db
 
 db.init_db()
 
@@ -26,10 +35,14 @@ def clean_state():
     db.dismiss_last_ai_error()
     db.set_ai_provider("anthropic")
     db.set_anthropic_api_key("sk-test")
+    check_state.set_running("updates")
+    check_state.release_running("updates")
     yield
     db.dismiss_last_ai_error()
     db.set_ai_provider("anthropic")
     db.set_anthropic_api_key("")
+    check_state.set_running("updates")
+    check_state.release_running("updates")
 
 
 # ---------------------------------------------------------------------------
@@ -178,3 +191,82 @@ def test_dismiss_route_clears_it_and_the_next_poll_reflects_that(client):
     assert resp.status_code == 200
 
     assert client.get("/checks/status").json()["ai_error"] is None
+
+
+# ---------------------------------------------------------------------------
+# _classify_ai_error -- fatal vs not
+# ---------------------------------------------------------------------------
+
+def test_a_bad_key_is_fatal():
+    exc = anthropic.AuthenticationError("bad key", response=MagicMock(), body=None)
+    assert ai_provider._classify_ai_error(exc)[1] is True
+
+
+def test_rate_limiting_is_fatal():
+    exc = openai.RateLimitError("429", response=MagicMock(status_code=429), body=None)
+    assert ai_provider._classify_ai_error(exc)[1] is True
+
+
+def test_an_unreachable_endpoint_is_fatal():
+    exc = openai.APIConnectionError(request=MagicMock())
+    assert ai_provider._classify_ai_error(exc)[1] is True
+
+
+def test_an_unrecognized_failure_defaults_to_fatal():
+    """Anything that isn't specifically "this one request was too big" means the provider isn't
+    working right now -- an unfamiliar exception type shouldn't get the benefit of the doubt and
+    quietly let the check grind through every remaining item."""
+    exc = ValueError("something truly unexpected")
+    assert ai_provider._classify_ai_error(exc)[1] is True
+
+
+def test_a_context_length_overflow_is_not_fatal():
+    """About this one item's payload size, not the provider -- the next, possibly smaller, item
+    still deserves its own attempt rather than the whole check giving up."""
+    exc = ValueError("This model's maximum context length is 8192 tokens")
+    assert ai_provider._classify_ai_error(exc)[1] is False
+
+
+# ---------------------------------------------------------------------------
+# A fatal failure cancels the running check; a non-fatal one doesn't
+# ---------------------------------------------------------------------------
+
+def test_a_fatal_failure_cancels_the_running_check():
+    check_state.set_running("updates")
+    try:
+        assert check_state.is_cancel_requested("updates") is False
+        with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+            mock_client_cls.return_value.messages.create.side_effect = anthropic.AuthenticationError(
+                "bad key", response=MagicMock(), body=None
+            )
+            with pytest.raises(anthropic.AuthenticationError):
+                ai_provider.complete_text(system=None, user_message="hi", max_tokens=100)
+        assert check_state.is_cancel_requested("updates") is True
+    finally:
+        check_state.release_running("updates")
+
+
+def test_a_context_length_failure_does_not_cancel_the_running_check():
+    check_state.set_running("updates")
+    try:
+        with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+            mock_client_cls.return_value.messages.create.side_effect = ValueError(
+                "This model's maximum context length is 8192 tokens"
+            )
+            with pytest.raises(ValueError):
+                ai_provider.complete_text(system=None, user_message="hi", max_tokens=100)
+        assert check_state.is_cancel_requested("updates") is False
+    finally:
+        check_state.release_running("updates")
+
+
+def test_a_fatal_failure_with_nothing_running_does_not_raise():
+    """complete_text/web_search can also be called outside a tracked check (e.g. a stray call
+    with no check_state feature claimed) -- request_cancel_running_checks() is a no-op when
+    nothing is running, and that must never turn into a second exception masking the real one."""
+    with patch("app.ai_provider.anthropic.Anthropic") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.side_effect = anthropic.AuthenticationError(
+            "bad key", response=MagicMock(), body=None
+        )
+        with pytest.raises(anthropic.AuthenticationError):
+            ai_provider.complete_text(system=None, user_message="hi", max_tokens=100)

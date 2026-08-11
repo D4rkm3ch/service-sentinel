@@ -22,7 +22,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
-from app import db
+from app import check_state, db
 
 # Every value the ai_provider setting can hold -- main.py validates the Settings dropdown's
 # POST against this, and is_configured()/concurrency_limit()/complete_text()/web_search()
@@ -312,28 +312,35 @@ _MAX_TOKENS_CEILING = 8192
 _GEMINI_THINKING_BUDGET = 512
 
 
-def _friendly_ai_error(exc: Exception) -> str:
-    """Maps a raw provider exception to an operator-facing sentence, for the topbar banner (see
-    _record_background_ai_error below). Same rough categories test_anthropic_key() and friends
-    above already sort a Settings "Test & Save" failure into -- applied here to whatever a real
-    background call raised instead of a connectivity probe, since those are the same handful of
-    things that actually go wrong: a bad/revoked key, a rate limit, an unreachable endpoint, or a
-    request too large for the model's context window."""
+def _classify_ai_error(exc: Exception) -> tuple[str, bool]:
+    """Maps a raw provider exception to (operator-facing sentence, fatal) -- fatal meaning this
+    provider/config isn't going to work for anything else in the current check either, so
+    grinding through the rest of the queue would just repeat the same failure on every remaining
+    item. Same rough categories test_anthropic_key() and friends above already sort a Settings
+    "Test & Save" failure into, applied here to whatever a real background call raised instead of
+    a connectivity probe: a bad/revoked key, an exhausted rate limit or quota, an unreachable
+    endpoint, and a persistent server error are all fatal in that sense. The one exception is a
+    request too large for the model's context window -- that's about THIS item's payload size,
+    not the provider itself, so the next (possibly smaller) item still deserves its own attempt."""
     if isinstance(exc, (anthropic.AuthenticationError, openai.AuthenticationError)):
-        return "The AI provider rejected the configured API key."
+        return "The AI provider rejected the configured API key.", True
     if isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) == 401:
-        return "The AI provider rejected the configured API key."
+        return "The AI provider rejected the configured API key.", True
     if isinstance(exc, (anthropic.RateLimitError, openai.RateLimitError)):
-        return "The AI provider is rate-limiting requests - try lowering Concurrent AI Requests in Settings."
+        return "The AI provider is rate-limiting requests - try lowering Concurrent AI Requests in Settings.", True
     if isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) == 429:
-        return "The AI provider's quota is exhausted for now."
+        return "The AI provider's quota is exhausted for now.", True
     if isinstance(exc, openai.APIConnectionError):
-        return "Couldn't reach the AI provider - check the endpoint and that the server is running."
+        return "Couldn't reach the AI provider - check the endpoint and that the server is running.", True
     message = str(exc)
     lowered = message.lower()
     if "context" in lowered and ("length" in lowered or "token" in lowered):
-        return "The request exceeded the model's context/token limit."
-    return f"AI provider error: {message[:200]}"
+        return "The request exceeded the model's context/token limit.", False
+    return f"AI provider error: {message[:200]}", True
+
+
+def _friendly_ai_error(exc: Exception) -> str:
+    return _classify_ai_error(exc)[0]
 
 
 def _record_background_ai_error(exc: Exception) -> None:
@@ -341,11 +348,27 @@ def _record_background_ai_error(exc: Exception) -> None:
     that are the only callers of either. complete_chat deliberately doesn't: the interactive chat
     widget already turns its own failures into an inline chat bubble (see app/chat.py, main.py's
     /chat/send), so recording those here too would show the same failure twice, once in the chat
-    window and once as a topbar banner nobody asked for."""
+    window and once as a topbar banner nobody asked for.
+
+    A fatal classification (see _classify_ai_error) also cancels whichever check is currently
+    running -- a real-world report that a bad key or an exhausted quota used to burn through
+    every remaining container/file repeating the identical failure before the check finally
+    ended, when the very first failure already showed it wasn't going to work. Reuses the exact
+    mechanism the sitewide Cancel button already sets (check_state.request_cancel_running_checks)
+    rather than a new stop pathway: every check loop already polls check_state.is_cancel_
+    requested() between items for that button's sake, so a call already in flight still finishes,
+    and only items not yet started are skipped -- same "in-flight finishes, queued stops"
+    semantics an operator's own click on Cancel would produce."""
+    message, fatal = _classify_ai_error(exc)
     try:
-        db.set_last_ai_error(_friendly_ai_error(exc))
+        db.set_last_ai_error(message)
     except Exception:
         logger.exception("Failed to record AI error for the topbar")
+    if fatal:
+        try:
+            check_state.request_cancel_running_checks()
+        except Exception:
+            logger.exception("Failed to cancel the running check after a fatal AI error")
 
 
 _COMPLETE_FNS = {
