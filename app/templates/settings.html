@@ -429,6 +429,34 @@ error - registries occasionally rate limit or time out on an otherwise healthy c
       {% endif %}
     </div>
 
+    {#- Standing instructions an operator has taught the AI through chat (see app/chat.py's
+        action-proposal contract, app/chat_actions.py) -- Updates has no reviewer of this kind
+        (it classifies release-note severity, not findings), so this only applies to the two
+        modules that actually have one. Adding a rule only ever happens through chat and a
+        Confirm click; this list is read-only except for removal, which needs no such
+        confirmation since it can only ever narrow what future checks flag, never widen it. -#}
+    {% if feature != 'updates' %}
+    <div class="settings-subsection" id="{{ feature }}_custom_rules_section">
+      <h4>AI Custom Rules</h4>
+      <p class="meta">Standing instructions you've taught the AI through chat - ask it to
+silence a finding or add a rule, and it reshapes every future check from then on.</p>
+      <div id="{{ feature }}_custom_rules_list">
+        {% for rule in custom_rules.get(feature, []) %}
+        <div class="custom-rule-row" id="custom_rule_row_{{ rule.id }}">
+          <span class="badge badge-lg {{ 'badge-sev-critical' if rule.rule_type == 'watch' else 'badge-sev-suggestion' }}">
+            {{ 'Always flag' if rule.rule_type == 'watch' else 'Never flag' }}
+          </span>
+          <span class="custom-rule-text">{{ rule.instruction }}</span>
+          <button type="button" class="icon-button" title="Remove rule"
+                  onclick="removeCustomRule('{{ feature }}', {{ rule.id }})">&times;</button>
+        </div>
+        {% else %}
+        <p class="meta" id="{{ feature }}_custom_rules_empty">None yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     {#- Keeps the id the Overview page's own Notifications row links to. Minimum level sits right
         under the heading, ahead of the enable/error toggles -- a real-world report called it easy
         to miss buried below them. -#}
@@ -780,6 +808,24 @@ function saveConcurrency(provider, rawValue) {
     }
   }).catch(() => {
     slot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  });
+}
+
+function removeCustomRule(feature, ruleId) {
+  const row = document.getElementById('custom_rule_row_' + ruleId);
+  if (row) row.style.opacity = '0.5';
+  fetch('/settings/ai-custom-rules/' + ruleId + '/remove', { method: 'POST' }).then(r => r.json()).then(data => {
+    if (!data.ok) {
+      if (row) row.style.opacity = '';
+      return;
+    }
+    if (row) row.remove();
+    const list = document.getElementById(feature + '_custom_rules_list');
+    if (list && !list.querySelector('.custom-rule-row')) {
+      list.innerHTML = '<p class="meta" id="' + feature + '_custom_rules_empty">None yet.</p>';
+    }
+  }).catch(() => {
+    if (row) row.style.opacity = '';
   });
 }
 

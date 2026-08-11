@@ -20,10 +20,11 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import ai_provider, chat, check_state, compose_lookup, compose_reviewer, db, log_watcher, persist, release_notes, stacks
+from app import ai_provider, chat, chat_actions, check_state, compose_lookup, compose_reviewer, db, log_watcher, persist, release_notes, stacks
 from app.check_state import format_summary, get_progress, get_state, is_running, set_running
 from app.config import settings
 from app.notifications import send_test_notification
@@ -240,8 +241,10 @@ _RATE_LIMITED_SUFFIXES = ("/check-now", "/reset-and-recheck", "/regenerate-all",
 # /chat/send joins the check-triggering routes here for the same reason they're limited: each
 # call spends real AI-provider budget, so an unauthenticated visitor (or a runaway open tab)
 # shouldn't be able to fire them as fast as the server accepts connections. The 30/60s window is
-# generous enough for a real back-and-forth conversation.
-_RATE_LIMITED_EXACT_PATHS = {"/checks/check-all", "/chat/send"}
+# generous enough for a real back-and-forth conversation. /chat/confirm-action doesn't spend AI
+# budget itself, but it does mutate findings/custom rules, so the same "not as fast as the
+# server accepts connections" reasoning still applies.
+_RATE_LIMITED_EXACT_PATHS = {"/checks/check-all", "/chat/send", "/chat/confirm-action"}
 _RATE_LIMIT_MAX_REQUESTS = 30
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
 
@@ -994,7 +997,18 @@ async def chat_send(request: Request):
     HTML every other AI-authored block in the app is rendered through (render_markdown -- no new
     sanitization path). Always 200 with an {ok: bool} envelope rather than raising, so the widget
     can show every outcome as a chat bubble: a missing provider and a provider failure both come
-    back as friendly ok:false messages, never a raw exception or stack detail."""
+    back as friendly ok:false messages, never a raw exception or stack detail.
+
+    chat.answer() itself is synchronous -- it calls the provider SDKs' blocking HTTP clients, and
+    on a struggling provider can sit inside ai_provider.py's own retry/backoff (real time.sleep()
+    calls, not asyncio's) for many seconds before finally failing. Run directly inside this async
+    route, that blocks the ONE event loop this whole app's single process serves every other
+    request on -- a real-world report: sending a message while the provider was failing meant the
+    UI couldn't even navigate to a different page until the request eventually gave up, because
+    the server had no spare capacity to answer that navigation's own request either. run_in_
+    threadpool hands the blocking call to a worker thread and awaits it without blocking the loop,
+    so every other request (page loads, the topbar's status poll, another tab entirely) keeps
+    being served while this one is still in flight."""
     if not ai_provider.is_configured():
         return JSONResponse({"ok": False, "error": "No AI provider is configured yet - set one up in Settings."})
     try:
@@ -1003,7 +1017,7 @@ async def chat_send(request: Request):
         return JSONResponse({"ok": False, "error": "Malformed request."}, status_code=400)
     history = payload.get("history") if isinstance(payload, dict) else None
     try:
-        reply = chat.answer(history or [])
+        reply, pending_actions = await run_in_threadpool(chat.answer, history or [])
     except ValueError:
         return JSONResponse({"ok": False, "error": "Type a question to get started."})
     except Exception:
@@ -1012,7 +1026,27 @@ async def chat_send(request: Request):
         # every other AI call site treats a provider failure.
         logger.exception("Chat completion failed")
         return JSONResponse({"ok": False, "error": "Couldn't reach the AI provider - check Settings and try again."})
-    return JSONResponse({"ok": True, "markdown": reply, "html": render_markdown(reply)})
+    return JSONResponse({
+        "ok": True, "markdown": reply, "html": render_markdown(reply), "pending_actions": pending_actions,
+    })
+
+
+@app.post("/chat/confirm-action")
+async def chat_confirm_action(request: Request):
+    """Only reachable from a Confirm button rendered under a specific action-proposal the model
+    made earlier in the conversation (see chat.answer/_extract_proposed_actions, base.html's
+    chat widget) -- clicking it is the one and only thing that turns a proposal into a real
+    change (see app/chat_actions.py's own docstring on why that execution lives in a module
+    separate from the read-only chat.py). The action payload is untrusted like any POST body --
+    chat_actions.execute() re-validates it from scratch rather than trusting the shape chat.py's
+    own extraction already checked, since this round-tripped through the browser in between."""
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "message": "Malformed request."}, status_code=400)
+    action = payload.get("action") if isinstance(payload, dict) else None
+    result = await run_in_threadpool(chat_actions.execute, action)
+    return JSONResponse(result)
 
 
 @app.get("/updates/partial")
@@ -1650,6 +1684,9 @@ def settings_page(request: Request):
             "auth_username": db.get_auth_username(),
             "auth_lan_bypass": db.get_auth_lan_bypass(),
             "auth_secret_min_length": _AUTH_SECRET_MIN_LENGTH,
+            "custom_rules": {
+                feature: db.list_ai_custom_rules(feature) for feature in ("logs", "compose")
+            },
             "active_tab": "settings",
         },
     )
@@ -1733,7 +1770,10 @@ async def save_anthropic_key(request: Request):
     key = (form.get("api_key") or "").strip()
     if not key:
         return {"ok": False, "message": "Enter a key first."}
-    ok, message = ai_provider.test_anthropic_key(key)
+    # See /chat/send's own comment on run_in_threadpool -- test_anthropic_key is a blocking SDK
+    # call, and calling it directly here would freeze the whole app (every other request, every
+    # other tab) for however long a struggling/unreachable provider takes to time out.
+    ok, message = await run_in_threadpool(ai_provider.test_anthropic_key, key)
     if ok:
         db.set_anthropic_api_key(key)
     return {"ok": ok, "message": message}
@@ -1755,7 +1795,8 @@ async def save_gemini_key(request: Request):
     key = (form.get("api_key") or "").strip()
     if not key:
         return {"ok": False, "message": "Enter a key first."}
-    ok, message = ai_provider.test_gemini_key(key)
+    # See /chat/send's own comment on run_in_threadpool.
+    ok, message = await run_in_threadpool(ai_provider.test_gemini_key, key)
     if ok:
         db.set_gemini_api_key(key)
     return {"ok": ok, "message": message}
@@ -1767,7 +1808,8 @@ async def save_openai_key(request: Request):
     key = (form.get("api_key") or "").strip()
     if not key:
         return {"ok": False, "message": "Enter a key first."}
-    ok, message = ai_provider.test_openai_key(key)
+    # See /chat/send's own comment on run_in_threadpool.
+    ok, message = await run_in_threadpool(ai_provider.test_openai_key, key)
     if ok:
         db.set_openai_api_key(key)
     return {"ok": ok, "message": message}
@@ -1798,7 +1840,9 @@ async def save_openai_compat(request: Request):
     if not base_url or not model:
         return {"ok": False, "message": "Enter a base URL and a model name."}
     effective_key = key or db.get_openai_compat_api_key()
-    ok, message = ai_provider.test_openai_compat(base_url, effective_key)
+    # See /chat/send's own comment on run_in_threadpool -- an unreachable custom endpoint is
+    # exactly the slow-to-time-out case this matters most for.
+    ok, message = await run_in_threadpool(ai_provider.test_openai_compat, base_url, effective_key)
     if ok:
         db.set_openai_compat_base_url(base_url)
         db.set_openai_compat_model(model)
@@ -1949,6 +1993,17 @@ async def save_openai_compat_concurrency(request: Request):
         return {"ok": False, "message": error}
     db.set_openai_compat_concurrency(value)
     return {"ok": True, "value": value}
+
+
+@app.post("/settings/ai-custom-rules/{rule_id}/remove")
+def remove_ai_custom_rule(rule_id: int):
+    """The one mutation the Settings page itself makes to an operator's chat-taught rules (see
+    app/chat_actions.py for how they're added) -- deleting only ever narrows what future checks
+    flag, so unlike adding one it doesn't need a chat-side confirm step; a plain button here is
+    enough. db.remove_ai_custom_rule is a no-op if the id is already gone, so this is safe to
+    call more than once for the same row."""
+    db.remove_ai_custom_rule(rule_id)
+    return {"ok": True}
 
 
 @app.post("/settings/updates/retries")

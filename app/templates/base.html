@@ -886,6 +886,87 @@
         return msg;
       }
 
+      // One small "proposal card" per action the assistant asked to make -- see chat.py's
+      // action-proposal contract and app/chat_actions.py. Deliberately one card per action
+      // rather than one Confirm for the whole batch: an operator who agrees with "silence these
+      // findings" but not "and also add a standing rule" should be able to accept one and
+      // decline the other independently, not all-or-nothing.
+      function describeAction(action) {
+        if (action.type === "silence_findings") {
+          var subjects = (action.subjects || []).join(", ");
+          return {
+            title: "Silence matching findings",
+            detail: "For " + subjects + ", matching “" + action.title_contains + "”",
+          };
+        }
+        if (action.type === "add_custom_rule") {
+          var verb = action.rule_type === "exclude" ? "Never flag" : "Always flag";
+          return {
+            title: (action.source === "logs" ? "Runtime" : "Configuration") + " standing rule",
+            detail: verb + ": " + action.instruction,
+          };
+        }
+        return { title: "Proposed change", detail: "" };
+      }
+
+      function appendActionProposals(actions) {
+        (actions || []).forEach(function (action) {
+          var described = describeAction(action);
+          var card = document.createElement("div");
+          card.className = "chat-msg chat-msg-action";
+          var box = document.createElement("div");
+          box.className = "chat-action-proposal";
+          var title = document.createElement("p");
+          title.className = "chat-action-title";
+          title.textContent = described.title;
+          var detail = document.createElement("p");
+          detail.className = "chat-action-detail";
+          detail.textContent = described.detail;
+          var reason = document.createElement("p");
+          reason.className = "chat-action-reason";
+          reason.textContent = action.reason || "";
+          var buttons = document.createElement("div");
+          buttons.className = "chat-action-buttons";
+          var confirmBtn = document.createElement("button");
+          confirmBtn.type = "button";
+          confirmBtn.className = "chat-action-confirm";
+          confirmBtn.textContent = "Confirm";
+          var cancelBtn = document.createElement("button");
+          cancelBtn.type = "button";
+          cancelBtn.className = "chat-action-cancel button-danger";
+          cancelBtn.textContent = "Cancel";
+          buttons.appendChild(confirmBtn);
+          buttons.appendChild(cancelBtn);
+          box.appendChild(title);
+          if (described.detail) box.appendChild(detail);
+          if (action.reason) box.appendChild(reason);
+          box.appendChild(buttons);
+          card.appendChild(box);
+          log.appendChild(card);
+
+          cancelBtn.addEventListener("click", function () {
+            box.remove();
+          });
+          confirmBtn.addEventListener("click", function () {
+            confirmBtn.disabled = true;
+            cancelBtn.disabled = true;
+            fetch("/chat/confirm-action", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: action }),
+            }).then(function (r) { return r.json(); }).then(function (result) {
+              box.remove();
+              appendMessage(result && result.ok ? "action-result" : "error",
+                             (result && result.message) || "Something went wrong.", false);
+            }).catch(function () {
+              box.remove();
+              appendMessage("error", "Couldn't reach the server.", false);
+            });
+          });
+        });
+        log.scrollTop = log.scrollHeight;
+      }
+
       function submit() {
         if (pending) return;
         var text = input.value.trim();
@@ -921,6 +1002,12 @@
             history.push({ role: "assistant", content: data.markdown, html: data.html });
             if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
             persistHistory();
+            // Proposal cards are shown live but deliberately not persisted into history/
+            // localStorage -- a reload finding a stale, already-decided (or now stale) proposal
+            // still sitting there with live Confirm/Cancel buttons would be confusing at best.
+            if (data.pending_actions && data.pending_actions.length) {
+              appendActionProposals(data.pending_actions);
+            }
           } else {
             // Errors aren't persisted -- a "couldn't reach the provider" bubble is about that
             // one attempt, and replaying it on every future page load would be noise.

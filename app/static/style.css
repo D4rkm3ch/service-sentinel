@@ -1341,6 +1341,63 @@ html[data-chat-resizing] {
   background: transparent;
   padding: 4px 2px;
 }
+/* A change the assistant proposed (silencing findings, or a standing rule for future checks --
+   see chat.py's action-proposal contract) but hasn't made -- nothing happens until Confirm is
+   clicked. Left-aligned like a reply, but its own accent-tinted card so it reads as something
+   to act on rather than more prose to read. */
+.chat-msg-action {
+  align-self: flex-start;
+  max-width: 88%;
+}
+.chat-action-proposal {
+  border: 1px solid var(--accent);
+  background: var(--accent-wash);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.chat-action-title {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.chat-action-detail {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.chat-action-reason {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-dim);
+}
+.chat-action-buttons {
+  display: flex;
+  gap: 8px;
+}
+/* Targets the two specific button classes rather than a bare element selector -- the plain
+   selector would collide with a test elsewhere in the suite that locates the real base button
+   rule by its own opening brace, and needs to find that one, not this one, first. */
+.chat-action-confirm,
+.chat-action-cancel {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+/* The result of a confirmed action -- "Silenced 3 findings...", success-toned via the accent
+   color (the app's implicit "good" signal -- see .test-result-ok) rather than a dedicated green
+   token that doesn't otherwise exist in this palette. */
+.chat-msg-action-result {
+  align-self: center;
+  max-width: 100%;
+  text-align: center;
+}
+.chat-msg-action-result .chat-bubble {
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  padding: 2px;
+}
 
 .chat-input-row {
   display: flex;
@@ -2240,6 +2297,23 @@ a.feature-card-issue-slot:hover {
 .badge-sev-critical { background: rgba(217, 112, 94, 0.15); color: var(--error); }
 .badge-sev-warning { background: rgba(217, 164, 65, 0.15); color: var(--warn); }
 .badge-sev-suggestion { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }
+
+/* One operator-taught AI rule (Settings > Runtime/Configuration > AI Custom Rules) -- reuses
+   the severity badges above (Always/Never flag) so a rule reads at a glance the same way a
+   finding's own severity does. */
+.custom-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.custom-rule-row:last-child { border-bottom: none; }
+.custom-rule-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+}
 
 /* Updates' own 4-tier scale */
 .badge-sev-bugfix { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }

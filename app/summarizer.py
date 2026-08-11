@@ -4,7 +4,7 @@ import re
 
 import yaml
 
-from app import ai_provider
+from app import ai_provider, db
 from app.ai_json import extract_json
 
 logger = logging.getLogger("service_sentinel.summarizer")
@@ -285,6 +285,26 @@ Operator's compose configuration for this service:
     ).strip()
 
 
+def _custom_rules_prompt_block(source: str) -> str:
+    """The operator's own standing instructions (see db.ai_custom_rules, added through the chat
+    widget's action-proposal feature -- app/chat.py, app/chat_actions.py), appended to a review
+    system prompt so a change made through chat genuinely reshapes the NEXT check, not just
+    today's already-open findings. Empty string when there are none, so a fresh install's prompt
+    is byte-for-byte what it always was."""
+    rules = db.list_ai_custom_rules(source)
+    if not rules:
+        return ""
+    lines = []
+    for rule in rules:
+        verb = "Never flag this as an issue" if rule["rule_type"] == "exclude" else "Always flag this as an issue"
+        lines.append(f"- {verb}: {rule['instruction']}")
+    return (
+        "\n\nThe operator has also set these standing rules for what you should and shouldn't "
+        "flag, through the chat widget. Apply them the same way regardless of which container "
+        "or file they come up in:\n" + "\n".join(lines)
+    )
+
+
 LOG_TRIAGE_SYSTEM_PROMPT_BASE = """You are triaging pre-filtered log excerpts from a homelab \
 operator's self-hosted Docker containers. Each excerpt already only contains lines that matched \
 suspicious keywords (error, exception, failed, etc.) plus a little surrounding context -- most \
@@ -423,7 +443,9 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
         sections.append(section)
     user_message = "\n\n".join(sections)
 
-    system_prompt = LOG_TRIAGE_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_LOG if include_fix else "")
+    system_prompt = LOG_TRIAGE_SYSTEM_PROMPT_BASE.format(
+        fix_field=FIX_FIELD_LOG if include_fix else ""
+    ) + _custom_rules_prompt_block("logs")
 
     if not ai_provider.is_configured():
         return []
@@ -691,7 +713,9 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
             for f in active_findings
         )
         user_message += f"\n\nAlready tracked in this file:\n{tracked_lines}"
-    system_prompt = COMPOSE_REVIEW_SYSTEM_PROMPT_BASE.format(fix_field=FIX_FIELD_COMPOSE if include_fix else "")
+    system_prompt = COMPOSE_REVIEW_SYSTEM_PROMPT_BASE.format(
+        fix_field=FIX_FIELD_COMPOSE if include_fix else ""
+    ) + _custom_rules_prompt_block("compose")
 
     if not ai_provider.is_configured():
         return []

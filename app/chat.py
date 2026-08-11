@@ -1,14 +1,25 @@
-"""In-app AI chat -- the read-only "Ask Service Sentinel" widget's backend (front-end shell in
-base.html, HTTP route in main.py). Answers questions about the operator's current system by
-handing the model a fresh plain-text snapshot of live state on every turn, rather than giving
-it callable tools: there is no callable surface at all, so "the assistant can only look, never
-touch" holds by construction, not by trusting a tool registry to stay read-only. Every db call
-this module makes is a pure read -- enforced mechanically by test_chat.py's guardrail test,
-which greps this file's own source for any mutating db.* call and fails if one appears.
+"""In-app AI chat -- the "Ask Service Sentinel" widget's backend (front-end shell in base.html,
+HTTP route in main.py). Answers questions about the operator's current system by handing the
+model a fresh plain-text snapshot of live state on every turn, and can additionally PROPOSE (see
+SYSTEM_PROMPT_HEADER, answer(), _extract_proposed_actions()) two narrow kinds of change an
+operator can ask it to make: silencing findings that are already open, and adding a standing
+rule for what should or shouldn't be flagged in future checks -- so each operator can shape the
+Runtime/Configuration reviewers' judgment to their own setup instead of only ever being able to
+talk about a mismatch, never fix it.
+
+Still strictly read-only ITSELF, on purpose: this module only ever parses and validates the
+model's own proposed JSON, it never executes one. A proposal only becomes a real change through
+app/chat_actions.py, and only after the operator clicks Confirm in the UI (see main.py's POST
+/chat/confirm-action) -- see that module's own docstring for why the mutating half of this
+feature deliberately lives in a different file. Every db call THIS module makes is still a pure
+read, enforced mechanically by test_chat.py's guardrail test, which greps this file's own source
+for any mutating db.* call and fails if one appears -- unchanged by this feature, since the
+model's text generation still can't reach app state by itself.
 
 Deliberately mirrors summarizer.py/release_notes.py's shape: this module holds the feature
 logic (snapshot + prompt assembly), main.py stays thin routing glue over answer()."""
 
+import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -60,11 +71,32 @@ knowledgeable, opinionated collaborator: diagnose problems, explain what's going
 recommend what you'd do about it, weigh options, and help think through plans. Give real \
 advice and concrete steps -- that's the entire point of this conversation.
 
-The one and only thing you cannot do is carry out changes yourself. You have no ability to \
-edit files, modify or restart containers, change settings, or take any action on this system \
-or the operator's machine -- you can only read. So when you recommend something, describe what \
-the operator should do and let them do it. Never claim to have done something, and never \
-promise to do something later.
+The one thing you cannot do is carry out changes yourself, with one narrow exception: you may \
+PROPOSE (never perform) two specific kinds of change to how Service Sentinel's own reviewers \
+judge findings -- silencing findings that are already open, or adding a standing rule for what \
+should or shouldn't be flagged going forward. Everything else is off limits: you have no \
+ability to edit files, modify or restart containers, change any other setting, or take any \
+other action on this system or the operator's machine -- you can only read, plus those two \
+narrow proposals below. So when you recommend anything else, describe what the operator should \
+do and let them do it. Never claim to have done something, and never promise to do something \
+later -- even a proposal you make below only takes effect once the operator clicks Confirm on \
+it; until then, nothing has actually changed.
+
+When, and only when, the operator explicitly asks you to silence/ignore/dismiss an existing \
+finding, or to add a standing rule about what should always or never be flagged, respond \
+normally first -- explain what you're proposing and why, in plain language -- then end your \
+reply with exactly one fenced block labeled action-proposal containing a JSON object shaped \
+{"actions": [...]}. Each element is either {"type": "silence_findings", "source": "logs" or \
+"compose", "subjects": ["container or file name", ...], "title_contains": "text from the \
+finding's own title", "reason": "one sentence for the operator"} (silences every currently \
+active finding for those subjects whose title contains that text) or {"type": \
+"add_custom_rule", "source": "logs" or "compose", "rule_type": "exclude" or "watch", \
+"instruction": "the exact instruction text, written the way you'd want a future reviewer to \
+read it verbatim", "reason": "one sentence for the operator"} ("exclude" means never flag it \
+again anywhere; "watch" means always flag it). Never include an action-proposal block for \
+anything else, or when the operator hasn't actually asked for one of these two things -- \
+everyday questions and advice get a normal reply with no block at all, and a compose snippet or \
+JSON example you're showing the operator for their own use must never use that fence label.
 
 That limit is about actions, not about opinions. You are absolutely expected to say what you \
 think, suggest specific fixes (including exact commands or compose changes for the operator to \
@@ -237,13 +269,74 @@ def _clean_history(history) -> list[dict]:
     return cleaned[-MAX_HISTORY_MESSAGES:]
 
 
-def answer(history: list[dict]) -> str:
+# The one place the model can propose (never perform) a change -- see SYSTEM_PROMPT_HEADER's own
+# description of the contract. Matches the LAST such block only, in case the model echoes the
+# fence label while explaining the feature itself; DOTALL so the JSON body can span lines.
+_ACTION_BLOCK_RE = re.compile(r"```action-proposal\s*\n(.*?)```", re.DOTALL)
+
+# What answer() will actually pass through to chat_actions.execute() -- anything else parsed out
+# of the model's own JSON is dropped rather than trusted, since the model's output is never
+# authoritative on its own (a human still has to click Confirm, and chat_actions.py re-validates
+# independently anyway, but there's no reason to carry unrecognized fields any further than here).
+_SILENCE_FIELDS = ("source", "subjects", "title_contains", "reason")
+_RULE_FIELDS = ("source", "rule_type", "instruction", "reason")
+
+
+def _extract_proposed_actions(reply: str) -> tuple[str, list[dict]]:
+    """Splits a model reply into (display_text, actions) -- the fenced action-proposal block
+    (see SYSTEM_PROMPT_HEADER) is parsed out and never shown to the operator as raw JSON, and
+    each element is checked for the exact shape either action type needs before it's trusted
+    with a Confirm button at all. A malformed or missing block just means no actions were
+    proposed -- never a broken reply; the operator still gets the model's own prose either way."""
+    match = _ACTION_BLOCK_RE.search(reply)
+    if not match:
+        return reply, []
+    display_text = (reply[:match.start()] + reply[match.end():]).strip()
+    try:
+        payload = json.loads(match.group(1))
+        raw_actions = payload.get("actions") if isinstance(payload, dict) else None
+    except (json.JSONDecodeError, AttributeError):
+        return display_text, []
+    if not isinstance(raw_actions, list):
+        return display_text, []
+
+    actions: list[dict] = []
+    for raw in raw_actions:
+        if not isinstance(raw, dict):
+            continue
+        action_type = raw.get("type")
+        if action_type == "silence_findings":
+            if raw.get("source") not in ("logs", "compose"):
+                continue
+            if not isinstance(raw.get("subjects"), list) or not raw["subjects"]:
+                continue
+            if not isinstance(raw.get("title_contains"), str) or not raw["title_contains"].strip():
+                continue
+            actions.append({"type": action_type, **{k: raw.get(k) for k in _SILENCE_FIELDS}})
+        elif action_type == "add_custom_rule":
+            if raw.get("source") not in ("logs", "compose"):
+                continue
+            if raw.get("rule_type") not in ("exclude", "watch"):
+                continue
+            if not isinstance(raw.get("instruction"), str) or not raw["instruction"].strip():
+                continue
+            actions.append({"type": action_type, **{k: raw.get(k) for k in _RULE_FIELDS}})
+    return display_text, actions
+
+
+def answer(history: list[dict]) -> tuple[str, list[dict]]:
     """Runs one chat turn: cleans/bounds the history, builds the system prompt (static header +
-    a fresh live snapshot), and returns the model's raw markdown reply. Raises on an empty
+    a fresh live snapshot), and returns (markdown_reply, proposed_actions). Raises on an empty
     history (nothing to answer) or any provider failure -- the caller (main.py's /chat/send)
     checks ai_provider.is_configured() before ever reaching here and turns an exception into the
     route's JSON error shape. Provider-agnostic: complete_chat dispatches on the configured
-    provider exactly like every other AI call site."""
+    provider exactly like every other AI call site.
+
+    proposed_actions is never executed here or anywhere else in this module -- extracting and
+    validating the model's own JSON is still just reading. Turning one into a real change is
+    app/chat_actions.py's job, and only ever runs after the operator clicks Confirm in the UI
+    (see main.py's POST /chat/confirm-action) -- see that module's own docstring for why it's
+    kept separate rather than folded in here."""
     messages = _clean_history(history)
     if not messages:
         raise ValueError("No message to answer.")
@@ -251,4 +344,5 @@ def answer(history: list[dict]) -> str:
     # anywhere in the conversation would re-pull the same logs on every follow-up and grow
     # without bound.
     system = SYSTEM_PROMPT_HEADER + build_context_snapshot() + _live_logs_for(messages[-1]["content"])
-    return ai_provider.complete_chat(system=system, messages=messages, max_tokens=_MAX_TOKENS)
+    reply = ai_provider.complete_chat(system=system, messages=messages, max_tokens=_MAX_TOKENS)
+    return _extract_proposed_actions(reply)

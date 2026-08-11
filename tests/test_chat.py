@@ -145,9 +145,10 @@ def test_clean_history_keeps_only_the_newest_turns():
 
 def test_answer_builds_the_system_prompt_and_dispatches_to_complete_chat():
     with patch("app.chat.ai_provider.complete_chat", return_value="the reply") as mock_chat:
-        result = chat.answer([{"role": "user", "content": "what's pending?"}])
+        reply, actions = chat.answer([{"role": "user", "content": "what's pending?"}])
 
-    assert result == "the reply"
+    assert reply == "the reply"
+    assert actions == []
     kwargs = mock_chat.call_args.kwargs
     assert kwargs["system"].startswith(chat.SYSTEM_PROMPT_HEADER)
     assert "## Versions" in kwargs["system"]  # the live snapshot is appended to the header
@@ -287,3 +288,122 @@ def test_prompt_still_forbids_taking_action_itself():
     assert "cannot do is carry out changes yourself" in prompt
     assert "you can only read" in prompt
     assert "never claim to have done something" in prompt
+
+
+def test_prompt_describes_the_two_narrow_proposal_exceptions():
+    """Pinned so a future edit can't silently drop the model's own knowledge of the contract
+    _extract_proposed_actions() below parses -- the two action types, the fence label, and that
+    a proposal only takes effect on an explicit operator confirm."""
+    prompt = chat.SYSTEM_PROMPT_HEADER.lower()
+    assert "silence_findings" in prompt or "silence findings" in prompt
+    assert "add_custom_rule" in prompt
+    assert "action-proposal" in prompt
+    assert "only takes effect once the operator clicks confirm" in prompt
+
+
+# ---------------------------------------------------------------------------
+# _extract_proposed_actions() -- parsing and validating the model's own proposal
+# ---------------------------------------------------------------------------
+
+def test_a_reply_with_no_action_block_returns_it_unchanged_with_no_actions():
+    text, actions = chat._extract_proposed_actions("Just a normal reply, nothing to propose.")
+    assert text == "Just a normal reply, nothing to propose."
+    assert actions == []
+
+
+def test_a_well_formed_silence_findings_proposal_is_parsed_and_stripped_from_the_text():
+    reply = (
+        "Sure, I'll propose silencing those.\n\n"
+        "```action-proposal\n"
+        '{"actions": [{"type": "silence_findings", "source": "logs", '
+        '"subjects": ["radarr", "sonarr"], "title_contains": "Unable to parse", '
+        '"reason": "Normal *arr/Prowlarr behavior."}]}\n'
+        "```"
+    )
+    text, actions = chat._extract_proposed_actions(reply)
+    assert "action-proposal" not in text
+    assert "Sure, I'll propose silencing those." in text
+    assert len(actions) == 1
+    assert actions[0] == {
+        "type": "silence_findings", "source": "logs", "subjects": ["radarr", "sonarr"],
+        "title_contains": "Unable to parse", "reason": "Normal *arr/Prowlarr behavior.",
+    }
+
+
+def test_a_well_formed_add_custom_rule_proposal_is_parsed():
+    reply = (
+        "I'll add a standing rule.\n\n"
+        "```action-proposal\n"
+        '{"actions": [{"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", '
+        '"instruction": "Never flag Unable to parse for *arr apps.", "reason": "So it never comes back."}]}\n'
+        "```"
+    )
+    text, actions = chat._extract_proposed_actions(reply)
+    assert len(actions) == 1
+    assert actions[0]["type"] == "add_custom_rule"
+    assert actions[0]["rule_type"] == "exclude"
+    assert actions[0]["instruction"] == "Never flag Unable to parse for *arr apps."
+
+
+def test_multiple_actions_in_one_block_are_all_parsed():
+    reply = (
+        "```action-proposal\n"
+        '{"actions": ['
+        '{"type": "silence_findings", "source": "logs", "subjects": ["radarr"], "title_contains": "x", "reason": "a"},'
+        '{"type": "add_custom_rule", "source": "logs", "rule_type": "watch", "instruction": "y", "reason": "b"}'
+        "]}\n"
+        "```"
+    )
+    _, actions = chat._extract_proposed_actions(reply)
+    assert [a["type"] for a in actions] == ["silence_findings", "add_custom_rule"]
+
+
+def test_malformed_json_in_the_block_yields_no_actions_but_a_clean_reply():
+    reply = "Here's my answer.\n\n```action-proposal\nnot valid json at all\n```"
+    text, actions = chat._extract_proposed_actions(reply)
+    assert "Here's my answer." in text
+    assert actions == []
+
+
+def test_an_action_missing_required_fields_is_dropped():
+    reply = '```action-proposal\n{"actions": [{"type": "silence_findings", "source": "logs"}]}\n```'
+    _, actions = chat._extract_proposed_actions(reply)
+    assert actions == []
+
+
+def test_an_unrecognized_action_type_is_dropped():
+    reply = '```action-proposal\n{"actions": [{"type": "delete_everything", "source": "logs"}]}\n```'
+    _, actions = chat._extract_proposed_actions(reply)
+    assert actions == []
+
+
+def test_an_invalid_source_is_dropped():
+    reply = (
+        '```action-proposal\n{"actions": [{"type": "silence_findings", "source": "updates", '
+        '"subjects": ["x"], "title_contains": "y", "reason": "z"}]}\n```'
+    )
+    _, actions = chat._extract_proposed_actions(reply)
+    assert actions == []
+
+
+def test_extra_unrecognized_fields_on_a_valid_action_are_dropped():
+    """Only the fields chat_actions.py actually understands are carried through -- anything else
+    the model happened to include is never trusted with a free ride into a Confirm button."""
+    reply = (
+        '```action-proposal\n{"actions": [{"type": "silence_findings", "source": "logs", '
+        '"subjects": ["x"], "title_contains": "y", "reason": "z", "sneaky": "field"}]}\n```'
+    )
+    _, actions = chat._extract_proposed_actions(reply)
+    assert "sneaky" not in actions[0]
+
+
+def test_answer_returns_the_actions_parsed_from_the_models_reply():
+    reply = (
+        '```action-proposal\n{"actions": [{"type": "add_custom_rule", "source": "compose", '
+        '"rule_type": "watch", "instruction": "flag this", "reason": "why not"}]}\n```'
+    )
+    with patch("app.chat.ai_provider.complete_chat", return_value=reply):
+        text, actions = chat.answer([{"role": "user", "content": "add a rule"}])
+    assert "action-proposal" not in text
+    assert len(actions) == 1
+    assert actions[0]["source"] == "compose"

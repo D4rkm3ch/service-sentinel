@@ -89,3 +89,68 @@ def test_chat_send_handles_an_empty_history_gracefully(client):
 
 def test_chat_send_is_included_in_the_rate_limited_paths():
     assert main._is_rate_limited_path("/chat/send")
+
+
+def test_confirm_action_is_included_in_the_rate_limited_paths():
+    assert main._is_rate_limited_path("/chat/confirm-action")
+
+
+# ---------------------------------------------------------------------------
+# pending_actions -- the action-proposal feature (see app/chat.py, app/chat_actions.py)
+# ---------------------------------------------------------------------------
+
+def test_chat_send_passes_through_no_pending_actions_for_a_normal_reply(client):
+    _configure_anthropic()
+    try:
+        with patch("app.chat.ai_provider.complete_chat", return_value="just an answer"):
+            resp = client.post("/chat/send", json={"history": [{"role": "user", "content": "hi"}]})
+        assert resp.json()["pending_actions"] == []
+    finally:
+        _unconfigure()
+
+
+def test_chat_send_passes_through_a_proposed_action(client):
+    _configure_anthropic()
+    reply = (
+        '```action-proposal\n{"actions": [{"type": "add_custom_rule", "source": "logs", '
+        '"rule_type": "exclude", "instruction": "x", "reason": "y"}]}\n```'
+    )
+    try:
+        with patch("app.chat.ai_provider.complete_chat", return_value=reply):
+            resp = client.post("/chat/send", json={"history": [{"role": "user", "content": "hi"}]})
+        body = resp.json()
+        assert body["ok"] is True
+        assert "action-proposal" not in body["markdown"]
+        assert len(body["pending_actions"]) == 1
+        assert body["pending_actions"][0]["type"] == "add_custom_rule"
+    finally:
+        _unconfigure()
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/confirm-action -- only reachable via an explicit Confirm click
+# ---------------------------------------------------------------------------
+
+def test_confirm_action_executes_a_valid_action(client):
+    resp = client.post("/chat/confirm-action", json={
+        "action": {"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", "instruction": "x"},
+    })
+    try:
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert db.list_ai_custom_rules("logs")
+    finally:
+        for rule in db.list_ai_custom_rules("logs"):
+            db.remove_ai_custom_rule(rule["id"])
+
+
+def test_confirm_action_rejects_a_malformed_payload(client):
+    resp = client.post("/chat/confirm-action", json={"action": None})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
+
+
+def test_confirm_action_rejects_malformed_json_entirely(client):
+    resp = client.post("/chat/confirm-action", content=b"not json", headers={"Content-Type": "application/json"})
+    assert resp.status_code == 400

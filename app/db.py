@@ -170,6 +170,27 @@ CREATE TABLE IF NOT EXISTS release_notes_cache (
     location TEXT NOT NULL,             -- 'owner/repo' for github, or a URL
     last_success_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ai_custom_rules (
+    -- An operator's own standing instructions to the Runtime/Configuration AI reviewers,
+    -- proposed through the chat widget and only ever written here after an explicit confirm
+    -- click (see app/chat_actions.py) -- never written by the model's own text generation. Free-
+    -- text rather than a structured condition builder: the model already reads and writes
+    -- natural language for a living, and the instruction is re-read by that same kind of model
+    -- on every future review, so plain English ("don't flag 'Unable to parse' for radarr,
+    -- sonarr, or lidarr -- that's expected *arr/Prowlarr push behavior") is both what an
+    -- operator would naturally type and exactly what the reviewer prompt already expects to
+    -- read. Global per source rather than scoped to one container/file -- an operator shaping
+    -- how their *arr stack gets judged wants that judgment applied the next time they add a
+    -- fourth *arr app too, not re-taught container by container.
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,               -- 'logs' or 'compose'
+    rule_type TEXT NOT NULL,            -- 'exclude' (never flag) or 'watch' (always flag)
+    instruction TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_custom_rules_source ON ai_custom_rules(source);
 """
 
 # All three features ship off by default -- nothing runs, nothing spends tokens, until the
@@ -2232,3 +2253,38 @@ def get_last_check_result(feature: str) -> dict | None:
 def set_last_check_result(feature: str, result: dict, at_iso: str) -> None:
     payload = {"result": result, "at": at_iso}
     _set_setting(f"last_check_result_{feature}", json.dumps(payload))
+
+
+# ---------------------------------------------------------------------------
+# AI custom rules -- an operator's own standing instructions to the Runtime/Configuration
+# reviewers, proposed through the chat widget and only ever written after an explicit confirm
+# click (see app/chat_actions.py, never chat.py itself -- that module stays strictly read-only,
+# enforced by test_chat.py's own guardrail). Read back into summarizer.py's/compose_reviewer.py's
+# review system prompts on every future check (see LOG_TRIAGE_SYSTEM_PROMPT_BASE/COMPOSE_REVIEW_
+# SYSTEM_PROMPT_BASE's own callers), so "ignore this pattern" or "always flag this" genuinely
+# reshapes what the next check does, not just today's already-open findings.
+# ---------------------------------------------------------------------------
+
+def add_ai_custom_rule(source: str, rule_type: str, instruction: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO ai_custom_rules (source, rule_type, instruction, created_at) VALUES (?, ?, ?, ?)",
+            (source, rule_type, instruction, now_iso()),
+        )
+        return cur.lastrowid
+
+
+def list_ai_custom_rules(source: str | None = None) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        if source is None:
+            return conn.execute(
+                "SELECT * FROM ai_custom_rules ORDER BY created_at ASC"
+            ).fetchall()
+        return conn.execute(
+            "SELECT * FROM ai_custom_rules WHERE source = ? ORDER BY created_at ASC", (source,)
+        ).fetchall()
+
+
+def remove_ai_custom_rule(rule_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM ai_custom_rules WHERE id = ?", (rule_id,))
