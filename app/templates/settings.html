@@ -50,13 +50,13 @@
 } -%}
 
 <section class="panel settings-panel">
-  <div class="settings-panel-header collapsible-header collapsed" role="button" tabindex="0"
-       aria-expanded="false" aria-controls="settings-timing-body"
+  <div class="settings-panel-header collapsible-header" role="button" tabindex="0"
+       aria-expanded="true" aria-controls="settings-timing-body"
        data-collapse-target="settings-timing-body" data-collapse-key="timing">
     <h2 class="settings-heading-lg">Timing &amp; Delivery</h2>
     <span class="collapse-arrow" aria-hidden="true">&#9662;</span>
   </div>
-  <div class="collapse-body" id="settings-timing-body" style="max-height:0">
+  <div class="collapse-body" id="settings-timing-body">
     <div class="settings-subsection settings-subsection-first">
       <h4>Timezone</h4>
       <form class="schedule-fields" hx-post="/settings/timezone" hx-trigger="change" hx-target="#saved-timezone" hx-swap="innerHTML">
@@ -101,14 +101,66 @@ sends, and at which level, in its own panel.</p>
 </section>
 
 <section class="panel settings-panel">
-  <div class="settings-panel-header collapsible-header collapsed" role="button" tabindex="0"
-       aria-expanded="false" aria-controls="settings-connections-body"
+  <div class="settings-panel-header collapsible-header" role="button" tabindex="0"
+       aria-expanded="true" aria-controls="settings-connections-body"
        data-collapse-target="settings-connections-body" data-collapse-key="connections">
     <h2 class="settings-heading-lg">Connections &amp; Access</h2>
     <span class="collapse-arrow" aria-hidden="true">&#9662;</span>
   </div>
-  <div class="collapse-body" id="settings-connections-body" style="max-height:0">
-    <div class="settings-subsection settings-subsection-first" id="ai_provider_section">
+  <div class="collapse-body" id="settings-connections-body">
+    {#- Also offered up front, in the first-launch onboarding modal (see
+        _onboarding_modal.html) -- it stays here too so the choice made there can
+        be revisited, or made for the first time by anyone who dismissed the modal. -#}
+    <div class="settings-subsection settings-subsection-first" id="access_control_section">
+      <h4>Access Control</h4>
+      <p class="meta">Service Sentinel has no login by default - it assumes you're running it on a
+private network. If you're exposing it beyond that (a reverse proxy without its own
+sign-in, a port forward), set a username and password here. Your browser will prompt for them
+using its own standard sign-in dialog.</p>
+      <div class="api-key-row" style="margin-bottom:8px">
+        <input type="text" id="auth_username_field" class="mono field-input" autocomplete="off"
+               placeholder="Username" value="{{ auth_username if auth_secret_configured else '' }}"
+               {{ 'disabled' if auth_secret_configured else '' }}>
+      </div>
+      <div class="api-key-row">
+        <input type="password" id="auth_secret_field" class="mono field-input" autocomplete="off"
+               data-placeholder-new="Choose a password"
+               placeholder="{{ '•••••••• (configured)' if auth_secret_configured else 'Choose a password' }}"
+               {{ 'disabled' if auth_secret_configured else '' }}>
+      </div>
+      <div class="api-key-row" id="auth_secret_confirm_row" style="margin-top:8px">
+        <input type="password" id="auth_secret_confirm_field" class="mono field-input" autocomplete="off"
+               placeholder="{{ '••••••••' if auth_secret_configured else 'Confirm password' }}"
+               {{ 'disabled' if auth_secret_configured else '' }}>
+        <button type="button" id="auth_secret_action_btn" onclick="handleAuthSecretButtonClick()">
+          {{ 'Change' if auth_secret_configured else 'Save' }}
+        </button>
+        <button type="button" id="auth_secret_cancel_btn" class="button-danger"
+                onclick="cancelAuthSecretEdit()" style="{{ 'display:none' if auth_secret_configured else '' }}">
+          Cancel
+        </button>
+        {% if auth_secret_configured %}
+        <button type="button" id="auth_secret_remove_btn" class="button-danger" onclick="removeAuthSecret()">
+          Disable
+        </button>
+        {% endif %}
+        <span id="auth_secret_result">{% if auth_secret_configured %}<span class="key-configured-badge">&check; Enabled</span>{% endif %}</span>
+      </div>
+      <div class="password-live-feedback hidden" id="auth_secret_feedback">
+        <div class="password-strength-meter"><div class="password-strength-bar"></div></div>
+        <div class="password-feedback-row">
+          <span class="password-char-count"></span>
+          <span class="password-strength-label"></span>
+        </div>
+        <p class="password-match-message"></p>
+      </div>
+      <div id="auth_lan_bypass_wrapper" class="{{ '' if auth_secret_configured else 'hidden' }}" style="margin-top:12px">
+        {{ ts.toggle_switch('auth_lan_bypass', auth_lan_bypass, '/settings/access-control/lan-bypass',
+                             'Skip login for devices on the local network') }}
+      </div>
+    </div>
+
+    <div class="settings-subsection" id="ai_provider_section">
       <h4>AI Provider</h4>
       <select name="ai_provider" class="mono field-input" onchange="toggleAiProvider(this.value)"
               hx-post="/settings/ai/provider" hx-trigger="change" hx-target="#saved-ai-provider">
@@ -133,17 +185,20 @@ sends, and at which level, in its own panel.</p>
         </select>
         <span class="saved-indicator-slot" id="saved-anthropic_model"></span>
       </div>
-      <div class="stepper-row">
-        <label class="meta" for="anthropic_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 2 free, 4 paid)</label>
-        <div class="stepper">
-          <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', -1)">&minus;</button>
-          <input type="number" inputmode="numeric" class="mono field-input stepper-input"
-                 id="anthropic_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
-                 value="{{ anthropic_concurrency }}" onchange="saveConcurrency('anthropic', this.value)"
-                 onkeydown="if (event.key === 'Enter') this.blur();">
-          <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', 1)">+</button>
+      <div class="settings-subsection">
+        <h4>Concurrent AI Requests</h4>
+        <p class="meta">Recommended: 2 free, 4 paid</p>
+        <div class="stepper-row">
+          <div class="stepper">
+            <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', -1)">&minus;</button>
+            <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+                   id="anthropic_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+                   value="{{ anthropic_concurrency }}" onchange="saveConcurrency('anthropic', this.value)"
+                   onkeydown="if (event.key === 'Enter') this.blur();">
+            <button type="button" class="stepper-btn" onclick="adjustConcurrency('anthropic', 1)">+</button>
+          </div>
+          <span class="saved-indicator-slot" id="saved-anthropic_concurrency"></span>
         </div>
-        <span class="saved-indicator-slot" id="saved-anthropic_concurrency"></span>
       </div>
     </div>
 
@@ -160,17 +215,20 @@ sends, and at which level, in its own panel.</p>
         </select>
         <span class="saved-indicator-slot" id="saved-gemini_model"></span>
       </div>
-      <div class="stepper-row">
-        <label class="meta" for="gemini_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 1 free, 4 paid)</label>
-        <div class="stepper">
-          <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', -1)">&minus;</button>
-          <input type="number" inputmode="numeric" class="mono field-input stepper-input"
-                 id="gemini_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
-                 value="{{ gemini_concurrency }}" onchange="saveConcurrency('gemini', this.value)"
-                 onkeydown="if (event.key === 'Enter') this.blur();">
-          <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', 1)">+</button>
+      <div class="settings-subsection">
+        <h4>Concurrent AI Requests</h4>
+        <p class="meta">Recommended: 1 free, 4 paid</p>
+        <div class="stepper-row">
+          <div class="stepper">
+            <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', -1)">&minus;</button>
+            <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+                   id="gemini_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+                   value="{{ gemini_concurrency }}" onchange="saveConcurrency('gemini', this.value)"
+                   onkeydown="if (event.key === 'Enter') this.blur();">
+            <button type="button" class="stepper-btn" onclick="adjustConcurrency('gemini', 1)">+</button>
+          </div>
+          <span class="saved-indicator-slot" id="saved-gemini_concurrency"></span>
         </div>
-        <span class="saved-indicator-slot" id="saved-gemini_concurrency"></span>
       </div>
     </div>
 
@@ -187,17 +245,20 @@ sends, and at which level, in its own panel.</p>
         </select>
         <span class="saved-indicator-slot" id="saved-openai_model"></span>
       </div>
-      <div class="stepper-row">
-        <label class="meta" for="openai_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 4)</label>
-        <div class="stepper">
-          <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', -1)">&minus;</button>
-          <input type="number" inputmode="numeric" class="mono field-input stepper-input"
-                 id="openai_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
-                 value="{{ openai_concurrency }}" onchange="saveConcurrency('openai', this.value)"
-                 onkeydown="if (event.key === 'Enter') this.blur();">
-          <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', 1)">+</button>
+      <div class="settings-subsection">
+        <h4>Concurrent AI Requests</h4>
+        <p class="meta">Recommended: 4</p>
+        <div class="stepper-row">
+          <div class="stepper">
+            <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', -1)">&minus;</button>
+            <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+                   id="openai_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+                   value="{{ openai_concurrency }}" onchange="saveConcurrency('openai', this.value)"
+                   onkeydown="if (event.key === 'Enter') this.blur();">
+            <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai', 1)">+</button>
+          </div>
+          <span class="saved-indicator-slot" id="saved-openai_concurrency"></span>
         </div>
-        <span class="saved-indicator-slot" id="saved-openai_concurrency"></span>
       </div>
     </div>
 
@@ -220,17 +281,20 @@ The web search fallback for release notes isn't available with this provider.</p
         <button type="button" class="btn" onclick="saveOpenAiCompat()">Test &amp; Save</button>
         <span id="openai_compat_result">{% if openai_compat_base_url and openai_compat_model %}<span class="key-configured-badge">&check; Configured</span>{% endif %}</span>
       </div>
-      <div class="stepper-row">
-        <label class="meta" for="openai_compat_concurrency_input" style="margin:0">Concurrent AI requests (recommended: 1 for local models)</label>
-        <div class="stepper">
-          <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', -1)">&minus;</button>
-          <input type="number" inputmode="numeric" class="mono field-input stepper-input"
-                 id="openai_compat_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
-                 value="{{ openai_compat_concurrency }}" onchange="saveConcurrency('openai_compat', this.value)"
-                 onkeydown="if (event.key === 'Enter') this.blur();">
-          <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', 1)">+</button>
+      <div class="settings-subsection">
+        <h4>Concurrent AI Requests</h4>
+        <p class="meta">Recommended: 1 for local models</p>
+        <div class="stepper-row">
+          <div class="stepper">
+            <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', -1)">&minus;</button>
+            <input type="number" inputmode="numeric" class="mono field-input stepper-input"
+                   id="openai_compat_concurrency_input" min="{{ ai_concurrency_min }}" max="{{ ai_concurrency_max }}"
+                   value="{{ openai_compat_concurrency }}" onchange="saveConcurrency('openai_compat', this.value)"
+                   onkeydown="if (event.key === 'Enter') this.blur();">
+            <button type="button" class="stepper-btn" onclick="adjustConcurrency('openai_compat', 1)">+</button>
+          </div>
+          <span class="saved-indicator-slot" id="saved-openai_compat_concurrency"></span>
         </div>
-        <span class="saved-indicator-slot" id="saved-openai_compat_concurrency"></span>
       </div>
     </div>
 
@@ -242,44 +306,6 @@ This raises the rate limit used for fetching release notes from 60/hr to 5,000/h
       {{ akf.api_key_field('github', github_token_configured, 'ghp_...', '/settings/ai/github-token') }}
     </div>
 
-    {#- Also offered up front, in the first-launch onboarding modal (see
-        _onboarding_modal.html) -- it stays here too so the choice made there can
-        be revisited, or made for the first time by anyone who dismissed the modal. -#}
-    <div class="settings-subsection" id="access_control_section">
-      <h4>Access Control</h4>
-      <p class="meta">Service Sentinel has no login by default - it assumes you're running it on a
-private network. If you're exposing it beyond that (a reverse proxy without its own
-sign-in, a port forward), set a username and password here. Your browser will prompt for them
-using its own standard sign-in dialog.</p>
-      <div class="api-key-row" style="margin-bottom:8px">
-        <input type="text" id="auth_username_field" class="mono field-input" autocomplete="off"
-               placeholder="Username" value="{{ auth_username if auth_secret_configured else '' }}"
-               {{ 'disabled' if auth_secret_configured else '' }}>
-      </div>
-      <div class="api-key-row">
-        <input type="password" id="auth_secret_field" class="mono field-input" autocomplete="off"
-               data-placeholder-new="Choose a password"
-               placeholder="{{ '•••••••• (configured)' if auth_secret_configured else 'Choose a password' }}"
-               {{ 'disabled' if auth_secret_configured else '' }}>
-        <button type="button" id="auth_secret_action_btn" onclick="handleAuthSecretButtonClick()">
-          {{ 'Change' if auth_secret_configured else 'Save' }}
-        </button>
-        <button type="button" id="auth_secret_cancel_btn" class="button-danger"
-                onclick="cancelAuthSecretEdit()" style="{{ 'display:none' if auth_secret_configured else '' }}">
-          Cancel
-        </button>
-        {% if auth_secret_configured %}
-        <button type="button" id="auth_secret_remove_btn" class="button-danger" onclick="removeAuthSecret()">
-          Disable
-        </button>
-        {% endif %}
-        <span id="auth_secret_result">{% if auth_secret_configured %}<span class="key-configured-badge">&check; Enabled</span>{% endif %}</span>
-      </div>
-      <div id="auth_lan_bypass_wrapper" class="{{ '' if auth_secret_configured else 'hidden' }}" style="margin-top:12px">
-        {{ ts.toggle_switch('auth_lan_bypass', auth_lan_bypass, '/settings/access-control/lan-bypass',
-                             'Skip login for devices on the local network') }}
-      </div>
-    </div>
   </div>
 </section>
 
@@ -290,13 +316,13 @@ using its own standard sign-in dialog.</p>
     range) and no cross-service analysis. -#}
 {% for feature, title in modules %}
 <section class="panel settings-panel">
-  <div class="settings-panel-header collapsible-header collapsed" role="button" tabindex="0"
-       aria-expanded="false" aria-controls="settings-{{ feature }}-body"
+  <div class="settings-panel-header collapsible-header" role="button" tabindex="0"
+       aria-expanded="true" aria-controls="settings-{{ feature }}-body"
        data-collapse-target="settings-{{ feature }}-body" data-collapse-key="{{ feature }}">
     <h2 class="settings-heading-lg">{{ title }}</h2>
     <span class="collapse-arrow" aria-hidden="true">&#9662;</span>
   </div>
-  <div class="collapse-body" id="settings-{{ feature }}-body" style="max-height:0">
+  <div class="collapse-body" id="settings-{{ feature }}-body">
 
     {#- Keeps the id the Overview page's own Schedule row links to (see _feature_card.html). -#}
     <div class="settings-subsection settings-subsection-first" id="{{ feature }}_schedule_section">
@@ -403,23 +429,27 @@ error - registries occasionally rate limit or time out on an otherwise healthy c
       {% endif %}
     </div>
 
-    {#- Keeps the id the Overview page's own Notifications row links to. -#}
+    {#- Keeps the id the Overview page's own Notifications row links to. Minimum level sits right
+        under the heading, ahead of the enable/error toggles -- a real-world report called it easy
+        to miss buried below them. -#}
     <div class="settings-subsection" id="{{ feature }}_notify_section">
       <h4>Notifications</h4>
-      {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature,
-                           'Enable notifications', "toggleNotifyErrorsField('" ~ feature ~ "', this.checked)") }}
-      <div style="margin-top:8px">
-        {{ ts.toggle_switch('notify_' ~ feature ~ '_include_errors', notify[feature ~ '_include_errors'],
-                             '/settings/notify/' ~ feature ~ '-include-errors', notify_error_labels[feature],
-                             disabled=not notify.features[feature].enabled) }}
-      </div>
-      <p class="meta" style="margin-top:8px">Minimum level to receive a notification</p>
+      <p class="meta">Minimum level to receive a notification</p>
       <div>
         {% if feature == 'updates' %}
         {{ sb.severity_buttons('updates', notify.features['updates'].severity, '/settings/notify/severity/updates', false, severities=update_severities) }}
         {% else %}
         {{ sb.severity_buttons(feature, notify.features[feature].severity, '/settings/notify/severity/' ~ feature, false) }}
         {% endif %}
+      </div>
+      <div style="margin-top:12px">
+        {{ ts.toggle_switch('notify_' ~ feature ~ '_enabled', notify.features[feature].enabled, '/settings/notify/enabled/' ~ feature,
+                             'Enable notifications', "toggleNotifyErrorsField('" ~ feature ~ "', this.checked)") }}
+      </div>
+      <div style="margin-top:8px">
+        {{ ts.toggle_switch('notify_' ~ feature ~ '_include_errors', notify[feature ~ '_include_errors'],
+                             '/settings/notify/' ~ feature ~ '-include-errors', notify_error_labels[feature],
+                             disabled=not notify.features[feature].enabled) }}
       </div>
     </div>
   </div>
@@ -428,10 +458,10 @@ error - registries occasionally rate limit or time out on an otherwise healthy c
 
 
 <script>
-// Re-opens whatever was open last time, and runs HERE -- inline, immediately after the panels
-// above -- rather than with the rest of the page's scripts at the end of base.html. The panels
-// render collapsed, so doing this any later means every panel the operator left open visibly
-// snaps shut and back open on each page load. Running during parse, before the first paint of
+// Panels render open by default (server-side), and this closes back up whichever ones the
+// operator explicitly closed last time -- runs HERE, inline, immediately after the panels above,
+// rather than with the rest of the page's scripts at the end of base.html, so a panel due to end
+// up closed doesn't visibly flash open first. Running during parse, before the first paint of
 // this region, is what avoids that. The toggling and the saving are in base.html's shared
 // collapsible handler; this is only the read-back.
 //
@@ -456,6 +486,15 @@ error - registries occasionally rate limit or time out on an otherwise healthy c
     body.style.overflow = 'visible';
   }
 
+  function collapse(body) {
+    var header = body.previousElementSibling;
+    if (!header || header.classList.contains('collapsed')) return;
+    header.classList.add('collapsed');
+    header.setAttribute('aria-expanded', 'false');
+    body.style.maxHeight = '0px';
+    body.style.overflow = 'hidden';
+  }
+
   function openForHash() {
     var target = hashTarget();
     if (!target) return;
@@ -471,9 +510,12 @@ error - registries occasionally rate limit or time out on an otherwise healthy c
   var open = {};
   try { open = JSON.parse(localStorage.getItem('service-sentinel-settings-open') || '{}') || {}; } catch (e) { open = {}; }
   document.querySelectorAll('[data-collapse-key]').forEach(function (header) {
-    if (open[header.getAttribute('data-collapse-key')] !== true) return;
+    // Only an explicit false (a panel the operator closed) overrides the open-by-default render
+    // -- an absent key (never touched) or a leftover true from before this default flipped both
+    // mean "leave it open".
+    if (open[header.getAttribute('data-collapse-key')] !== false) return;
     var body = document.getElementById(header.getAttribute('data-collapse-target'));
-    if (body) reveal(body);
+    if (body) collapse(body);
   });
   openForHash();
 
@@ -587,6 +629,13 @@ function testAndSaveApiKey(provider) {
   });
 }
 
+// Wired once at load, whatever the initial state -- an unconfigured install starts with the
+// fields already unlocked, so the live feedback has to be live from the very first keystroke,
+// not only after a later unlockAuthSecret() call.
+document.addEventListener('DOMContentLoaded', function () {
+  wirePasswordStrength('auth_secret_field', 'auth_secret_confirm_field', 'auth_secret_feedback', {{ auth_secret_min_length }});
+});
+
 function handleAuthSecretButtonClick() {
   const field = document.getElementById('auth_secret_field');
   if (field.disabled) {
@@ -599,12 +648,16 @@ function handleAuthSecretButtonClick() {
 function unlockAuthSecret() {
   const usernameField = document.getElementById('auth_username_field');
   const field = document.getElementById('auth_secret_field');
+  const confirmField = document.getElementById('auth_secret_confirm_field');
   usernameField.disabled = false;
   usernameField.value = '';
   usernameField.focus();
   field.disabled = false;
   field.placeholder = field.dataset.placeholderNew;
   field.value = '';
+  confirmField.disabled = false;
+  confirmField.placeholder = 'Confirm password';
+  confirmField.value = '';
   document.getElementById('auth_secret_action_btn').textContent = 'Save';
   document.getElementById('auth_secret_cancel_btn').style.display = '';
   document.getElementById('auth_secret_result').innerHTML = '';
@@ -613,13 +666,18 @@ function unlockAuthSecret() {
 function cancelAuthSecretEdit() {
   const usernameField = document.getElementById('auth_username_field');
   const field = document.getElementById('auth_secret_field');
+  const confirmField = document.getElementById('auth_secret_confirm_field');
   const resultSlot = document.getElementById('auth_secret_result');
   const wasConfigured = document.getElementById('auth_secret_remove_btn') !== null || field.placeholder === '•••••••• (configured)';
+  confirmField.value = '';
+  document.getElementById('auth_secret_feedback').classList.add('hidden');
   if (wasConfigured) {
     usernameField.disabled = true;
     field.value = '';
     field.disabled = true;
     field.placeholder = '•••••••• (configured)';
+    confirmField.disabled = true;
+    confirmField.placeholder = '••••••••';
     document.getElementById('auth_secret_action_btn').textContent = 'Change';
     document.getElementById('auth_secret_cancel_btn').style.display = 'none';
     resultSlot.innerHTML = '<span class="key-configured-badge">✓ Enabled</span>';
@@ -638,6 +696,11 @@ function saveAuthSecret() {
   const value = field.value.trim();
   const resultSlot = document.getElementById('auth_secret_result');
   if (!username || !value) return;
+  const gate = passwordStrengthGate('auth_secret_field', 'auth_secret_confirm_field', {{ auth_secret_min_length }});
+  if (!gate.ok) {
+    resultSlot.innerHTML = '<span class="test-result-error">' + gate.message + '</span>';
+    return;
+  }
   fetch('/settings/access-control/credentials', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -648,6 +711,9 @@ function saveAuthSecret() {
       field.value = '';
       field.disabled = true;
       field.placeholder = '•••••••• (configured)';
+      document.getElementById('auth_secret_confirm_field').value = '';
+      document.getElementById('auth_secret_confirm_field').disabled = true;
+      document.getElementById('auth_secret_confirm_field').placeholder = '••••••••';
       document.getElementById('auth_secret_action_btn').textContent = 'Change';
       document.getElementById('auth_secret_cancel_btn').style.display = 'none';
       resultSlot.innerHTML = '<span class="key-configured-badge">✓ Enabled</span>';

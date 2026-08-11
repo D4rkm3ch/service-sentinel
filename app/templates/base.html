@@ -146,9 +146,18 @@
            mutually exclusive (see updateBanner in the script below): starting a check hides
            this and shows the banner, finishing a check hides the banner and brings this back. -->
       <div id="topbar-idle-summary" class="topbar-status" style="display:none">
-        <span class="status-badge">
+        <span class="status-badge" id="topbar-idle-summary-badge">
           <span id="topbar-idle-summary-text"></span>
         </span>
+        <!-- Only shown while data.ai_error is set (see poll() below) -- a background check's AI
+             call failed (bad/revoked key, rate limit, unreachable endpoint, over the model's
+             context limit). Replaces the idle summary text entirely rather than sitting beside
+             it, since a stale "All Clear" next to a live provider failure would read as mixed
+             signals. Stays up across the once-a-second poll and every page navigation until
+             explicitly dismissed -- it's read from the server (see /checks/status's ai_error
+             field), not held in this tab alone. -->
+        <button type="button" id="topbar-ai-error-dismiss" class="icon-button topbar-status-dismiss hidden"
+                aria-label="Dismiss AI error" title="Dismiss">&times;</button>
       </div>
     </div>
     <div class="topbar-end">
@@ -299,6 +308,108 @@
   </aside>
 
   <script>
+    // Live character-count/match/strength feedback under a new-password field, shared between
+    // Settings > Connections & Access and the onboarding wizard's own Access Control step so
+    // there's one scoring rule instead of two that could quietly drift apart. Only the client
+    // ever sees the confirm value -- the save routes underneath take a single "secret" field, so
+    // match-checking has to happen here, before either caller ever calls its own save function.
+    //
+    // Called explicitly by each caller rather than auto-wiring by a fixed ID, since Settings and
+    // the wizard each have their own field IDs. Settings' own inline script sits earlier in the
+    // document than this one (base.html's trailing script), so its call into this function is
+    // deferred to DOMContentLoaded; the onboarding modal is htmx-loaded well after the whole
+    // page -- this included -- has already run, so it calls straight in.
+    function wirePasswordStrength(passwordId, confirmId, feedbackId, minLength) {
+      var passwordField = document.getElementById(passwordId);
+      var confirmField = document.getElementById(confirmId);
+      var feedback = document.getElementById(feedbackId);
+      if (!passwordField || !confirmField || !feedback) return null;
+      var bar = feedback.querySelector(".password-strength-bar");
+      var label = feedback.querySelector(".password-strength-label");
+      var count = feedback.querySelector(".password-char-count");
+      var match = feedback.querySelector(".password-match-message");
+
+      function scoreOf(value) {
+        if (!value) return 0;
+        var classes = 0;
+        if (/[a-z]/.test(value)) classes++;
+        if (/[A-Z]/.test(value)) classes++;
+        if (/[0-9]/.test(value)) classes++;
+        if (/[^a-zA-Z0-9]/.test(value)) classes++;
+        // Every non-empty password is at least Weak. Fair needs the minimum length plus some
+        // variety; Strong needs real length on top of that -- length alone (a long run of the
+        // same character class) tops out at Fair.
+        if (value.length >= minLength + 4 && classes >= 3) return 3;
+        if (value.length >= minLength && classes >= 2) return 2;
+        return 1;
+      }
+
+      var TIERS = [
+        { pct: "33%", label: "Weak", cls: "password-strength-weak" },
+        { pct: "66%", label: "Fair", cls: "password-strength-fair" },
+        { pct: "100%", label: "Strong", cls: "password-strength-strong" },
+      ];
+
+      function reset() {
+        feedback.classList.add("hidden");
+        bar.className = "password-strength-bar";
+        bar.style.width = "0%";
+        label.textContent = "";
+        count.textContent = "";
+        count.classList.remove("password-requirement-met");
+        match.textContent = "";
+        match.className = "password-match-message";
+      }
+
+      function update() {
+        var value = passwordField.value;
+        var confirmValue = confirmField.value;
+        if (!value && !confirmValue) {
+          reset();
+          return;
+        }
+        feedback.classList.remove("hidden");
+
+        count.textContent = value.length + "/" + minLength + " characters minimum";
+        count.classList.toggle("password-requirement-met", value.length >= minLength);
+
+        var tier = TIERS[scoreOf(value) - 1];
+        bar.className = "password-strength-bar" + (tier ? " " + tier.cls : "");
+        bar.style.width = tier ? tier.pct : "0%";
+        label.textContent = tier ? tier.label : "";
+
+        if (!confirmValue) {
+          match.textContent = "";
+          match.className = "password-match-message";
+        } else if (value === confirmValue) {
+          match.textContent = "Passwords match";
+          match.className = "password-match-message password-match-ok";
+        } else {
+          match.textContent = "Passwords don't match";
+          match.className = "password-match-message password-match-error";
+        }
+      }
+
+      passwordField.addEventListener("input", update);
+      confirmField.addEventListener("input", update);
+      reset();
+      return { reset: reset };
+    }
+
+    // Shared go/no-go check the two save routines call before ever posting -- the server only
+    // ever receives one "secret" value, so a length or mismatch problem has to be caught here.
+    function passwordStrengthGate(passwordId, confirmId, minLength) {
+      var value = document.getElementById(passwordId).value;
+      var confirmValue = document.getElementById(confirmId).value;
+      if (value.length < minLength) {
+        return { ok: false, message: "Password must be at least " + minLength + " characters." };
+      }
+      if (value !== confirmValue) {
+        return { ok: false, message: "Passwords don't match." };
+      }
+      return { ok: true };
+    }
+
     // Dims every Check now / Regenerate / Reset & re-check button sitewide (class
     // "{feature}-action-btn" for feature in updates/logs/compose) while ANY feature's check --
     // a full check, a scheduled firing, or a single scoped per-item recheck at any level, all
@@ -341,6 +452,8 @@
       var bannerCancelBtn = document.getElementById("check-running-banner-cancel");
       var idleSummary = document.getElementById("topbar-idle-summary");
       var idleSummaryText = document.getElementById("topbar-idle-summary-text");
+      var idleSummaryBadge = document.getElementById("topbar-idle-summary-badge");
+      var aiErrorDismissBtn = document.getElementById("topbar-ai-error-dismiss");
 
       function applyRunningState(running) {
         document.querySelectorAll(ALL_SELECTOR).forEach(function (el) { el.disabled = running; });
@@ -356,7 +469,27 @@
 
       function updateIdleSummary(data) {
         if (!idleSummary) return;
-        if (idleSummaryText) idleSummaryText.textContent = data.summary_text || "";
+        if (data.ai_error) {
+          if (idleSummaryText) idleSummaryText.textContent = data.ai_error;
+          if (idleSummaryBadge) idleSummaryBadge.classList.add("status-badge-ai-error");
+          if (aiErrorDismissBtn) aiErrorDismissBtn.classList.remove("hidden");
+        } else {
+          if (idleSummaryText) idleSummaryText.textContent = data.summary_text || "";
+          if (idleSummaryBadge) idleSummaryBadge.classList.remove("status-badge-ai-error");
+          if (aiErrorDismissBtn) aiErrorDismissBtn.classList.add("hidden");
+        }
+      }
+
+      if (aiErrorDismissBtn) {
+        aiErrorDismissBtn.addEventListener("click", function () {
+          // Optimistic: clears immediately rather than waiting up to 1s for the next poll,
+          // same reasoning as the banner's own Cancel button above. The dismissal itself is
+          // server-side (clears db.last_ai_error), so it sticks through the next poll tick and
+          // any later navigation -- this isn't a client-side "hide until next reload" trick.
+          idleSummaryBadge.classList.remove("status-badge-ai-error");
+          aiErrorDismissBtn.classList.add("hidden");
+          fetch("/ai-error/dismiss", { method: "POST" });
+        });
       }
 
       function updateBanner(data) {
@@ -462,7 +595,7 @@
 
       function poll() {
         fetch("/checks/status").then(function (r) { return r.json(); }).catch(function () {
-          return { running: false, feature: null, progress_text: "", cancelling: false, summary_text: "", summary_status: "idle" };
+          return { running: false, feature: null, progress_text: "", cancelling: false, summary_text: "", summary_status: "idle", ai_error: null };
         }).then(function (data) {
           applyRunningState(data.running);
           updateBanner(data);
@@ -504,13 +637,14 @@
       });
     })();
 
-    // Sidebar hover-peek -- while collapsed, hovering the rail after a short delay slides it
-    // open exactly as if the hamburger had been clicked, via the "sidebar-peeking" class (see
-    // style.css, which overrides --sidebar-width while that class + [data-sidebar="collapsed"]
-    // both apply). A short delay before opening avoids it firing on every incidental mouse
-    // pass-through; closing has no delay at all -- moving the mouse away collapses it back
-    // immediately. A click on the toggle button also cancels any pending/active peek so the two
-    // mechanisms never fight each other.
+    // Sidebar hover-peek -- while collapsed, hovering the rail (or the hamburger button that
+    // also collapses/expands it -- a real-world report expected hovering that to work too) after
+    // a short delay slides it open exactly as if the hamburger had been clicked, via the
+    // "sidebar-peeking" class (see style.css, which overrides --sidebar-width while that class +
+    // [data-sidebar="collapsed"] both apply). A short delay before opening avoids it firing on
+    // every incidental mouse pass-through; closing has no delay at all -- moving the mouse away
+    // collapses it back immediately. A click on the toggle button also cancels any pending/active
+    // peek so the two mechanisms never fight each other.
     //
     // Persisting across a full page navigation (clicking a nav link while peeked open) can't
     // just rely on :hover surviving into the new document -- real-world testing showed a fresh
@@ -541,14 +675,33 @@
         setPeeking(false);
       }
 
-      sidebar.addEventListener("mouseenter", function () {
-        if (document.documentElement.dataset.sidebar !== "collapsed") return;
-        peekTimer = window.setTimeout(function () {
-          setPeeking(true);
-        }, PEEK_DELAY_MS);
+      // The rail and the hamburger button are two separate elements, not one hoverable region,
+      // so moving the pointer from one straight onto the other fires that element's mouseleave
+      // before the other's mouseenter. Cancelling on every mouseleave would read that as "the
+      // pointer left" and snap a peeked-open rail shut for a frame before immediately reopening
+      // it. relatedTarget (what the pointer is entering) says whether this leave is headed at the
+      // other member of the group, in which case it's ignored -- only leaving the group entirely
+      // cancels the peek.
+      var peekTargets = [sidebar, pinToggleBtn].filter(Boolean);
+
+      function isPeekTarget(el) {
+        return !!el && peekTargets.some(function (t) { return t === el || t.contains(el); });
+      }
+
+      peekTargets.forEach(function (el) {
+        el.addEventListener("mouseenter", function () {
+          if (document.documentElement.dataset.sidebar !== "collapsed") return;
+          if (peekTimer) return; // already scheduled or peeking, via this element or the other
+          peekTimer = window.setTimeout(function () {
+            setPeeking(true);
+          }, PEEK_DELAY_MS);
+        });
+        el.addEventListener("mouseleave", function (evt) {
+          if (isPeekTarget(evt.relatedTarget)) return;
+          cancelPeek();
+        });
       });
 
-      sidebar.addEventListener("mouseleave", cancelPeek);
       if (pinToggleBtn) pinToggleBtn.addEventListener("click", cancelPeek);
 
       window.addEventListener("pagehide", function () {

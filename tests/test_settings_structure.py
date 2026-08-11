@@ -10,13 +10,17 @@ get revisited were three and a half screens below them.
 Now each module owns one panel holding everything about it, the three module panels are the same
 shape as each other, and the app's own configuration sits above them in two panels named for
 their contents: Timing & Delivery for what all three modules inherit, Connections & Access for
-what Service Sentinel talks out to and who is allowed in. Every panel starts collapsed and
-remembers whether it was left open, so the page is five rows at rest instead of four and a half
-screens.
+what Service Sentinel talks out to and who is allowed in.
 
-Browser-verified alongside these: the collapsed page is five rows and ~795px tall, clicking a
-header slides it open, the state survives a reload, Enter on a focused header toggles it, and a
-deep link from an Overview card opens the panel it points into and scrolls to it."""
+Every panel starts OPEN and remembers whichever ones get closed -- inverted from an earlier round
+that opened collapsed and remembered whichever got opened. A real-world report: collapsed-by-
+default meant clicking into Settings for the first time showed five bare headings and nothing
+else, and most first visits immediately opened every panel anyway to see what was there.
+
+Browser-verified alongside these: the page opens with all five panels expanded, clicking a header
+slides it shut, the closed state survives a reload, Enter on a focused header toggles it, and a
+deep link from an Overview card opens the panel it points into (even one closed from an earlier
+visit) and scrolls to it."""
 
 from pathlib import Path
 
@@ -134,21 +138,26 @@ def test_access_control_is_offered_in_onboarding_as_well_as_settings(client):
 # Collapsing
 # ---------------------------------------------------------------------------
 
-def test_every_panel_renders_collapsed(client):
+def test_every_panel_renders_open(client):
+    """Inverted from an earlier round that rendered every panel collapsed -- see the module
+    docstring."""
     text = client.get("/settings").text
-    assert text.count('class="settings-panel-header collapsible-header collapsed"') == 5
+    assert text.count('class="settings-panel-header collapsible-header"') == 5
+    assert text.count('class="settings-panel-header collapsible-header collapsed"') == 0
     assert text.count('class="collapse-body"') == 5
 
 
-def test_collapsed_bodies_actually_clip(client):
-    """.collapse-body sits at overflow:visible at rest for the feature pages' sticky-<th> sake.
-    Those bodies start open so nothing needed clipping; these start at max-height:0, and without
-    a rule for the shut state every collapsed panel's contents spilled down the page over the
-    panels below it."""
+def test_a_closed_panel_still_clips(client):
+    """.collapse-body sits at overflow:visible at rest for the feature pages' sticky-<th> sake, and
+    for these panels too now that they open by default -- but a panel the operator closed still
+    needs clipping (max-height:0 with overflow hidden), or its contents would spill down the page
+    over the panels below it. The closing itself is client-side (base.html's collapsible-header
+    handler, restoring a saved-closed panel is settings.html's own inline script), so this checks
+    the CSS rule that clip depends on rather than the server-rendered markup, which starts every
+    panel open regardless of what's saved."""
     css = CSS.read_text()
     start = css.index(".settings-panel-header.collapsed + .collapse-body {")
     assert "overflow: hidden" in css[start:css.index("}", start)]
-    assert 'style="max-height:0"' in client.get("/settings").text
 
 
 def test_each_panel_carries_the_key_its_state_is_remembered_under(client):
@@ -166,7 +175,7 @@ def test_the_headers_behave_like_buttons(client):
         header = text[text.rindex("<div", 0, at):text.index(">", at) + 1]
         assert 'role="button"' in header, key
         assert 'tabindex="0"' in header, key
-        assert 'aria-expanded="false"' in header, key
+        assert 'aria-expanded="true"' in header, key
         assert f'aria-controls="settings-{key}-body"' in header, key
     # Enter and Space have to do what a click does, since the headers are focusable.
     base = BASE.read_text()

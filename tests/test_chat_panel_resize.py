@@ -116,3 +116,17 @@ def test_expanding_the_sidebar_reclamps_too():
     text = _base()
     assert "sidebarToggle" in text
     assert "setTimeout(reclamp" in text
+
+
+def test_the_handle_is_removed_from_hit_testing_while_the_panel_is_closed():
+    """A real-world report: with the panel closed, reaching for the window's scrollbar instead
+    grabbed the resize handle -- accent highlight, col-resize cursor, nothing draggable. The
+    panel hides by sliding off with transform: translateX(100%), which carries the handle with
+    it, but the handle's own -3px grab overhang (see .chat-resize-handle above) rides straight
+    back onto the screen as a sliver pinned to the window's right edge, exactly where the
+    scrollbar lives.
+
+    display:none is the only fix that actually works here -- visibility:hidden still hit-tests,
+    so the sliver would keep stealing the pointer even though it can no longer be seen."""
+    rule = _rule('html:not([data-chat="open"]) .chat-resize-handle')
+    assert "display: none" in rule

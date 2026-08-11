@@ -873,7 +873,17 @@ def checks_status():
 
     When nothing is running, also carries the compact health summary that replaces the banner
     in the topbar's center region at rest (see _compact_health_summary) -- summary_text/
-    summary_status are blank while a check IS running, since the banner takes that space instead."""
+    summary_status are blank while a check IS running, since the banner takes that space instead.
+
+    ai_error carries the last AI provider failure hit by any background check (db.get_last_ai_
+    error -- a bad key, a rate limit, an unreachable endpoint, a context-limit overflow),
+    regardless of whether a check is running right now; the front end only actually displays it
+    while idle (see updateIdleSummary in base.html), replacing the summary text with it until
+    POST /ai-error/dismiss clears it server-side. Doesn't cover the interactive chat widget,
+    which already surfaces its own failures inline as a chat bubble instead (see app/chat.py,
+    POST /chat/send)."""
+    ai_error = db.get_last_ai_error()
+    ai_error_message = ai_error["message"] if ai_error else None
     for feature in check_state.FEATURES:
         if is_running(feature):
             return {
@@ -883,12 +893,26 @@ def checks_status():
                 "cancelling": check_state.is_cancel_requested(feature),
                 "summary_text": "",
                 "summary_status": "",
+                "ai_error": ai_error_message,
             }
     summary_text, summary_status = _compact_health_summary()
     return {
         "running": False, "feature": None, "progress_text": "", "cancelling": False,
         "summary_text": summary_text, "summary_status": summary_status,
+        "ai_error": ai_error_message,
     }
+
+
+@app.post("/ai-error/dismiss")
+def dismiss_ai_error():
+    """The topbar's dismiss ("x") button on the AI-error banner (see updateIdleSummary in
+    base.html). Clears the server-side record entirely -- the next GET /checks/status poll (and
+    every one after it, on every tab and every page) comes back with ai_error: null, which is
+    the only thing that makes the banner go away. There's deliberately no per-tab/per-browser
+    "seen it" flag: the banner is the same shared record everywhere, so dismissing it anywhere
+    dismisses it everywhere, and a fresh failure after that starts the whole thing over."""
+    db.dismiss_last_ai_error()
+    return {"status": "ok"}
 
 
 @app.post("/checks/check-all")
@@ -1625,6 +1649,7 @@ def settings_page(request: Request):
             "auth_secret_configured": bool(db.get_auth_secret()),
             "auth_username": db.get_auth_username(),
             "auth_lan_bypass": db.get_auth_lan_bypass(),
+            "auth_secret_min_length": _AUTH_SECRET_MIN_LENGTH,
             "active_tab": "settings",
         },
     )
@@ -1857,7 +1882,8 @@ def onboarding_modal(request: Request):
     if not needs_onboarding:
         return Response(content="", media_type="text/html")
     return templates.TemplateResponse(
-        request, "_onboarding_modal.html", {"ai_provider": db.get_ai_provider()}
+        request, "_onboarding_modal.html",
+        {"ai_provider": db.get_ai_provider(), "auth_secret_min_length": _AUTH_SECRET_MIN_LENGTH},
     )
 
 

@@ -2006,6 +2006,32 @@ def set_auth_onboarding_done(done: bool = True) -> None:
     _set_setting("auth_onboarding_done", "1" if done else "")
 
 
+# The last AI provider failure hit by a background check (a scheduled run, Check Now, Regenerate
+# -- anything that isn't the interactive chat widget, which shows its own failures inline in the
+# chat window instead; see ai_provider.complete_text/web_search). Stored server-side, not just
+# held in the browser tab that happened to be open when it failed, so it's still there for
+# whoever next looks at the app -- possibly a different tab, possibly after the poll that would
+# otherwise have shown it has long since ticked past. Cleared only by an explicit dismissal
+# (see main.py's /ai-error/dismiss), never by time or by a later successful check succeeding --
+# an operator who hasn't looked yet still needs to see it.
+def get_last_ai_error() -> dict | None:
+    raw = _get_setting("last_ai_error", "")
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
+
+
+def set_last_ai_error(message: str) -> None:
+    _set_setting("last_ai_error", json.dumps({"message": message, "at": now_iso()}))
+
+
+def dismiss_last_ai_error() -> None:
+    _set_setting("last_ai_error", "")
+
+
 # ---------------------------------------------------------------------------
 # Stacks -- grouping containers that share a compose file. Names are AI-generated
 # by default but can be manually overridden; a manual name never gets auto-regenerated.

@@ -26,13 +26,17 @@ def test_the_ai_provider_is_a_subsection_of_connections_rather_than_leading_the_
     assert text.index("<h4>AI Provider</h4>") > connections
 
 
-def test_registry_error_toggle_sits_between_enable_notifications_and_severity_buttons(client):
+def test_the_severity_picker_leads_the_notifications_subsection(client):
+    """Superseded by a later real-world report: buried below the enable/registry-error toggles,
+    "Minimum level to receive a notification" and the severity buttons under it went unnoticed.
+    They're first now, directly under the "Notifications" heading, with the two toggles below
+    them instead."""
     page = client.get("/settings")
     updates_section = page.text[page.text.index('id="updates_notify_section"'):]
+    severity_pos = updates_section.index("Minimum level to receive a notification")
     enable_pos = updates_section.index("Enable notifications")
     errors_pos = updates_section.index("can&#39;t be reached")
-    severity_pos = updates_section.index("Minimum level to receive a notification")
-    assert enable_pos < errors_pos < severity_pos
+    assert severity_pos < enable_pos < errors_pos
 
 
 def test_saved_indicator_trails_the_toggle_label_not_between_switch_and_label(client):

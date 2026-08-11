@@ -13,11 +13,16 @@ def _settings_text(client):
 
 
 def test_concurrency_hints_read_identically_apart_from_the_numbers(client):
-    """"recommended:" makes clear these are suggestions, not hard limits -- a real-world report
-    that the bare numbers alone read as confusing/arbitrary without it."""
+    """"Recommended:" makes clear these are suggestions, not hard limits -- a real-world report
+    that the bare numbers alone read as confusing/arbitrary without it. Laid out the same as
+    Retries -- title above explanation above the stepper -- rather than one inline sentence with
+    the stepper tacked on the end, which a real-world report called easy to miss."""
     text = _settings_text(client)
-    assert "Concurrent AI requests (recommended: 2 free, 4 paid)" in text
-    assert "Concurrent AI requests (recommended: 1 free, 4 paid)" in text
+    assert text.count("<h4>Concurrent AI Requests</h4>") == 4
+    assert "Recommended: 2 free, 4 paid" in text
+    assert "Recommended: 1 free, 4 paid" in text
+    assert "Recommended: 4</p>" in text
+    assert "Recommended: 1 for local models" in text
 
 
 def test_api_key_hints_share_the_same_short_pattern(client):

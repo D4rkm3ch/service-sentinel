@@ -40,7 +40,27 @@ def test_hover_peek_js_has_an_opening_delay_and_instant_close():
     assert "PEEK_DELAY_MS = 400" in base
     assert "mouseenter" in base
     assert "mouseleave" in base
-    assert 'sidebar.addEventListener("mouseleave", cancelPeek)' in base
+    assert "el.addEventListener(\"mouseleave\"" in base
+    assert "cancelPeek();" in base
+
+
+def test_hover_peek_also_fires_on_the_hamburger_button_not_just_the_rail():
+    """A real-world report: hovering the burger icon (which also collapses/expands the sidebar)
+    was expected to peek it open too, the same as hovering the rail itself does."""
+    base = BASE_HTML.read_text()
+    peek_iife = base[base.index("Sidebar hover-peek"):base.index("Light/dark theme toggle")]
+    assert "var peekTargets = [sidebar, pinToggleBtn]" in peek_iife
+
+
+def test_moving_the_pointer_between_the_rail_and_the_button_does_not_flicker_the_peek():
+    """The rail and the button are two separate elements, so crossing from one straight onto the
+    other fires a mouseleave before the other's mouseenter -- naively cancelling on every
+    mouseleave would snap a peeked-open rail shut for a frame before immediately reopening it.
+    relatedTarget says whether the pointer is headed at the other member of the group, and if so
+    the cancel is skipped."""
+    base = BASE_HTML.read_text()
+    peek_iife = base[base.index("Sidebar hover-peek"):base.index("Light/dark theme toggle")]
+    assert "isPeekTarget(evt.relatedTarget)" in peek_iife
 
 
 def test_pin_toggle_click_cancels_any_active_peek():

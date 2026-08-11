@@ -312,6 +312,42 @@ _MAX_TOKENS_CEILING = 8192
 _GEMINI_THINKING_BUDGET = 512
 
 
+def _friendly_ai_error(exc: Exception) -> str:
+    """Maps a raw provider exception to an operator-facing sentence, for the topbar banner (see
+    _record_background_ai_error below). Same rough categories test_anthropic_key() and friends
+    above already sort a Settings "Test & Save" failure into -- applied here to whatever a real
+    background call raised instead of a connectivity probe, since those are the same handful of
+    things that actually go wrong: a bad/revoked key, a rate limit, an unreachable endpoint, or a
+    request too large for the model's context window."""
+    if isinstance(exc, (anthropic.AuthenticationError, openai.AuthenticationError)):
+        return "The AI provider rejected the configured API key."
+    if isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) == 401:
+        return "The AI provider rejected the configured API key."
+    if isinstance(exc, (anthropic.RateLimitError, openai.RateLimitError)):
+        return "The AI provider is rate-limiting requests - try lowering Concurrent AI Requests in Settings."
+    if isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) == 429:
+        return "The AI provider's quota is exhausted for now."
+    if isinstance(exc, openai.APIConnectionError):
+        return "Couldn't reach the AI provider - check the endpoint and that the server is running."
+    message = str(exc)
+    lowered = message.lower()
+    if "context" in lowered and ("length" in lowered or "token" in lowered):
+        return "The request exceeded the model's context/token limit."
+    return f"AI provider error: {message[:200]}"
+
+
+def _record_background_ai_error(exc: Exception) -> None:
+    """Only complete_text/web_search call this -- the checks (scheduled, Check Now, Regenerate)
+    that are the only callers of either. complete_chat deliberately doesn't: the interactive chat
+    widget already turns its own failures into an inline chat bubble (see app/chat.py, main.py's
+    /chat/send), so recording those here too would show the same failure twice, once in the chat
+    window and once as a topbar banner nobody asked for."""
+    try:
+        db.set_last_ai_error(_friendly_ai_error(exc))
+    except Exception:
+        logger.exception("Failed to record AI error for the topbar")
+
+
 _COMPLETE_FNS = {
     "anthropic": lambda system, user, mt: _complete_anthropic(system, user, mt),
     "gemini": lambda system, user, mt: _complete_gemini(system, user, mt),
@@ -323,9 +359,16 @@ _COMPLETE_FNS = {
 def complete_text(system: str | None, user_message: str, max_tokens: int) -> str:
     """Single-turn text completion, provider-agnostic. Raises on failure -- same contract the
     direct anthropic.Anthropic() calls this replaces always had; every caller already handles
-    an exception here as "this attempt failed," regardless of which provider raised it."""
+    an exception here as "this attempt failed," regardless of which provider raised it. Also
+    records a friendly version of that failure for the topbar banner (see
+    _record_background_ai_error) before re-raising, so every call site keeps its existing
+    per-item error handling completely unchanged."""
     fn = _COMPLETE_FNS.get(db.get_ai_provider(), _COMPLETE_FNS["anthropic"])
-    return _with_truncation_retry(lambda mt: fn(system, user_message, mt), max_tokens)
+    try:
+        return _with_truncation_retry(lambda mt: fn(system, user_message, mt), max_tokens)
+    except Exception as exc:
+        _record_background_ai_error(exc)
+        raise
 
 
 _WEB_SEARCH_FNS = {
@@ -342,9 +385,14 @@ def web_search(user_message: str, max_tokens: int) -> str:
     actually performs on top of the normal completion cost, which is why this is only ever
     reached behind its own opt-in Settings toggle -- gating that is the caller's job, not this
     function's. The OpenAI-compatible provider raises: a local model has no live search, and a
-    plain completion here would just invite hallucinated release notes."""
+    plain completion here would just invite hallucinated release notes. Records failures for the
+    topbar banner exactly like complete_text does, for the same reason."""
     fn = _WEB_SEARCH_FNS.get(db.get_ai_provider(), _WEB_SEARCH_FNS["anthropic"])
-    return _with_truncation_retry(lambda mt: fn(user_message, mt), max_tokens)
+    try:
+        return _with_truncation_retry(lambda mt: fn(user_message, mt), max_tokens)
+    except Exception as exc:
+        _record_background_ai_error(exc)
+        raise
 
 
 _CHAT_FNS = {

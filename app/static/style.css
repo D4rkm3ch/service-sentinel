@@ -471,6 +471,19 @@ code {
   padding: 6px 14px;
   font-size: 12px;
 }
+/* A background check's AI call failed and the operator hasn't dismissed it yet -- see
+   updateIdleSummary() in base.html, driven by GET /checks/status's ai_error field. Takes over
+   the idle summary's usual spot rather than sitting beside it. */
+.status-badge-ai-error #topbar-idle-summary-text {
+  color: var(--error);
+}
+.topbar-status-dismiss {
+  width: 22px;
+  height: 22px;
+  font-size: 16px;
+  line-height: 1;
+  flex: none;
+}
 /* The Overview page's own module rows each lead with the same headline count (see
    .feature-card-hero below) that #topbar-idle-summary already summarizes app-wide -- showing
    both at once on that one page is pure duplication, so it's hidden there only. Its own JS
@@ -1059,6 +1072,18 @@ html[data-chat="open"] .chat-panel {
 html[data-chat-resizing] .chat-resize-handle {
   background: var(--accent);
   outline: none;
+}
+/* Gone entirely while the panel is shut, not merely invisible. The panel hides by sliding
+   itself off with transform: translateX(100%), which moves the handle along with it -- but the
+   handle deliberately overhangs the panel's own left edge by 3px to be grabbable (see above),
+   and that overhang rides straight back onto the screen as a sliver pinned to the window's
+   right edge. Exactly where the scrollbar lives: a real-world report of reaching for the
+   scrollbar, getting the col-resize cursor and the accent highlight, and not being able to drag
+   anything. visibility:hidden wouldn't fix this -- a hidden box still hit-tests -- so this has
+   to be display:none, which also drops the handle out of the tab order, correctly, for a panel
+   that isn't open. */
+html:not([data-chat="open"]) .chat-resize-handle {
+  display: none;
 }
 /* While a drag is in flight every width-driven transition has to be off: the panel's width,
    the topbar's right edge and body's padding-right all animate on a ~0.2s ease so opening and
@@ -2540,6 +2565,40 @@ textarea {
 }
 .test-result-ok { color: var(--accent); font-size: 12px; margin-left: 10px; }
 .test-result-error { color: var(--error); font-size: 12px; margin-left: 10px; }
+
+/* Live feedback under a new-password field: character count against the minimum, a
+   match/mismatch message against the confirm field, and a 3-tier strength meter. Hidden until
+   there's something to say, so an untouched field doesn't open with a red "Weak" bar. */
+.password-live-feedback { margin-top: 8px; }
+.password-live-feedback.hidden { display: none; }
+.password-strength-meter {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.password-strength-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  transition: width 0.15s ease, background 0.15s ease;
+}
+.password-strength-weak { background: var(--error); }
+.password-strength-fair { background: var(--warn); }
+.password-strength-strong { background: var(--accent); }
+.password-feedback-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.password-char-count { color: var(--text-dim); }
+.password-char-count.password-requirement-met { color: var(--accent); }
+.password-strength-label { font-weight: 500; }
+.password-match-message { font-size: 12px; margin: 4px 0 0; }
+.password-match-message.password-match-ok { color: var(--accent); }
+.password-match-message.password-match-error { color: var(--error); }
 
 /* Saved confirmation -- fades out after showing */
 .saved-indicator-slot {

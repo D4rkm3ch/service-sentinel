@@ -85,7 +85,17 @@ Settings.</p>
         <input type="text" id="onboarding_username_field" class="mono field-input" autocomplete="off"
                placeholder="Username" style="width:100%; margin-bottom:8px">
         <input type="password" id="onboarding_password_field" class="mono field-input" autocomplete="off"
-               placeholder="Password (min. 8 characters)" style="width:100%">
+               placeholder="Password (min. {{ auth_secret_min_length }} characters)" style="width:100%; margin-bottom:8px">
+        <input type="password" id="onboarding_password_confirm_field" class="mono field-input" autocomplete="off"
+               placeholder="Confirm password" style="width:100%">
+        <div class="password-live-feedback hidden" id="onboarding_password_feedback">
+          <div class="password-strength-meter"><div class="password-strength-bar"></div></div>
+          <div class="password-feedback-row">
+            <span class="password-char-count"></span>
+            <span class="password-strength-label"></span>
+          </div>
+          <p class="password-match-message"></p>
+        </div>
         <div style="margin-top:12px">
           {{ ts.toggle_switch('onboarding_lan_bypass', false, '/settings/access-control/lan-bypass',
                                'Skip login for devices on the local network') }}
@@ -217,6 +227,11 @@ function onboardingEnable() {
     resultSlot.innerHTML = '<span class="test-result-error">Enter a username and password.</span>';
     return;
   }
+  const gate = passwordStrengthGate('onboarding_password_field', 'onboarding_password_confirm_field', {{ auth_secret_min_length }});
+  if (!gate.ok) {
+    resultSlot.innerHTML = '<span class="test-result-error">' + gate.message + '</span>';
+    return;
+  }
   fetch('/settings/access-control/credentials', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -251,4 +266,10 @@ function onboardingDisable() {
   document.getElementById('onboarding_key_hint').innerHTML = spec.hint;
   document.getElementById('onboarding_ai_key_field').placeholder = spec.placeholder;
 })();
+
+// wirePasswordStrength is defined in base.html's own script -- safe to call directly here
+// (rather than deferring to DOMContentLoaded, as Settings' copy of this call has to) because
+// this modal is only ever injected by htmx well after the whole page, base.html included, has
+// already finished loading.
+wirePasswordStrength('onboarding_password_field', 'onboarding_password_confirm_field', 'onboarding_password_feedback', {{ auth_secret_min_length }});
 </script>
