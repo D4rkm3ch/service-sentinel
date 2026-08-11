@@ -489,9 +489,17 @@ code {
    both at once on that one page is pure duplication, so it's hidden there only. Its own JS
    (base.html) sets an inline style="display:..." on every poll, so this needs !important to
    keep winning regardless of poll timing; every other page still shows it as before, since
-   there's no equivalent hero metric in view on Updates/Logs/Compose/Settings. */
+   there's no equivalent hero metric in view on Updates/Logs/Compose/Settings.
+
+   An AI error is the one exception -- a real-world report wanted it visible on Overview too,
+   since nothing else on that page surfaces it. has-ai-error (toggled by updateIdleSummary in
+   base.html, on the container itself rather than just its inner badge) carries enough extra
+   specificity over the plain rule above to win despite both being !important. */
 body[data-tab="overview"] #topbar-idle-summary {
   display: none !important;
+}
+body[data-tab="overview"] #topbar-idle-summary.has-ai-error {
+  display: flex !important;
 }
 
 /* Left nav rail -- fixed full height below the topbar (see body's own padding-left, which
@@ -2569,7 +2577,10 @@ textarea {
 /* Live feedback under a new-password field: character count against the minimum, a
    match/mismatch message against the confirm field, and a 3-tier strength meter. Hidden until
    there's something to say, so an untouched field doesn't open with a red "Weak" bar. */
-.password-live-feedback { margin-top: 8px; }
+/* Matches .api-key-row input's own max-width, so the meter reads as belonging to the password
+   field above it instead of stretching across the whole subsection -- a real-world report that
+   a bar that wide no longer read as "about this field". */
+.password-live-feedback { margin-top: 8px; max-width: 360px; }
 .password-live-feedback.hidden { display: none; }
 .password-strength-meter {
   height: 5px;

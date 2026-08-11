@@ -469,6 +469,11 @@
 
       function updateIdleSummary(data) {
         if (!idleSummary) return;
+        // The Overview page hides this whole element by default (its module rows already show
+        // the same health summary) -- but an AI error isn't shown anywhere else on that page, so
+        // it still needs to break through. has-ai-error on the container itself (not just the
+        // badge) is what style.css's Overview override keys off to make that exception.
+        idleSummary.classList.toggle("has-ai-error", !!data.ai_error);
         if (data.ai_error) {
           if (idleSummaryText) idleSummaryText.textContent = data.ai_error;
           if (idleSummaryBadge) idleSummaryBadge.classList.add("status-badge-ai-error");

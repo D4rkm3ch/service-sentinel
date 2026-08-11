@@ -649,12 +649,14 @@ function unlockAuthSecret() {
   const usernameField = document.getElementById('auth_username_field');
   const field = document.getElementById('auth_secret_field');
   const confirmField = document.getElementById('auth_secret_confirm_field');
+  // Left prefilled with the existing username rather than cleared -- a real-world report that
+  // "Change" (which is about the password) emptied it too, so changing just the password meant
+  // retyping a username that was never actually being changed.
   usernameField.disabled = false;
-  usernameField.value = '';
-  usernameField.focus();
   field.disabled = false;
   field.placeholder = field.dataset.placeholderNew;
   field.value = '';
+  field.focus();
   confirmField.disabled = false;
   confirmField.placeholder = 'Confirm password';
   confirmField.value = '';
