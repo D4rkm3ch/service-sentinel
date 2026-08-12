@@ -122,6 +122,79 @@ def test_chunks_are_triaged_concurrently_not_one_after_another():
     assert elapsed < delay * 3 * 0.7, f"chunks look sequential -- took {elapsed:.2f}s for 3 chunks at {delay}s each"
 
 
+def test_findings_are_written_per_chunk_not_batched_until_the_whole_check_finishes():
+    """The actual bug this fixes: findings used to accumulate in memory across every chunk and
+    only get written to the DB once the entire ThreadPoolExecutor pool had returned -- so on a
+    slower AI provider (self-hosted, not a fast cloud API), a multi-chunk check showed nothing
+    new in the Runtime findings table until the very last chunk finished, even though an earlier
+    chunk's result had been sitting in memory for minutes already. That table polls the DB every
+    20s on its own (see _issues_grouped_table.html) -- this only has something new to find if
+    the write itself doesn't wait for every other chunk too. Forces 2 chunks: the fast one's
+    finding must already be in the DB while the slow one is still in flight, not only after
+    run_log_check_for returns."""
+    # concurrency_limit=1 makes chunk dispatch deterministic (chunk 1 fully finishes, including
+    # its own DB write, before chunk 2 is even started) rather than a genuine race between two
+    # threads -- still the real ThreadPoolExecutor/_triage_chunk code path, just pinned so the
+    # ordering this test depends on isn't left to thread-scheduling luck. The bug being guarded
+    # against here would fail this regardless of worker count: the old code only ever wrote
+    # anything once pool.map had returned for every chunk, sequential or not.
+    names = [f"live{i}" for i in range(log_watcher._MAX_BATCH_CONTAINERS + 1)]  # forces 2 chunks
+    second_chunk_started = threading.Event()
+    release_second_chunk = threading.Event()
+
+    def fake_analyze(chunk, include_fix=False, active_findings_by_container=None):
+        if "live0" in chunk:
+            return [{"container": "live0", "title": "Fast finding", "category": "error",
+                      "severity": "warning", "description": "desc"}]
+        second_chunk_started.set()
+        release_second_chunk.wait(timeout=5)
+        return []
+
+    try:
+        with patch("app.log_watcher.get_container_logs_since", return_value="ERROR: boom"), \
+             patch("app.log_watcher.extract_suspicious_excerpt", side_effect=lambda text: text), \
+             patch("app.log_watcher.analyze_logs_batch", side_effect=fake_analyze), \
+             patch("app.log_watcher.notify_findings_digest"), \
+             patch("app.ai_provider.concurrency_limit", return_value=1):
+            thread = threading.Thread(target=log_watcher.run_log_check_for, args=(names,))
+            thread.start()
+            assert second_chunk_started.wait(timeout=5), "second chunk never started"
+            # The first chunk's finding must already be visible in the DB right now, while the
+            # second chunk is still in flight -- not only after the whole check finishes.
+            assert db.list_findings_for_subject("logs", "live0", include_silenced=True)
+            release_second_chunk.set()
+            thread.join(timeout=5)
+    finally:
+        release_second_chunk.set()
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM findings WHERE source = 'logs' AND subject LIKE 'live%'")
+
+
+def test_a_chunks_containers_are_marked_active_during_its_ai_call_and_cleared_after():
+    """Backs the findings table's per-row spinner (see check_state.get_active_items,
+    GET /logs/active-items, _issues_grouped_table.html) -- a container must show as active
+    while its own chunk's AI call is actually in flight, and never linger active afterward."""
+    names = ["spin-a", "spin-b"]
+    seen_active_during_call = {}
+
+    def fake_analyze(chunk, include_fix=False, active_findings_by_container=None):
+        seen_active_during_call[tuple(sorted(chunk))] = set(check_state.get_active_items("logs"))
+        return []
+
+    try:
+        with patch("app.log_watcher.get_container_logs_since", return_value="ERROR: boom"), \
+             patch("app.log_watcher.extract_suspicious_excerpt", side_effect=lambda text: text), \
+             patch("app.log_watcher.analyze_logs_batch", side_effect=fake_analyze), \
+             patch("app.log_watcher.notify_findings_digest"):
+            log_watcher.run_log_check_for(names)
+
+        assert seen_active_during_call[("spin-a", "spin-b")] == {"spin-a", "spin-b"}
+        # Cleared once the whole check (and therefore every chunk) has finished.
+        assert check_state.get_active_items("logs") == []
+    finally:
+        check_state.release_running("logs")
+
+
 def test_cancel_stops_queued_chunks_but_lets_in_flight_ones_finish():
     """Same Cancel-button contract as compose's own test (see
     test_compose_check_concurrency.py) -- a chunk already picked up by a worker thread still

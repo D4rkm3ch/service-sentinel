@@ -1626,6 +1626,13 @@ tr:hover .row-chevron {
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
+/* The findings table's per-row "this one's in an AI call right now" indicator (see
+   _issues_grouped_table.html) -- same .spinner look, just spaced off the container/file name
+   it sits in front of. */
+.row-analyzing-spinner {
+  margin-right: 6px;
+  vertical-align: middle;
+}
 
 @keyframes spin {
   to { transform: rotate(360deg); }
@@ -2306,15 +2313,17 @@ a.feature-card-issue-slot:hover {
 .custom-rules-table-wrap {
   overflow-x: auto;
 }
-.custom-rules-table th {
-  text-align: center;
-}
 .custom-rules-table th[data-sort-key] {
   cursor: pointer;
   user-select: none;
 }
 .custom-rules-table th[data-sort-key]:hover {
   color: var(--text);
+}
+/* Same convention the site's other sortable tables use (see .sort-link-active/.sort-arrow) --
+   the currently-sorted column's heading itself turns accent-colored, not just its arrow. */
+.custom-rules-table th.sort-active {
+  color: var(--accent);
 }
 .sort-indicator {
   display: inline-block;

@@ -43,8 +43,9 @@
     {% else %}
     {% set href = '/compose/file?path=' ~ (issue.subject|urlencode) %}
     {% endif %}
-    <tr class="{{ 'row-unread' if issue.active_count else 'row-silenced' }} row-clickable" onclick="window.location='{{ href }}'">
-      <td class="mono"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
+    <tr class="{{ 'row-unread' if issue.active_count else 'row-silenced' }} row-clickable"
+        data-subject="{{ issue.subject }}" onclick="window.location='{{ href }}'">
+      <td class="mono row-name-cell"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
       {% if show_stack_column %}
       <td>
         {% if issue.stack_name %}
@@ -79,4 +80,44 @@
 {% else %}
 <p class="empty">No active issues. {% if show_silenced %}(Including silenced - still nothing.){% endif %}</p>
 {% endif %}
+<script>
+  // Spinner next to whichever row's subject is in an AI call RIGHT NOW during a bulk check --
+  // separate from this whole table's own much slower 20s refresh (see the outer div's
+  // hx-trigger above), polled far more often since which row that is changes quickly. This
+  // script re-executes on every htmx swap of the outer div (including this table's own 20s
+  // self-refresh), so it clears any previous interval first rather than stacking up duplicates.
+  (function () {
+    if (window._activeItemsPollTimer) clearInterval(window._activeItemsPollTimer);
+    var source = "{{ source }}";
+    var tbody = document.querySelector('#{{ table_id }} tbody');
+    if (!tbody) return; // "No active issues" right now -- nothing to spin
+
+    function applyActive(names) {
+      var activeSet = new Set(names);
+      tbody.querySelectorAll('tr[data-subject]').forEach(function (row) {
+        var cell = row.querySelector('.row-name-cell');
+        if (!cell) return;
+        var existing = cell.querySelector('.row-analyzing-spinner');
+        var shouldShow = activeSet.has(row.dataset.subject);
+        if (shouldShow && !existing) {
+          var spin = document.createElement('span');
+          spin.className = 'spinner row-analyzing-spinner';
+          spin.setAttribute('aria-hidden', 'true');
+          cell.insertBefore(spin, cell.firstChild);
+        } else if (!shouldShow && existing) {
+          existing.remove();
+        }
+      });
+    }
+
+    function poll() {
+      fetch('/' + source + '/active-items').then(function (r) { return r.json(); }).then(function (data) {
+        applyActive(data.active || []);
+      }).catch(function () {});
+    }
+
+    poll();
+    window._activeItemsPollTimer = setInterval(poll, 1500);
+  })();
+</script>
 </div>

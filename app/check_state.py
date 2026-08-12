@@ -29,6 +29,15 @@ _progress = {name: {"stage": None, "done": 0, "total": 0} for name in FEATURES}
 # once its poller has read the final "done" state) rather than tied to the fixed FEATURES list.
 _item_state: dict[str, dict] = {}
 
+# Which subjects (container names for logs, file paths for compose) are in an AI call RIGHT NOW
+# during a bulk (Check All / Check now on the whole feature) check -- a real-world report: the
+# only progress a bulk check showed was an aggregate "Analyzing logs with AI (4/8)…" count, with
+# no way to tell which of the containers that "4" refers to. A plain set per feature rather than
+# reusing _item_state above: this needs many names live at once (every container in the chunk
+# currently in flight), not one scoped item's own stage/done/total, and callers here only ever
+# ask "is this name active right now", never anything richer.
+_active_items: dict[str, set[str]] = {name: set() for name in FEATURES}
+
 # Cancellation signal for the sitewide top banner's Cancel button (see base.html) -- every
 # scoped/full check for a given feature shares that feature's one running-mutex (see
 # try_start/set_running above), so one Event per feature is enough: setting it asks whichever
@@ -69,6 +78,7 @@ def release_running(feature: str) -> None:
     with _lock:
         _state[feature]["running"] = False
         _progress[feature] = {"stage": None, "done": 0, "total": 0}
+        _active_items[feature].clear()
 
 
 def request_cancel(feature: str) -> None:
@@ -110,6 +120,7 @@ def set_finished(feature: str, result: dict) -> None:
         _state[feature]["last_result"] = result
         _state[feature]["last_run_at"] = now_iso
         _progress[feature] = {"stage": None, "done": 0, "total": 0}
+        _active_items[feature].clear()
     # Persisted separately from the in-memory dict above so "last checked" survives a
     # container restart -- the in-memory value is just a faster path while the process
     # is still alive.
@@ -144,6 +155,28 @@ def get_item_state(item_key: str) -> dict | None:
 def clear_item(item_key: str) -> None:
     with _lock:
         _item_state.pop(item_key, None)
+
+
+def mark_item_active(feature: str, name: str) -> None:
+    """Called right before a bulk check's own AI call for this one subject starts -- see
+    log_watcher._triage_chunk/compose_reviewer._review_one. Always paired with
+    mark_item_done(feature, name) in a finally, so a raised exception can't leave a name stuck
+    showing as active forever."""
+    with _lock:
+        _active_items[feature].add(name)
+
+
+def mark_item_done(feature: str, name: str) -> None:
+    with _lock:
+        _active_items[feature].discard(name)
+
+
+def get_active_items(feature: str) -> list[str]:
+    """Backs GET /{source}/active-items -- the Runtime/Configuration findings table's own fast
+    poll for which row(s) to show a spinner next to, separate from that table's own much
+    slower (20s) full-content refresh."""
+    with _lock:
+        return sorted(_active_items[feature])
 
 
 def is_running(feature: str) -> bool:

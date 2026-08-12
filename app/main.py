@@ -1101,6 +1101,15 @@ def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str
     )
 
 
+@app.get("/logs/active-items")
+def logs_active_items():
+    """Fast, cheap poll target for the findings table's own spinner-per-row (see
+    _issues_grouped_table.html's script) -- separate from that table's own much slower 20s full
+    refresh, since which specific container is in an AI call right now changes far more often
+    than the table's actual content does during a bulk check."""
+    return {"active": check_state.get_active_items("logs")}
+
+
 @app.get("/logs/partial/containers")
 def logs_partial_containers(request: Request, csort: str = "status", cdir: str = "asc"):
     items = _attach_stack_info(db.all_log_watch_states_with_status(), "name")
@@ -1143,6 +1152,12 @@ def compose_partial_issues(request: Request, show_silenced: bool = False, sort: 
             "sort": sort, "dir": dir, "is_partial": True,
         },
     )
+
+
+@app.get("/compose/active-items")
+def compose_active_items():
+    """Compose's equivalent of GET /logs/active-items -- see that route's own docstring."""
+    return {"active": check_state.get_active_items("compose")}
 
 
 @app.get("/compose/partial/files")

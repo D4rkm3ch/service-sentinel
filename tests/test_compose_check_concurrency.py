@@ -47,6 +47,30 @@ def test_changed_files_are_reviewed_concurrently_not_one_after_another():
                 conn.execute("DELETE FROM compose_file_state WHERE file_path = ?", (str(f),))
 
 
+def test_a_files_path_is_marked_active_during_its_ai_call_and_cleared_after():
+    """Backs the findings table's per-row spinner (see check_state.get_active_items,
+    GET /compose/active-items, _issues_grouped_table.html) -- a file must show as active while
+    its own review call is actually in flight, and never linger active afterward."""
+    f = _compose_file("spin.yml", "spinsvc")
+    seen_active_during_call = {}
+
+    def fake_review(path_str, redacted, include_fix=False, active_findings=None):
+        seen_active_during_call[path_str] = set(check_state.get_active_items("compose"))
+        return []
+
+    try:
+        with patch("app.compose_reviewer.review_compose_file", side_effect=fake_review):
+            compose_reviewer.run_compose_check_for([f])
+
+        assert seen_active_during_call[str(f)] == {str(f)}
+        assert check_state.get_active_items("compose") == []
+    finally:
+        f.unlink()
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM compose_file_state WHERE file_path = ?", (str(f),))
+        check_state.release_running("compose")
+
+
 def test_progress_still_reports_upfront_and_reaches_the_full_total():
     files = [_compose_file(f"prog{i}.yml", f"svc{i}") for i in range(5)]
     calls = []

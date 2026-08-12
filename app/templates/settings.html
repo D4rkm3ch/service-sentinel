@@ -1074,6 +1074,13 @@ function reapplyCustomRulesSort() {
     return row.dataset[key] || '';
   };
   const rows = Array.from(tbody.querySelectorAll('tr'));
+  if (key === 'category') {
+    // Alphabetical by name within each category -- sorted first, since Array.prototype.sort is
+    // guaranteed stable: the category sort just below preserves this relative order for every
+    // pair of rows that land in the same category, rather than leaving same-category rows in
+    // whatever order they happened to already be in.
+    rows.sort((a, b) => (a.dataset.name || '').toLowerCase().localeCompare((b.dataset.name || '').toLowerCase()));
+  }
   rows.sort((a, b) => {
     const av = valueOf(a).toLowerCase();
     const bv = valueOf(b).toLowerCase();
@@ -1086,13 +1093,18 @@ function reapplyCustomRulesSort() {
 
 function updateCustomRulesSortIndicators() {
   document.querySelectorAll('#custom_rules_table th[data-sort-key]').forEach((th) => {
+    const isActive = th.dataset.sortKey === customRulesSortState.key;
+    th.classList.toggle('sort-active', isActive);
     const indicator = th.querySelector('.sort-indicator');
     if (!indicator) return;
-    indicator.textContent = th.dataset.sortKey === customRulesSortState.key
-      ? (customRulesSortState.dir === 1 ? '▲' : '▼')
-      : '';
+    indicator.textContent = isActive ? (customRulesSortState.dir === 1 ? '▲' : '▼') : '';
   });
 }
+
+// Sorted by Category (alphabetical names within each) by default, same "sort applied at rest,
+// not just after a click" convention as the site's other tables (see _sort_header.html) --
+// those default to their own most useful column too, this one's is Category.
+sortCustomRulesTable('category');
 
 function adjustRetries(delta) {
   const input = document.getElementById('update_retries_input');

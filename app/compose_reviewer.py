@@ -166,6 +166,7 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
             if on_progress:
                 on_progress("checking_compose_files", current, total)
             return
+        check_state.mark_item_active("compose", path_str)
         try:
             include_fix = db.get_deep_analysis_enabled("compose")
             findings = review_compose_file(
@@ -181,6 +182,8 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
             if on_progress:
                 on_progress("checking_compose_files", current, total)
             return
+        finally:
+            check_state.mark_item_done("compose", path_str)
 
         file_findings_count = 0
         file_new_findings = []

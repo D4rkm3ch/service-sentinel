@@ -235,7 +235,6 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     ai_provider.reset_rate_limited_count()
     chunks = _chunk_excerpts(excerpts_by_container)
     include_fix = db.get_deep_analysis_enabled("logs")
-    findings: list[dict] = []
     triage_errors = 0
     total_chunks = len(chunks)
     if on_progress:
@@ -246,8 +245,9 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     # world report: with several chunks, running them sequentially meant total wait time was
     # every chunk's AI latency added together (a check with a handful of chunks taking 50-60s
     # for what's really only a few seconds of AI work per chunk). progress_lock guards
-    # findings/triage_errors/done_count the same way reconcile.run_check()'s own concurrent
-    # phase does -- safe to mutate from multiple worker threads at once.
+    # triage_errors/done_count/findings_found/new_findings/triaged_ok_names the same way
+    # reconcile.run_check()'s own concurrent phase does -- safe to mutate from multiple worker
+    # threads at once.
     progress_lock = threading.Lock()
     done_count = 0
     # Containers whose triage call actually came back -- only these earn a checkpoint advance
@@ -255,9 +255,10 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     # check was cancelled, contributes nothing here, so its containers keep their old
     # checkpoint and get re-examined on the next check.
     triaged_ok_names: list[str] = []
+    new_findings: list[dict] = []
 
     def _triage_chunk(chunk: dict[str, str]) -> None:
-        nonlocal triage_errors, done_count, cancelled
+        nonlocal triage_errors, done_count, cancelled, findings_found
         # Same "queued work stops, in-flight work finishes" semantics as persist.py's
         # _run_concurrent_phase -- a chunk a worker thread has already picked up still gets its
         # real AI call, only ones still waiting behind the concurrency cap skip it. A skipped
@@ -270,6 +271,8 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
             if on_progress:
                 on_progress("triage_logs", current, total_chunks)
             return
+        for name in chunk:
+            check_state.mark_item_active("logs", name)
         try:
             chunk_active_findings = {
                 name: active_findings_by_container[name] for name in chunk if name in active_findings_by_container
@@ -278,11 +281,46 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
         except Exception:
             logger.exception("Log triage AI call failed for a chunk of %d container(s)", len(chunk))
             result = None
+        finally:
+            for name in chunk:
+                check_state.mark_item_done("logs", name)
         with progress_lock:
             if result is None:
                 triage_errors += 1
             else:
-                findings.extend(result)
+                # Written to the DB immediately, per chunk, rather than accumulated into one
+                # list and written only after every chunk in the whole check has come back --
+                # a real-world report: on a slower AI provider (self-hosted, not a fast cloud
+                # API), a multi-minute check meant the Runtime findings table showed nothing new
+                # until the very last container's result landed, even though earlier containers
+                # had finished minutes before. That table already re-polls the DB on its own
+                # (see _issues_grouped_table.html's "every 20s, checkComplete from:body") --
+                # this is what actually gives that poll something new to find mid-check, the
+                # same way compose_reviewer.py's per-file _review_one already does.
+                for finding in result:
+                    container_name = finding.get("container")
+                    if not container_name:
+                        continue
+                    resolved_title = finding.get("resolved_title")
+                    if resolved_title:
+                        db.resolve_finding("logs", container_name, resolved_title)
+                        continue
+                    title = finding.get("title")
+                    if not title:
+                        continue
+                    severity = finding.get("severity", "warning")
+                    _finding_id, is_new = db.upsert_finding(
+                        source="logs",
+                        subject=container_name,
+                        title=title,
+                        category=finding.get("category", "error"),
+                        severity=severity,
+                        description_markdown=finding.get("description", ""),
+                        suggested_fix=finding.get("fix"),
+                    )
+                    findings_found += 1
+                    if is_new:
+                        new_findings.append({"subject": container_name, "severity": severity, "title": title})
                 triaged_ok_names.extend(chunk)
             done_count += 1
             current = done_count
@@ -299,32 +337,9 @@ def run_log_check_for(container_names: list[str], on_progress: ProgressFunc = No
     # the next check re-fetches exactly the logs that never got analyzed.
     db.set_log_watch_checkpoints(caught_up_names + triaged_ok_names, at=check_started_at)
 
-    new_findings = []
-    for finding in findings:
-        container_name = finding.get("container")
-        if not container_name:
-            continue
-        resolved_title = finding.get("resolved_title")
-        if resolved_title:
-            db.resolve_finding("logs", container_name, resolved_title)
-            continue
-        title = finding.get("title")
-        if not title:
-            continue
-        severity = finding.get("severity", "warning")
-        _finding_id, is_new = db.upsert_finding(
-            source="logs",
-            subject=container_name,
-            title=title,
-            category=finding.get("category", "error"),
-            severity=severity,
-            description_markdown=finding.get("description", ""),
-            suggested_fix=finding.get("fix"),
-        )
-        findings_found += 1
-        if is_new:
-            new_findings.append({"subject": container_name, "severity": severity, "title": title})
-
+    # One digest covering every chunk's new findings, sent once here rather than per-chunk --
+    # the findings themselves are already written per-chunk above (see _triage_chunk), this is
+    # only about not spamming a separate notification per chunk for what's really one check.
     notify_findings_digest("logs", new_findings)
 
     return {
