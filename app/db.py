@@ -186,6 +186,7 @@ CREATE TABLE IF NOT EXISTS ai_custom_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,               -- 'logs' or 'compose'
     rule_type TEXT NOT NULL,            -- 'exclude' (never flag) or 'watch' (always flag)
+    name TEXT NOT NULL DEFAULT '',      -- short operator-facing label, not read by the reviewer
     instruction TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
@@ -275,6 +276,14 @@ def init_db() -> None:
         # Updates, added alongside the per-finding suggested_fix Logs/Compose already had).
         try:
             conn.execute("ALTER TABLE updates ADD COLUMN upgrade_guidance TEXT")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+        # Same pattern for ai_custom_rules' name column -- rules originally had no separate
+        # label, just the full instruction sentence; Settings' table view needed something
+        # short to show and sort on.
+        try:
+            conn.execute("ALTER TABLE ai_custom_rules ADD COLUMN name TEXT NOT NULL DEFAULT ''")
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
@@ -2265,11 +2274,11 @@ def set_last_check_result(feature: str, result: dict, at_iso: str) -> None:
 # reshapes what the next check does, not just today's already-open findings.
 # ---------------------------------------------------------------------------
 
-def add_ai_custom_rule(source: str, rule_type: str, instruction: str) -> int:
+def add_ai_custom_rule(source: str, rule_type: str, name: str, instruction: str) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO ai_custom_rules (source, rule_type, instruction, created_at) VALUES (?, ?, ?, ?)",
-            (source, rule_type, instruction, now_iso()),
+            "INSERT INTO ai_custom_rules (source, rule_type, name, instruction, created_at) VALUES (?, ?, ?, ?, ?)",
+            (source, rule_type, name, instruction, now_iso()),
         )
         return cur.lastrowid
 
@@ -2285,6 +2294,44 @@ def list_ai_custom_rules(source: str | None = None) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_ai_custom_rule(rule_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM ai_custom_rules WHERE id = ?", (rule_id,)).fetchone()
+
+
+def update_ai_custom_rule(rule_id: int, name: str, rule_type: str, instruction: str) -> None:
+    """Settings' pencil-edit -- source is deliberately not editable here, since it's what
+    determines which reviewer's prompt the rule gets folded into (see summarizer._custom_rules_
+    prompt_block's callers); changing that is closer to deleting and re-adding under a different
+    category than editing the rule itself."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE ai_custom_rules SET name = ?, rule_type = ?, instruction = ? WHERE id = ?",
+            (name, rule_type, instruction, rule_id),
+        )
+
+
 def remove_ai_custom_rule(rule_id: int) -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM ai_custom_rules WHERE id = ?", (rule_id,))
+
+
+def rewind_logs_checkpoint() -> None:
+    """Clears every container's log-watch checkpoint -- but leaves findings and cached overviews
+    alone, unlike reset_logs_data() -- so the next check re-sends recent log content to the AI
+    even though nothing new was actually logged. Called whenever a Runtime custom rule changes:
+    without this, an ordinary Check now has nothing new to send (see get_log_watch_checkpoints'
+    "since the checkpoint" fetch), so the AI never gets a chance to apply the new rule until
+    something happens to log again naturally, or an operator reaches for the much more
+    destructive Reset & re-check."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM log_watch_state")
+
+
+def rewind_compose_checkpoint() -> None:
+    """Compose's equivalent of rewind_logs_checkpoint() -- clears the per-file content-hash cache
+    (compose_file_state) so the next check re-reviews every file regardless of whether its content
+    actually changed, without touching findings or cached overviews. Called whenever a
+    Configuration custom rule changes."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM compose_file_state")

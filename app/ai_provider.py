@@ -13,6 +13,7 @@ covers the long tail of local/aggregator servers in a single branch.
 """
 
 import logging
+import re
 import threading
 import time
 
@@ -336,7 +337,27 @@ def _classify_ai_error(exc: Exception) -> tuple[str, bool]:
     lowered = message.lower()
     if "context" in lowered and ("length" in lowered or "token" in lowered):
         return "The request exceeded the model's context/token limit.", False
-    return f"AI provider error: {message[:200]}", True
+    # Anthropic reports a hard monthly/usage-limit cutoff as a 400 invalid_request_error rather
+    # than the 429 RateLimitError case above, and it hands back a genuinely useful reset date --
+    # worth pulling out rather than losing it in the generic fallback below.
+    if "usage limit" in lowered and "regain access" in lowered:
+        reset_match = re.search(r"regain access on ([^.']+)", message, re.IGNORECASE)
+        if reset_match:
+            return f"The AI provider's usage limit is reached - it resets {reset_match.group(1).strip()}.", True
+        return "The AI provider's usage limit is reached for now.", True
+    return f"AI provider error: {_short_ai_error_summary(message)}", True
+
+
+def _short_ai_error_summary(message: str) -> str:
+    """Best-effort cleanup for whatever doesn't match a known case above. Provider SDKs often
+    raise with the whole raw JSON/dict error body as the exception's string form (e.g. Anthropic's
+    "Error code: 400 - {'type': 'error', 'error': {'type': '...', 'message': '...'}}"), which read
+    as noise in a one-line banner. Pull out just the human message field when there is one, rather
+    than showing the operator that structure sliced off mid-word at an arbitrary length."""
+    quoted = re.search(r"['\"]message['\"]\s*:\s*['\"](.*?)['\"]\s*[,}]", message)
+    if quoted:
+        return quoted.group(1)
+    return message[:160] + ("..." if len(message) > 160 else "")
 
 
 def _friendly_ai_error(exc: Exception) -> str:

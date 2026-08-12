@@ -90,10 +90,11 @@ reply with exactly one fenced block labeled action-proposal containing a JSON ob
 "compose", "subjects": ["container or file name", ...], "title_contains": "text from the \
 finding's own title", "reason": "one sentence for the operator"} (silences every currently \
 active finding for those subjects whose title contains that text) or {"type": \
-"add_custom_rule", "source": "logs" or "compose", "rule_type": "exclude" or "watch", \
-"instruction": "the exact instruction text, written the way you'd want a future reviewer to \
-read it verbatim", "reason": "one sentence for the operator"} ("exclude" means never flag it \
-again anywhere; "watch" means always flag it). Never include an action-proposal block for \
+"add_custom_rule", "source": "logs" or "compose", "rule_type": "exclude" or "watch", "name": "a \
+short label for this rule, a few words, for a settings list", "instruction": "the exact \
+instruction text, written the way you'd want a future reviewer to read it verbatim", "reason": \
+"one sentence for the operator"} ("exclude" means never flag it again anywhere; "watch" means \
+always flag it). Never include an action-proposal block for \
 anything else, or when the operator hasn't actually asked for one of these two things -- \
 everyday questions and advice get a normal reply with no block at all, and a compose snippet or \
 JSON example you're showing the operator for their own use must never use that fence label.
@@ -279,7 +280,7 @@ _ACTION_BLOCK_RE = re.compile(r"```action-proposal\s*\n(.*?)```", re.DOTALL)
 # authoritative on its own (a human still has to click Confirm, and chat_actions.py re-validates
 # independently anyway, but there's no reason to carry unrecognized fields any further than here).
 _SILENCE_FIELDS = ("source", "subjects", "title_contains", "reason")
-_RULE_FIELDS = ("source", "rule_type", "instruction", "reason")
+_RULE_FIELDS = ("source", "rule_type", "name", "instruction", "reason")
 
 
 def _extract_proposed_actions(reply: str) -> tuple[str, list[dict]]:
@@ -317,6 +318,8 @@ def _extract_proposed_actions(reply: str) -> tuple[str, list[dict]]:
             if raw.get("source") not in ("logs", "compose"):
                 continue
             if raw.get("rule_type") not in ("exclude", "watch"):
+                continue
+            if not isinstance(raw.get("name"), str) or not raw["name"].strip():
                 continue
             if not isinstance(raw.get("instruction"), str) or not raw["instruction"].strip():
                 continue

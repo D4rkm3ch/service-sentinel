@@ -309,6 +309,72 @@ This raises the rate limit used for fetching release notes from 60/hr to 5,000/h
   </div>
 </section>
 
+<section class="panel settings-panel">
+  <div class="settings-panel-header collapsible-header" role="button" tabindex="0"
+       aria-expanded="true" aria-controls="settings-ai-custom-rules-body"
+       data-collapse-target="settings-ai-custom-rules-body" data-collapse-key="ai-custom-rules">
+    <h2 class="settings-heading-lg">AI Custom Rules</h2>
+    <span class="collapse-arrow" aria-hidden="true">&#9662;</span>
+  </div>
+  <div class="collapse-body" id="settings-ai-custom-rules-body">
+    <div class="settings-subsection settings-subsection-first">
+      <p class="meta">Standing instructions you've taught the AI through chat - ask it to silence
+a finding or add a rule, and it reshapes every future Runtime or Configuration check from then
+on. Adding a new rule only ever happens through chat; from here you can edit or delete one.</p>
+
+      <div class="custom-rules-table-wrap">
+        <table class="custom-rules-table" id="custom_rules_table" {{ 'hidden' if not custom_rules else '' }}>
+          <colgroup>
+            <col class="col-name"><col class="col-type"><col class="col-category"><col><col class="col-actions">
+          </colgroup>
+          <thead>
+            <tr>
+              <th data-sort-key="name" onclick="sortCustomRulesTable('name')">Name <span class="sort-indicator"></span></th>
+              <th data-sort-key="rule_type" onclick="sortCustomRulesTable('rule_type')">Type <span class="sort-indicator"></span></th>
+              <th data-sort-key="category" onclick="sortCustomRulesTable('category')">Category <span class="sort-indicator"></span></th>
+              <th data-sort-key="instruction" onclick="sortCustomRulesTable('instruction')">Explanation <span class="sort-indicator"></span></th>
+              <th class="custom-rules-actions-col"></th>
+            </tr>
+          </thead>
+          <tbody id="custom_rules_tbody">
+            {% for rule in custom_rules %}
+            <tr id="custom_rule_row_{{ rule.id }}" data-rule-id="{{ rule.id }}" data-source="{{ rule.source }}"
+                data-name="{{ rule.name }}" data-rule-type="{{ rule.rule_type }}" data-instruction="{{ rule.instruction }}">
+              <td class="custom-rule-name">
+                <span class="custom-rule-name-cell">
+                  <span class="custom-rule-name-text">{{ rule.name }}</span>
+                  <button type="button" class="icon-button custom-rule-edit-btn" title="Rename"
+                          onclick="editCustomRule({{ rule.id }})">
+                    <svg class="icon"><use href="#icon-edit"/></svg>
+                  </button>
+                </span>
+              </td>
+              <td>
+                <span class="badge badge-lg {{ 'badge-sev-critical' if rule.rule_type == 'watch' else 'badge-sev-suggestion' }}">
+                  {{ 'Always flag' if rule.rule_type == 'watch' else 'Never flag' }}
+                </span>
+              </td>
+              <td>{{ 'Runtime' if rule.source == 'logs' else 'Configuration' }}</td>
+              <td class="custom-rule-instruction">{{ rule.instruction }}</td>
+              <td class="custom-rules-actions-col">
+                <button type="button" class="icon-button custom-rule-delete-btn" title="Delete"
+                        onclick="confirmDeleteCustomRule({{ rule.id }})">
+                  <svg class="icon"><use href="#icon-close"/></svg>
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="custom-rules-empty" id="custom_rules_empty" {{ 'hidden' if custom_rules else '' }}>
+          <span class="custom-rules-empty-icon" aria-hidden="true">&#9776;</span>
+          No rules created yet
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 {#- One panel per module, generated from the same loop so the three are structurally identical
     by construction rather than by anyone remembering to keep them in step. The asymmetries are
     real and only where the feature genuinely differs: Updates alone has registry retries,
@@ -428,34 +494,6 @@ error - registries occasionally rate limit or time out on an otherwise healthy c
       </div>
       {% endif %}
     </div>
-
-    {#- Standing instructions an operator has taught the AI through chat (see app/chat.py's
-        action-proposal contract, app/chat_actions.py) -- Updates has no reviewer of this kind
-        (it classifies release-note severity, not findings), so this only applies to the two
-        modules that actually have one. Adding a rule only ever happens through chat and a
-        Confirm click; this list is read-only except for removal, which needs no such
-        confirmation since it can only ever narrow what future checks flag, never widen it. -#}
-    {% if feature != 'updates' %}
-    <div class="settings-subsection" id="{{ feature }}_custom_rules_section">
-      <h4>AI Custom Rules</h4>
-      <p class="meta">Standing instructions you've taught the AI through chat - ask it to
-silence a finding or add a rule, and it reshapes every future check from then on.</p>
-      <div id="{{ feature }}_custom_rules_list">
-        {% for rule in custom_rules.get(feature, []) %}
-        <div class="custom-rule-row" id="custom_rule_row_{{ rule.id }}">
-          <span class="badge badge-lg {{ 'badge-sev-critical' if rule.rule_type == 'watch' else 'badge-sev-suggestion' }}">
-            {{ 'Always flag' if rule.rule_type == 'watch' else 'Never flag' }}
-          </span>
-          <span class="custom-rule-text">{{ rule.instruction }}</span>
-          <button type="button" class="icon-button" title="Remove rule"
-                  onclick="removeCustomRule('{{ feature }}', {{ rule.id }})">&times;</button>
-        </div>
-        {% else %}
-        <p class="meta" id="{{ feature }}_custom_rules_empty">None yet.</p>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
 
     {#- Keeps the id the Overview page's own Notifications row links to. Minimum level sits right
         under the heading, ahead of the enable/error toggles -- a real-world report called it easy
@@ -811,21 +849,295 @@ function saveConcurrency(provider, rawValue) {
   });
 }
 
-function removeCustomRule(feature, ruleId) {
+// ---------------------------------------------------------------------------
+// AI Custom Rules table -- one consolidated panel across Runtime and Configuration (see
+// app/chat.py's action-proposal contract, app/chat_actions.py for how a rule is first added
+// through chat). This page can edit and delete an existing rule but never add a new one from
+// scratch -- that stays chat-only, since the model is what decides the exact instruction
+// wording a future review needs. Deleting is real and immediate (see confirmDeleteCustomRule),
+// with a 60-second Undo toast rather than a soft-delete the server has to reconcile later.
+// ---------------------------------------------------------------------------
+
+function customRuleTypeLabel(ruleType) {
+  return ruleType === 'watch' ? 'Always flag' : 'Never flag';
+}
+
+function customRuleCategoryLabel(source) {
+  return source === 'logs' ? 'Runtime' : 'Configuration';
+}
+
+function buildCustomRuleNameCellDisplay(rule) {
+  // The pencil sits right next to the Name text, not off in the actions column at the row's far
+  // end -- it only ever renames the rule (see editCustomRule below), so it belongs beside the
+  // one thing it touches, not grouped with Delete, which acts on the whole row.
+  const nameCell = document.createElement('td');
+  nameCell.className = 'custom-rule-name';
+  const wrap = document.createElement('span');
+  wrap.className = 'custom-rule-name-cell';
+  const text = document.createElement('span');
+  text.className = 'custom-rule-name-text';
+  text.textContent = rule.name;
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'icon-button custom-rule-edit-btn';
+  editBtn.title = 'Rename';
+  editBtn.innerHTML = '<svg class="icon"><use href="#icon-edit"/></svg>';
+  editBtn.addEventListener('click', () => editCustomRule(rule.id));
+  wrap.appendChild(text);
+  wrap.appendChild(editBtn);
+  nameCell.appendChild(wrap);
+  return nameCell;
+}
+
+function renderCustomRuleRowDisplay(tr, rule) {
+  tr.dataset.ruleId = rule.id;
+  tr.dataset.source = rule.source;
+  tr.dataset.name = rule.name;
+  tr.dataset.ruleType = rule.rule_type;
+  tr.dataset.instruction = rule.instruction;
+  tr.classList.remove('editing');
+  tr.innerHTML = '';
+
+  const typeCell = document.createElement('td');
+  const badge = document.createElement('span');
+  badge.className = 'badge badge-lg ' + (rule.rule_type === 'watch' ? 'badge-sev-critical' : 'badge-sev-suggestion');
+  badge.textContent = customRuleTypeLabel(rule.rule_type);
+  typeCell.appendChild(badge);
+
+  const categoryCell = document.createElement('td');
+  categoryCell.textContent = customRuleCategoryLabel(rule.source);
+
+  const instructionCell = document.createElement('td');
+  instructionCell.className = 'custom-rule-instruction';
+  instructionCell.textContent = rule.instruction;
+
+  const actionsCell = document.createElement('td');
+  actionsCell.className = 'custom-rules-actions-col';
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'icon-button custom-rule-delete-btn';
+  deleteBtn.title = 'Delete';
+  deleteBtn.innerHTML = '<svg class="icon"><use href="#icon-close"/></svg>';
+  deleteBtn.addEventListener('click', () => confirmDeleteCustomRule(rule.id));
+  actionsCell.appendChild(deleteBtn);
+
+  tr.appendChild(buildCustomRuleNameCellDisplay(rule));
+  tr.appendChild(typeCell);
+  tr.appendChild(categoryCell);
+  tr.appendChild(instructionCell);
+  tr.appendChild(actionsCell);
+}
+
+function updateCustomRulesEmptyState() {
+  const tbody = document.getElementById('custom_rules_tbody');
+  const table = document.getElementById('custom_rules_table');
+  const empty = document.getElementById('custom_rules_empty');
+  const hasRows = !!(tbody && tbody.querySelector('tr'));
+  if (table) table.hidden = !hasRows;
+  if (empty) empty.hidden = hasRows;
+}
+
+function insertCustomRuleRow(rule) {
+  const tbody = document.getElementById('custom_rules_tbody');
+  if (!tbody) return;
+  const tr = document.createElement('tr');
+  tr.id = 'custom_rule_row_' + rule.id;
+  renderCustomRuleRowDisplay(tr, rule);
+  tbody.appendChild(tr);
+  updateCustomRulesEmptyState();
+  reapplyCustomRulesSort();
+}
+
+// ---- Edit (pencil) ----
+
+function editCustomRule(ruleId) {
   const row = document.getElementById('custom_rule_row_' + ruleId);
-  if (row) row.style.opacity = '0.5';
-  fetch('/settings/ai-custom-rules/' + ruleId + '/remove', { method: 'POST' }).then(r => r.json()).then(data => {
-    if (!data.ok) {
-      if (row) row.style.opacity = '';
+  if (!row || row.classList.contains('editing')) return;
+  row.classList.add('editing');
+  const nameCell = row.querySelector('.custom-rule-name');
+  nameCell.innerHTML = '';
+
+  // Only the name is hand-editable here -- type and instruction are what the AI itself wrote
+  // to match its own review prompt (see chat.py's action-proposal contract), so changing either
+  // goes back through chat rather than a free-text field here. The name is purely a display
+  // label (db.py: "not read by the reviewer"), so renaming it is unambiguously safe.
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'mono field-input custom-rule-edit-name';
+  nameInput.value = row.dataset.name;
+
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'icon-button custom-rule-save-btn';
+  saveBtn.title = 'Save';
+  saveBtn.innerHTML = '<svg class="icon"><use href="#icon-check"/></svg>';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'icon-button custom-rule-cancel-edit-btn';
+  cancelBtn.title = 'Cancel';
+  cancelBtn.innerHTML = '<svg class="icon"><use href="#icon-close"/></svg>';
+  const errorSlot = document.createElement('span');
+  errorSlot.className = 'test-result-error custom-rule-edit-error';
+
+  saveBtn.addEventListener('click', () => saveCustomRuleEdit(ruleId, nameInput, errorSlot));
+  nameInput.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter') saveCustomRuleEdit(ruleId, nameInput, errorSlot);
+    if (evt.key === 'Escape') renderCustomRuleRowDisplay(row, {
+      id: ruleId, source: row.dataset.source, name: row.dataset.name,
+      rule_type: row.dataset.ruleType, instruction: row.dataset.instruction,
+    });
+  });
+  cancelBtn.addEventListener('click', () => renderCustomRuleRowDisplay(row, {
+    id: ruleId, source: row.dataset.source, name: row.dataset.name,
+    rule_type: row.dataset.ruleType, instruction: row.dataset.instruction,
+  }));
+
+  const wrap = document.createElement('span');
+  wrap.className = 'custom-rule-name-cell';
+  wrap.appendChild(nameInput);
+  wrap.appendChild(saveBtn);
+  wrap.appendChild(cancelBtn);
+  nameCell.appendChild(wrap);
+  nameCell.appendChild(errorSlot);
+  nameInput.focus();
+  nameInput.select();
+}
+
+function saveCustomRuleEdit(ruleId, nameInput, errorSlot) {
+  const row = document.getElementById('custom_rule_row_' + ruleId);
+  if (!row) return;
+  const name = nameInput.value.trim();
+  if (!name) {
+    errorSlot.textContent = 'Name cannot be empty.';
+    return;
+  }
+  // Type and instruction are resubmitted unchanged -- see editCustomRule's own comment on why
+  // only the name is editable from here.
+  fetch('/settings/ai-custom-rules/' + ruleId + '/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      name, rule_type: row.dataset.ruleType, instruction: row.dataset.instruction,
+    }).toString(),
+  }).then(r => r.json()).then(data => {
+    if (!data.ok || !data.rule) {
+      errorSlot.textContent = (data && data.message) || 'Could not save that change.';
       return;
     }
-    if (row) row.remove();
-    const list = document.getElementById(feature + '_custom_rules_list');
-    if (list && !list.querySelector('.custom-rule-row')) {
-      list.innerHTML = '<p class="meta" id="' + feature + '_custom_rules_empty">None yet.</p>';
-    }
+    renderCustomRuleRowDisplay(row, data.rule);
+    reapplyCustomRulesSort();
   }).catch(() => {
-    if (row) row.style.opacity = '';
+    errorSlot.textContent = 'Request failed -- try again.';
+  });
+}
+
+// ---- Delete + 60s Undo ----
+
+function confirmDeleteCustomRule(ruleId) {
+  const row = document.getElementById('custom_rule_row_' + ruleId);
+  if (!row) return;
+  const ruleData = {
+    source: row.dataset.source, rule_type: row.dataset.ruleType,
+    name: row.dataset.name, instruction: row.dataset.instruction,
+  };
+  if (!confirm('Delete the rule "' + ruleData.name + '"? You can undo this for the next 60 seconds.')) return;
+  row.style.opacity = '0.5';
+  fetch('/settings/ai-custom-rules/' + ruleId + '/remove', { method: 'POST' }).then(r => r.json()).then(data => {
+    if (!data.ok) { row.style.opacity = ''; return; }
+    row.remove();
+    updateCustomRulesEmptyState();
+    showRuleUndoToast(ruleData);
+  }).catch(() => { row.style.opacity = ''; });
+}
+
+let ruleUndoToastSeq = 0;
+
+function showRuleUndoToast(ruleData) {
+  let container = document.getElementById('rule_undo_toast_container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'rule_undo_toast_container';
+    container.className = 'rule-undo-toast-container';
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = 'rule-undo-toast';
+  toast.id = 'rule_undo_toast_' + (++ruleUndoToastSeq);
+  const text = document.createElement('span');
+  text.textContent = 'Rule deleted.';
+  const undoBtn = document.createElement('button');
+  undoBtn.type = 'button';
+  undoBtn.className = 'rule-undo-btn';
+  let secondsLeft = 60;
+  undoBtn.textContent = 'Undo (' + secondsLeft + ')';
+  toast.appendChild(text);
+  toast.appendChild(undoBtn);
+  container.appendChild(toast);
+
+  const timer = setInterval(() => {
+    secondsLeft -= 1;
+    if (secondsLeft <= 0) {
+      clearInterval(timer);
+      toast.remove();
+      return;
+    }
+    undoBtn.textContent = 'Undo (' + secondsLeft + ')';
+  }, 1000);
+
+  undoBtn.addEventListener('click', () => {
+    clearInterval(timer);
+    undoBtn.disabled = true;
+    fetch('/settings/ai-custom-rules/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(ruleData).toString(),
+    }).then(r => r.json()).then(data => {
+      toast.remove();
+      if (data.ok && data.rule) insertCustomRuleRow(data.rule);
+    }).catch(() => { toast.remove(); });
+  });
+}
+
+// ---- Sorting ----
+
+let customRulesSortState = { key: null, dir: 1 };
+
+function sortCustomRulesTable(key) {
+  customRulesSortState = customRulesSortState.key === key
+    ? { key, dir: customRulesSortState.dir * -1 }
+    : { key, dir: 1 };
+  reapplyCustomRulesSort();
+  updateCustomRulesSortIndicators();
+}
+
+function reapplyCustomRulesSort() {
+  const key = customRulesSortState.key;
+  const tbody = document.getElementById('custom_rules_tbody');
+  if (!key || !tbody) return;
+  const valueOf = (row) => {
+    if (key === 'category') return customRuleCategoryLabel(row.dataset.source);
+    if (key === 'rule_type') return row.dataset.ruleType;
+    return row.dataset[key] || '';
+  };
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  rows.sort((a, b) => {
+    const av = valueOf(a).toLowerCase();
+    const bv = valueOf(b).toLowerCase();
+    if (av < bv) return -1 * customRulesSortState.dir;
+    if (av > bv) return 1 * customRulesSortState.dir;
+    return 0;
+  });
+  rows.forEach((r) => tbody.appendChild(r));
+}
+
+function updateCustomRulesSortIndicators() {
+  document.querySelectorAll('#custom_rules_table th[data-sort-key]').forEach((th) => {
+    const indicator = th.querySelector('.sort-indicator');
+    if (!indicator) return;
+    indicator.textContent = th.dataset.sortKey === customRulesSortState.key
+      ? (customRulesSortState.dir === 1 ? '▲' : '▼')
+      : '';
   });
 }
 

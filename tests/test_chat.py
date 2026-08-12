@@ -335,6 +335,7 @@ def test_a_well_formed_add_custom_rule_proposal_is_parsed():
         "I'll add a standing rule.\n\n"
         "```action-proposal\n"
         '{"actions": [{"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", '
+        '"name": "Ignore *arr parse errors", '
         '"instruction": "Never flag Unable to parse for *arr apps.", "reason": "So it never comes back."}]}\n'
         "```"
     )
@@ -342,6 +343,7 @@ def test_a_well_formed_add_custom_rule_proposal_is_parsed():
     assert len(actions) == 1
     assert actions[0]["type"] == "add_custom_rule"
     assert actions[0]["rule_type"] == "exclude"
+    assert actions[0]["name"] == "Ignore *arr parse errors"
     assert actions[0]["instruction"] == "Never flag Unable to parse for *arr apps."
 
 
@@ -350,7 +352,7 @@ def test_multiple_actions_in_one_block_are_all_parsed():
         "```action-proposal\n"
         '{"actions": ['
         '{"type": "silence_findings", "source": "logs", "subjects": ["radarr"], "title_contains": "x", "reason": "a"},'
-        '{"type": "add_custom_rule", "source": "logs", "rule_type": "watch", "instruction": "y", "reason": "b"}'
+        '{"type": "add_custom_rule", "source": "logs", "rule_type": "watch", "name": "n", "instruction": "y", "reason": "b"}'
         "]}\n"
         "```"
     )
@@ -367,6 +369,15 @@ def test_malformed_json_in_the_block_yields_no_actions_but_a_clean_reply():
 
 def test_an_action_missing_required_fields_is_dropped():
     reply = '```action-proposal\n{"actions": [{"type": "silence_findings", "source": "logs"}]}\n```'
+    _, actions = chat._extract_proposed_actions(reply)
+    assert actions == []
+
+
+def test_an_add_custom_rule_missing_a_name_is_dropped():
+    reply = (
+        '```action-proposal\n{"actions": [{"type": "add_custom_rule", "source": "logs", '
+        '"rule_type": "exclude", "instruction": "y", "reason": "z"}]}\n```'
+    )
     _, actions = chat._extract_proposed_actions(reply)
     assert actions == []
 
@@ -400,7 +411,7 @@ def test_extra_unrecognized_fields_on_a_valid_action_are_dropped():
 def test_answer_returns_the_actions_parsed_from_the_models_reply():
     reply = (
         '```action-proposal\n{"actions": [{"type": "add_custom_rule", "source": "compose", '
-        '"rule_type": "watch", "instruction": "flag this", "reason": "why not"}]}\n```'
+        '"rule_type": "watch", "name": "Flag this", "instruction": "flag this", "reason": "why not"}]}\n```'
     )
     with patch("app.chat.ai_provider.complete_chat", return_value=reply):
         text, actions = chat.answer([{"role": "user", "content": "add a rule"}])

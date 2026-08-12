@@ -1684,9 +1684,7 @@ def settings_page(request: Request):
             "auth_username": db.get_auth_username(),
             "auth_lan_bypass": db.get_auth_lan_bypass(),
             "auth_secret_min_length": _AUTH_SECRET_MIN_LENGTH,
-            "custom_rules": {
-                feature: db.list_ai_custom_rules(feature) for feature in ("logs", "compose")
-            },
+            "custom_rules": db.list_ai_custom_rules(),
             "active_tab": "settings",
         },
     )
@@ -1995,15 +1993,72 @@ async def save_openai_compat_concurrency(request: Request):
     return {"ok": True, "value": value}
 
 
+def _rewind_checkpoint_for(source: str) -> None:
+    """Shared by every route below that mutates ai_custom_rules -- see chat_actions.
+    _execute_add_custom_rule's own comment for why an ordinary Check now otherwise never picks
+    up the change."""
+    if source == "logs":
+        db.rewind_logs_checkpoint()
+    elif source == "compose":
+        db.rewind_compose_checkpoint()
+
+
 @app.post("/settings/ai-custom-rules/{rule_id}/remove")
 def remove_ai_custom_rule(rule_id: int):
-    """The one mutation the Settings page itself makes to an operator's chat-taught rules (see
-    app/chat_actions.py for how they're added) -- deleting only ever narrows what future checks
-    flag, so unlike adding one it doesn't need a chat-side confirm step; a plain button here is
-    enough. db.remove_ai_custom_rule is a no-op if the id is already gone, so this is safe to
-    call more than once for the same row."""
+    """Settings' delete button (behind its own confirm dialog client-side, plus an Undo toast --
+    see base.html -- rather than a server-side confirm step): unlike ADDING a rule, removing one
+    only ever narrows what future checks flag, so it doesn't need the chat's confirm-before-act
+    treatment. db.remove_ai_custom_rule is a no-op if the id is already gone, so this stays safe
+    to call more than once for the same row."""
+    rule = db.get_ai_custom_rule(rule_id)
     db.remove_ai_custom_rule(rule_id)
+    if rule is not None:
+        _rewind_checkpoint_for(rule["source"])
     return {"ok": True}
+
+
+@app.post("/settings/ai-custom-rules/{rule_id}/update")
+async def update_ai_custom_rule(rule_id: int, request: Request):
+    """Settings' pencil-edit. Source is deliberately not editable (see db.update_ai_custom_rule's
+    own docstring) -- only name, type, and the instruction text itself."""
+    rule = db.get_ai_custom_rule(rule_id)
+    if rule is None:
+        return {"ok": False, "message": "That rule no longer exists."}
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    rule_type = form.get("rule_type")
+    instruction = (form.get("instruction") or "").strip()
+    if not name:
+        return {"ok": False, "message": "Enter a name."}
+    if rule_type not in ("exclude", "watch"):
+        return {"ok": False, "message": "Unknown rule type."}
+    if not instruction:
+        return {"ok": False, "message": "Enter an instruction."}
+    db.update_ai_custom_rule(rule_id, name, rule_type, instruction)
+    _rewind_checkpoint_for(rule["source"])
+    return {"ok": True, "rule": dict(db.get_ai_custom_rule(rule_id))}
+
+
+@app.post("/settings/ai-custom-rules/restore")
+async def restore_ai_custom_rule(request: Request):
+    """The other half of Settings' delete Undo: a delete is real and immediate (see
+    remove_ai_custom_rule above), and Undo re-creates an equivalent rule from what the browser
+    still has in hand, rather than the delete staying pending behind a timer that a closed tab
+    or navigation would silently lose. Routed through chat_actions.execute() -- the exact same
+    validation and checkpoint-rewind an AI-proposed add_custom_rule action already gets, since
+    this is the identical operation triggered a different way."""
+    form = await request.form()
+    result = await run_in_threadpool(chat_actions.execute, {
+        "type": "add_custom_rule",
+        "source": form.get("source"),
+        "rule_type": form.get("rule_type"),
+        "name": form.get("name"),
+        "instruction": form.get("instruction"),
+    })
+    if result.get("ok"):
+        rules = db.list_ai_custom_rules(form.get("source"))
+        result["rule"] = dict(rules[-1]) if rules else None
+    return result
 
 
 @app.post("/settings/updates/retries")

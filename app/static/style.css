@@ -2298,21 +2298,173 @@ a.feature-card-issue-slot:hover {
 .badge-sev-warning { background: rgba(217, 164, 65, 0.15); color: var(--warn); }
 .badge-sev-suggestion { background: rgba(134, 140, 152, 0.15); color: var(--text-dim); }
 
-/* One operator-taught AI rule (Settings > Runtime/Configuration > AI Custom Rules) -- reuses
-   the severity badges above (Always/Never flag) so a rule reads at a glance the same way a
-   finding's own severity does. */
-.custom-rule-row {
+/* Settings > AI Custom Rules -- an operator's own standing instructions to the Runtime/
+   Configuration AI reviewers, taught through chat (see app/chat.py's action-proposal contract)
+   and only ever edited/deleted from here. A plain <table> picks up the site's own table/th/td
+   styling (sticky header, hover row tint, fixed layout) for free -- these rules only add what's
+   specific to this one: column widths, the sortable header affordance, and edit-mode inputs. */
+.custom-rules-table-wrap {
+  overflow-x: auto;
+}
+.custom-rules-table th[data-sort-key] {
+  cursor: pointer;
+  user-select: none;
+}
+.custom-rules-table th[data-sort-key]:hover {
+  color: var(--text);
+}
+.sort-indicator {
+  display: inline-block;
+  width: 0.9em;
+  font-size: 10px;
+  color: var(--accent);
+}
+.custom-rules-table col.col-name { width: 24%; }
+.custom-rules-table col.col-type { width: 11%; }
+.custom-rules-table col.col-category { width: 13%; }
+.custom-rules-table col.col-actions { width: 56px; }
+.custom-rule-name {
+  font-weight: 600;
+  color: var(--text);
+}
+/* The rename pencil sits inline with the name it edits, not grouped with Delete at the row's
+   far end -- see buildCustomRuleNameCellDisplay/editCustomRule in settings.html. Only visible on
+   row hover/focus in the display state so a table full of rules doesn't read as a wall of
+   buttons; edit mode (the input/save/cancel trio) stays visible regardless. */
+.custom-rule-name-cell {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
+  gap: 6px;
 }
-.custom-rule-row:last-child { border-bottom: none; }
-.custom-rule-text {
+.custom-rule-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.custom-rule-name-cell .icon-button {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  opacity: 0;
+}
+tr:hover .custom-rule-name-cell .icon-button,
+tr:focus-within .custom-rule-name-cell .icon-button,
+tr.editing .custom-rule-name-cell .icon-button {
+  opacity: 1;
+}
+.custom-rule-name-cell input.custom-rule-edit-name {
   flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.custom-rule-instruction {
+  color: var(--text-dim);
+  font-size: 13px;
+  white-space: normal;
+}
+.custom-rules-actions-col {
+  text-align: right;
+  white-space: nowrap;
+}
+.custom-rules-actions-col .icon-button {
+  width: 28px;
+  height: 28px;
+}
+.custom-rules-actions-col .icon-button + .icon-button {
+  margin-left: 6px;
+}
+/* Matches .chat-close-btn's red/error theming (same icon, same "this ends something" feel) --
+   deliberately more visible than a plain .icon-button so it reads as a real destructive control,
+   not a faint afterthought easy to miss in a dense row. */
+.custom-rule-delete-btn {
+  border-color: var(--error);
+  color: var(--error);
+}
+.custom-rule-delete-btn:hover {
+  background: var(--error);
+  color: var(--on-error);
+  border-color: var(--error);
+}
+.custom-rules-table input.custom-rule-edit-name,
+.custom-rules-table select.custom-rule-edit-type,
+.custom-rules-table textarea.custom-rule-edit-instruction {
+  width: 100%;
+  font-size: 13px;
+}
+.custom-rules-table textarea.custom-rule-edit-instruction {
+  resize: vertical;
+}
+.custom-rule-edit-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+/* The louder empty state the plain "None yet." text used to render as -- same visual weight as
+   the no-issues-detected hero elsewhere (.issue-slot-empty-message), not a line easy to miss. */
+.custom-rules-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 12px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-dim);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+/* An unconditional display:flex above otherwise beats the browser's own [hidden] { display:
+   none } at equal specificity, since author styles always win over the user-agent stylesheet --
+   without this, the empty state stayed visibly rendered underneath a populated table. */
+.custom-rules-empty[hidden] {
+  display: none;
+}
+.custom-rules-empty-icon {
+  font-size: 20px;
+  color: var(--accent);
+}
+
+/* The Undo toast after a rule delete -- see confirmDeleteCustomRule/showRuleUndoToast in
+   settings.html. Fixed to the bottom of the viewport, stacking upward if more than one delete
+   happens inside the same 60-second window, so an operator clearing out several rules at once
+   doesn't have each toast silently replace the last. */
+.rule-undo-toast-container {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  z-index: 200;
+}
+.rule-undo-toast {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   font-size: 13px;
   color: var(--text);
+}
+.rule-undo-btn {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: transparent;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rule-undo-btn:hover {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 /* Updates' own 4-tier scale */

@@ -113,25 +113,29 @@ def test_silence_findings_rejects_empty_title_contains():
 def test_add_custom_rule_persists_the_rule():
     result = chat_actions.execute({
         "type": "add_custom_rule", "source": "logs", "rule_type": "exclude",
+        "name": "Ignore *arr parse errors",
         "instruction": "Never flag Unable to parse for *arr apps.",
     })
     assert result["ok"] is True
     rules = db.list_ai_custom_rules("logs")
     assert len(rules) == 1
     assert rules[0]["rule_type"] == "exclude"
+    assert rules[0]["name"] == "Ignore *arr parse errors"
     assert rules[0]["instruction"] == "Never flag Unable to parse for *arr apps."
 
 
 def test_add_custom_rule_message_mentions_the_right_module_name():
     result = chat_actions.execute({
-        "type": "add_custom_rule", "source": "compose", "rule_type": "watch", "instruction": "x",
+        "type": "add_custom_rule", "source": "compose", "rule_type": "watch",
+        "name": "n", "instruction": "x",
     })
     assert "Configuration" in result["message"]
 
 
 def test_add_custom_rule_rejects_an_unknown_rule_type():
     result = chat_actions.execute({
-        "type": "add_custom_rule", "source": "logs", "rule_type": "delete", "instruction": "x",
+        "type": "add_custom_rule", "source": "logs", "rule_type": "delete",
+        "name": "n", "instruction": "x",
     })
     assert result["ok"] is False
     assert db.list_ai_custom_rules("logs") == []
@@ -139,9 +143,43 @@ def test_add_custom_rule_rejects_an_unknown_rule_type():
 
 def test_add_custom_rule_rejects_an_empty_instruction():
     result = chat_actions.execute({
-        "type": "add_custom_rule", "source": "logs", "rule_type": "exclude", "instruction": "   ",
+        "type": "add_custom_rule", "source": "logs", "rule_type": "exclude",
+        "name": "n", "instruction": "   ",
     })
     assert result["ok"] is False
+
+
+def test_add_custom_rule_rejects_an_empty_name():
+    result = chat_actions.execute({
+        "type": "add_custom_rule", "source": "logs", "rule_type": "exclude",
+        "name": "   ", "instruction": "x",
+    })
+    assert result["ok"] is False
+    assert db.list_ai_custom_rules("logs") == []
+
+
+def test_add_custom_rule_for_logs_rewinds_the_log_checkpoint():
+    db.set_log_watch_checkpoints(["chatactions-radarr"])
+    assert db.get_log_watch_checkpoints(["chatactions-radarr"]) != {}
+
+    chat_actions.execute({
+        "type": "add_custom_rule", "source": "logs", "rule_type": "exclude",
+        "name": "n", "instruction": "x",
+    })
+
+    assert db.get_log_watch_checkpoints(["chatactions-radarr"]) == {}
+
+
+def test_add_custom_rule_for_compose_rewinds_the_compose_checkpoint():
+    db.set_compose_file_hash("chatactions-compose.yaml", "somehash")
+    assert db.get_compose_file_hash("chatactions-compose.yaml") == "somehash"
+
+    chat_actions.execute({
+        "type": "add_custom_rule", "source": "compose", "rule_type": "watch",
+        "name": "n", "instruction": "x",
+    })
+
+    assert db.get_compose_file_hash("chatactions-compose.yaml") is None
 
 
 # ---------------------------------------------------------------------------

@@ -44,18 +44,19 @@ def _panel_bodies(text):
 # The grouping
 # ---------------------------------------------------------------------------
 
-def test_the_page_is_five_panels_in_a_deliberate_order(client):
+def test_the_page_is_six_panels_in_a_deliberate_order(client):
     """The app's own two panels first -- Timing & Delivery for what the modules inherit,
-    Connections & Access for what Service Sentinel talks out to and who is allowed in -- then the
-    three modules in the app's usual order."""
+    Connections & Access for what Service Sentinel talks out to and who is allowed in -- then AI
+    Custom Rules (the operator's own standing instructions to the Runtime/Configuration
+    reviewers, see app/chat.py), then the three modules in the app's usual order."""
     text = client.get("/settings").text
     # Matched on the panel headings specifically -- a bare ">Updates<" also hits the sidebar's
     # own nav link, which sits above all of this in the document.
     order = [text.index(f'settings-heading-lg">{title}</h2>') for title in
-             ("Timing &amp; Delivery", "Connections &amp; Access", "Versions", "Runtime",
-              "Configuration")]
+             ("Timing &amp; Delivery", "Connections &amp; Access", "AI Custom Rules", "Versions",
+              "Runtime", "Configuration")]
     assert order == sorted(order)
-    assert text.count('class="panel settings-panel"') == 5
+    assert text.count('class="panel settings-panel"') == 6
 
 
 def test_the_old_mechanism_panels_are_gone(client):
@@ -142,9 +143,9 @@ def test_every_panel_renders_open(client):
     """Inverted from an earlier round that rendered every panel collapsed -- see the module
     docstring."""
     text = client.get("/settings").text
-    assert text.count('class="settings-panel-header collapsible-header"') == 5
+    assert text.count('class="settings-panel-header collapsible-header"') == 6
     assert text.count('class="settings-panel-header collapsible-header collapsed"') == 0
-    assert text.count('class="collapse-body"') == 5
+    assert text.count('class="collapse-body"') == 6
 
 
 def test_a_closed_panel_still_clips(client):
@@ -162,7 +163,7 @@ def test_a_closed_panel_still_clips(client):
 
 def test_each_panel_carries_the_key_its_state_is_remembered_under(client):
     text = client.get("/settings").text
-    for key in ("timing", "connections", "updates", "logs", "compose"):
+    for key in ("timing", "connections", "ai-custom-rules", "updates", "logs", "compose"):
         assert f'data-collapse-key="{key}"' in text
 
 
@@ -170,7 +171,7 @@ def test_the_headers_behave_like_buttons(client):
     """Checked per header rather than by counting across the page -- the sidebar toggle and the
     accent swatch legitimately carry aria-expanded of their own."""
     text = client.get("/settings").text
-    for key in ("timing", "connections", "updates", "logs", "compose"):
+    for key in ("timing", "connections", "ai-custom-rules", "updates", "logs", "compose"):
         at = text.index(f'data-collapse-key="{key}"')
         header = text[text.rindex("<div", 0, at):text.index(">", at) + 1]
         assert 'role="button"' in header, key

@@ -109,6 +109,52 @@ def test_an_unrecognized_exception_still_produces_a_readable_fallback():
     assert "something truly unexpected" in message
 
 
+def test_anthropic_usage_limit_reads_as_a_clean_message_with_the_reset_date():
+    """A real-world report: Anthropic reports a hard usage-limit cutoff as a 400
+    invalid_request_error, not the 429 RateLimitError case above, and the banner used to show the
+    raw dict-repr error body verbatim, sliced off mid-word. The reset date is genuinely useful and
+    worth keeping; the surrounding JSON noise isn't."""
+    exc = ValueError(
+        "Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+        "'message': 'You have reached your specified API usage limits. You will regain access "
+        "on 2026-09-01 at 00:00 UTC.'}, 'request_id': 'req_abc'}"
+    )
+    message = ai_provider._friendly_ai_error(exc)
+    assert "usage limit" in message.lower()
+    assert "2026-09-01 at 00:00 UTC" in message
+    assert "{'type'" not in message
+    assert "request_id" not in message
+
+
+def test_anthropic_usage_limit_is_fatal():
+    exc = ValueError(
+        "Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+        "'message': 'You have reached your specified API usage limits. You will regain access "
+        "on 2026-09-01 at 00:00 UTC.'}}"
+    )
+    assert ai_provider._classify_ai_error(exc)[1] is True
+
+
+def test_an_unrecognized_json_style_error_extracts_just_the_message_field():
+    """Even outside the specific usage-limit case above, an exception whose string form is a raw
+    provider error dict shouldn't dump that whole structure into a one-line banner -- pull out
+    just the human-readable message field when one's present."""
+    exc = ValueError(
+        "Error code: 500 - {'type': 'error', 'error': {'type': 'server_error', "
+        "'message': 'Something went wrong on our end.'}, 'request_id': 'req_xyz'}"
+    )
+    message = ai_provider._friendly_ai_error(exc)
+    assert "Something went wrong on our end." in message
+    assert "{'type'" not in message
+    assert "request_id" not in message
+
+
+def test_a_genuinely_unstructured_long_error_is_truncated_not_dumped_raw():
+    exc = ValueError("x" * 500)
+    message = ai_provider._friendly_ai_error(exc)
+    assert len(message) < 250
+
+
 # ---------------------------------------------------------------------------
 # complete_text() / web_search() record on failure; complete_chat() deliberately doesn't
 # ---------------------------------------------------------------------------

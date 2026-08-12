@@ -113,7 +113,7 @@ def test_chat_send_passes_through_a_proposed_action(client):
     _configure_anthropic()
     reply = (
         '```action-proposal\n{"actions": [{"type": "add_custom_rule", "source": "logs", '
-        '"rule_type": "exclude", "instruction": "x", "reason": "y"}]}\n```'
+        '"rule_type": "exclude", "name": "n", "instruction": "x", "reason": "y"}]}\n```'
     )
     try:
         with patch("app.chat.ai_provider.complete_chat", return_value=reply):
@@ -133,7 +133,7 @@ def test_chat_send_passes_through_a_proposed_action(client):
 
 def test_confirm_action_executes_a_valid_action(client):
     resp = client.post("/chat/confirm-action", json={
-        "action": {"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", "instruction": "x"},
+        "action": {"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", "name": "n", "instruction": "x"},
     })
     try:
         assert resp.status_code == 200
