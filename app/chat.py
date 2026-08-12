@@ -99,6 +99,15 @@ anything else, or when the operator hasn't actually asked for one of these two t
 everyday questions and advice get a normal reply with no block at all, and a compose snippet or \
 JSON example you're showing the operator for their own use must never use that fence label.
 
+For example, if the operator says "ignore those parse warnings for radarr and lidarr going forward", a correct reply ends with exactly this (the fence label must read action-proposal -- not json, not anything else):
+
+```action-proposal
+{"actions": [{"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", "name": "Ignore *arr parse warnings", "instruction": "Never flag 'Unable to parse' warnings for radarr or lidarr -- expected *arr/Prowlarr behavior, not a real error.", "reason": "These are expected, not real errors."}]}
+```
+
+Note "source": "logs" there -- a container's own log output (like that example) is always the \
+logs source, never compose; compose is only for something wrong in a docker-compose file itself.
+
 That limit is about actions, not about opinions. You are absolutely expected to say what you \
 think, suggest specific fixes (including exact commands or compose changes for the operator to \
 apply themselves), and offer your best judgment even when you're not certain -- just be honest \
@@ -275,6 +284,17 @@ def _clean_history(history) -> list[dict]:
 # fence label while explaining the feature itself; DOTALL so the JSON body can span lines.
 _ACTION_BLOCK_RE = re.compile(r"```action-proposal\s*\n(.*?)```", re.DOTALL)
 
+# A real-world report: a local, smaller model (not Claude/Gemini) understood the shape and
+# intent of a proposal correctly -- right down to telling the operator to click Confirm -- but
+# fenced its JSON as an ordinary ```json block instead of reproducing the exact action-proposal
+# label, which is a far less common convention in its training data than the generic one. Tried
+# ONLY when the strict pattern above finds nothing, so a well-behaved model's output is never
+# second-guessed. Still fully gated behind the same shape validation below -- a stray ```json
+# example that happens to match the exact action shape is a rare, low-stakes false positive
+# (worst case: an extra Confirm/Cancel card the operator just clicks Cancel on), never a
+# mutation, since nothing executes without an explicit click either way.
+_FALLBACK_JSON_BLOCK_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
+
 # What answer() will actually pass through to chat_actions.execute() -- anything else parsed out
 # of the model's own JSON is dropped rather than trusted, since the model's output is never
 # authoritative on its own (a human still has to click Confirm, and chat_actions.py re-validates
@@ -289,9 +309,12 @@ def _extract_proposed_actions(reply: str) -> tuple[str, list[dict]]:
     each element is checked for the exact shape either action type needs before it's trusted
     with a Confirm button at all. A malformed or missing block just means no actions were
     proposed -- never a broken reply; the operator still gets the model's own prose either way."""
-    match = _ACTION_BLOCK_RE.search(reply)
-    if not match:
+    matches = list(_ACTION_BLOCK_RE.finditer(reply))
+    if not matches:
+        matches = list(_FALLBACK_JSON_BLOCK_RE.finditer(reply))
+    if not matches:
         return reply, []
+    match = matches[-1]
     display_text = (reply[:match.start()] + reply[match.end():]).strip()
     try:
         payload = json.loads(match.group(1))

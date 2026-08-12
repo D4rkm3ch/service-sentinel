@@ -367,6 +367,70 @@ def test_malformed_json_in_the_block_yields_no_actions_but_a_clean_reply():
     assert actions == []
 
 
+# ---------------------------------------------------------------------------
+# Fallback ```json fence -- a real-world report: a local, smaller model (not Claude/Gemini)
+# understood the shape and intent of a proposal correctly but fenced it as an ordinary ```json
+# block instead of reproducing the exact action-proposal label.
+# ---------------------------------------------------------------------------
+
+def test_a_plain_json_fence_is_accepted_when_no_action_proposal_fence_exists():
+    reply = (
+        "Sure, I'll add that rule.\n\n"
+        "```json\n"
+        '{"actions": [{"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", '
+        '"name": "n", "instruction": "i", "reason": "r"}]}\n'
+        "```"
+    )
+    text, actions = chat._extract_proposed_actions(reply)
+    assert "```json" not in text
+    assert len(actions) == 1
+    assert actions[0]["type"] == "add_custom_rule"
+
+
+def test_a_proper_action_proposal_fence_is_preferred_over_a_json_fence():
+    """If the model somehow produces both, the strict, intended label wins -- the fallback is
+    only ever tried when the strict pattern finds nothing at all."""
+    reply = (
+        "```json\n"
+        '{"not": "an action"}\n'
+        "```\n\n"
+        "```action-proposal\n"
+        '{"actions": [{"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", '
+        '"name": "n", "instruction": "i", "reason": "r"}]}\n'
+        "```"
+    )
+    _, actions = chat._extract_proposed_actions(reply)
+    assert len(actions) == 1
+
+
+def test_a_json_fence_that_is_not_actions_shaped_still_yields_nothing():
+    """The fallback is lenient about the fence LABEL, never about the shape validation -- an
+    unrelated ```json example the model shows for some other reason (not a real proposal) must
+    still be dropped, exactly like the strict path already drops a malformed action-proposal
+    block."""
+    reply = "```json\n{\"example\": \"not an action proposal\"}\n```"
+    _, actions = chat._extract_proposed_actions(reply)
+    assert actions == []
+
+
+def test_only_the_last_action_proposal_fence_is_used_if_the_model_echoes_the_label():
+    reply = (
+        "The action-proposal fence looks like this:\n\n"
+        "```action-proposal\n"
+        '{"actions": [{"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", '
+        '"name": "first", "instruction": "i", "reason": "r"}]}\n'
+        "```\n\n"
+        "But here's what I'm actually proposing:\n\n"
+        "```action-proposal\n"
+        '{"actions": [{"type": "add_custom_rule", "source": "logs", "rule_type": "exclude", '
+        '"name": "second", "instruction": "i", "reason": "r"}]}\n'
+        "```"
+    )
+    _, actions = chat._extract_proposed_actions(reply)
+    assert len(actions) == 1
+    assert actions[0]["name"] == "second"
+
+
 def test_an_action_missing_required_fields_is_dropped():
     reply = '```action-proposal\n{"actions": [{"type": "silence_findings", "source": "logs"}]}\n```'
     _, actions = chat._extract_proposed_actions(reply)
