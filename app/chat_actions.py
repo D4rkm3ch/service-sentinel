@@ -89,7 +89,7 @@ def _execute_add_custom_rule(action: dict) -> dict:
     rule_type = action["rule_type"]
     name = action["name"].strip()
     instruction = action["instruction"].strip()
-    db.add_ai_custom_rule(source, rule_type, name, instruction)
+    rule_id = db.add_ai_custom_rule(source, rule_type, name, instruction)
     # A rule reshapes the review PROMPT, not any already-open finding -- but an ordinary Check
     # now only sends the AI whatever's new since the last checkpoint/file-hash (see log_watcher.py/
     # compose_reviewer.py), so without this the new rule would sit inert until something happens
@@ -100,7 +100,14 @@ def _execute_add_custom_rule(action: dict) -> dict:
         db.rewind_compose_checkpoint()
     verb = "never flag" if rule_type == "exclude" else "always flag"
     label = "Runtime" if source == "logs" else "Configuration"
-    return {"ok": True, "message": f"Added a standing rule -- {label} checks will now {verb} this going forward."}
+    return {
+        "ok": True,
+        "message": f"Added a standing rule -- {label} checks will now {verb} this going forward.",
+        # Lets the Settings page's own AI Custom Rules table (see settings.html's
+        # insertCustomRuleRow) insert this row live, without a reload, if the operator happens
+        # to confirm this from the chat widget while already on that page.
+        "rule": dict(db.get_ai_custom_rule(rule_id)),
+    }
 
 
 _VALIDATORS = {

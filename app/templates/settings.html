@@ -325,13 +325,13 @@ on. Adding a new rule only ever happens through chat; from here you can edit or 
       <div class="custom-rules-table-wrap">
         <table class="custom-rules-table" id="custom_rules_table" {{ 'hidden' if not custom_rules else '' }}>
           <colgroup>
-            <col class="col-name"><col class="col-type"><col class="col-category"><col><col class="col-actions">
+            <col class="col-category"><col class="col-name"><col class="col-type"><col><col class="col-actions">
           </colgroup>
           <thead>
             <tr>
+              <th data-sort-key="category" onclick="sortCustomRulesTable('category')">Category <span class="sort-indicator"></span></th>
               <th data-sort-key="name" onclick="sortCustomRulesTable('name')">Name <span class="sort-indicator"></span></th>
               <th data-sort-key="rule_type" onclick="sortCustomRulesTable('rule_type')">Type <span class="sort-indicator"></span></th>
-              <th data-sort-key="category" onclick="sortCustomRulesTable('category')">Category <span class="sort-indicator"></span></th>
               <th data-sort-key="instruction" onclick="sortCustomRulesTable('instruction')">Explanation <span class="sort-indicator"></span></th>
               <th class="custom-rules-actions-col"></th>
             </tr>
@@ -340,6 +340,7 @@ on. Adding a new rule only ever happens through chat; from here you can edit or 
             {% for rule in custom_rules %}
             <tr id="custom_rule_row_{{ rule.id }}" data-rule-id="{{ rule.id }}" data-source="{{ rule.source }}"
                 data-name="{{ rule.name }}" data-rule-type="{{ rule.rule_type }}" data-instruction="{{ rule.instruction }}">
+              <td>{{ 'Runtime' if rule.source == 'logs' else 'Configuration' }}</td>
               <td class="custom-rule-name">
                 <span class="custom-rule-name-cell">
                   <span class="custom-rule-name-text">{{ rule.name }}</span>
@@ -354,7 +355,6 @@ on. Adding a new rule only ever happens through chat; from here you can edit or 
                   {{ 'Always flag' if rule.rule_type == 'watch' else 'Never flag' }}
                 </span>
               </td>
-              <td>{{ 'Runtime' if rule.source == 'logs' else 'Configuration' }}</td>
               <td class="custom-rule-instruction">{{ rule.instruction }}</td>
               <td class="custom-rules-actions-col">
                 <button type="button" class="icon-button custom-rule-delete-btn" title="Delete"
@@ -921,9 +921,9 @@ function renderCustomRuleRowDisplay(tr, rule) {
   deleteBtn.addEventListener('click', () => confirmDeleteCustomRule(rule.id));
   actionsCell.appendChild(deleteBtn);
 
+  tr.appendChild(categoryCell);
   tr.appendChild(buildCustomRuleNameCellDisplay(rule));
   tr.appendChild(typeCell);
-  tr.appendChild(categoryCell);
   tr.appendChild(instructionCell);
   tr.appendChild(actionsCell);
 }
@@ -1046,57 +1046,10 @@ function confirmDeleteCustomRule(ruleId) {
     if (!data.ok) { row.style.opacity = ''; return; }
     row.remove();
     updateCustomRulesEmptyState();
+    // Lives in the topbar, not this page, and persists across navigation -- see base.html's
+    // own IIFE for showRuleUndoToast/the Undo click handling.
     showRuleUndoToast(ruleData);
   }).catch(() => { row.style.opacity = ''; });
-}
-
-let ruleUndoToastSeq = 0;
-
-function showRuleUndoToast(ruleData) {
-  let container = document.getElementById('rule_undo_toast_container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'rule_undo_toast_container';
-    container.className = 'rule-undo-toast-container';
-    document.body.appendChild(container);
-  }
-
-  const toast = document.createElement('div');
-  toast.className = 'rule-undo-toast';
-  toast.id = 'rule_undo_toast_' + (++ruleUndoToastSeq);
-  const text = document.createElement('span');
-  text.textContent = 'Rule deleted.';
-  const undoBtn = document.createElement('button');
-  undoBtn.type = 'button';
-  undoBtn.className = 'rule-undo-btn';
-  let secondsLeft = 60;
-  undoBtn.textContent = 'Undo (' + secondsLeft + ')';
-  toast.appendChild(text);
-  toast.appendChild(undoBtn);
-  container.appendChild(toast);
-
-  const timer = setInterval(() => {
-    secondsLeft -= 1;
-    if (secondsLeft <= 0) {
-      clearInterval(timer);
-      toast.remove();
-      return;
-    }
-    undoBtn.textContent = 'Undo (' + secondsLeft + ')';
-  }, 1000);
-
-  undoBtn.addEventListener('click', () => {
-    clearInterval(timer);
-    undoBtn.disabled = true;
-    fetch('/settings/ai-custom-rules/restore', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(ruleData).toString(),
-    }).then(r => r.json()).then(data => {
-      toast.remove();
-      if (data.ok && data.rule) insertCustomRuleRow(data.rule);
-    }).catch(() => { toast.remove(); });
-  });
 }
 
 // ---- Sorting ----

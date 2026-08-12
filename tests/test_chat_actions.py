@@ -124,6 +124,22 @@ def test_add_custom_rule_persists_the_rule():
     assert rules[0]["instruction"] == "Never flag Unable to parse for *arr apps."
 
 
+def test_add_custom_rule_result_carries_the_new_rule_for_a_live_settings_table_update():
+    """Settings' own AI Custom Rules table inserts this row live (see settings.html's
+    insertCustomRuleRow) if the operator confirms a rule from chat while already on that page --
+    needs the full row back, not just a success message."""
+    result = chat_actions.execute({
+        "type": "add_custom_rule", "source": "compose", "rule_type": "watch",
+        "name": "n", "instruction": "i",
+    })
+    assert result["ok"] is True
+    assert result["rule"]["name"] == "n"
+    assert result["rule"]["source"] == "compose"
+    assert result["rule"]["rule_type"] == "watch"
+    assert result["rule"]["instruction"] == "i"
+    assert result["rule"]["id"] == db.list_ai_custom_rules("compose")[0]["id"]
+
+
 def test_add_custom_rule_message_mentions_the_right_module_name():
     result = chat_actions.execute({
         "type": "add_custom_rule", "source": "compose", "rule_type": "watch",

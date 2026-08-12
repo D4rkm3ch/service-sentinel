@@ -167,6 +167,16 @@
       </div>
     </div>
     <div class="topbar-end">
+      <!-- A deleted AI Custom Rule's Undo window (see settings.html's confirmDeleteCustomRule) --
+           lives in the topbar rather than as a page-local toast so it survives navigating away
+           from Settings: the delete itself is real and immediate, this is only the operator's
+           chance to put it back. State is in localStorage (see showRuleUndoToast/restoreRuleUndo
+           TOAST below), not a page-local JS variable, since the whole point is surviving a full
+           page reload. Hidden whenever there's nothing pending. -->
+      <div id="topbar-rule-undo" class="topbar-rule-undo hidden">
+        <span id="topbar-rule-undo-text">Rule deleted.</span>
+        <button type="button" id="topbar-rule-undo-btn" class="button-danger topbar-rule-undo-btn">Undo</button>
+      </div>
       <!-- The two global action buttons used to live here; they now sit in a slim row at the
            top of the Overview page instead (see overview.html). On a feature page they read as
            clutter competing with that page's own per-feature action row, and Overview -- the
@@ -619,6 +629,76 @@
       setInterval(poll, 1000);
     })();
 
+    // AI Custom Rules delete Undo -- lives in the topbar (see the markup above) rather than as a
+    // page-local toast, and its state lives in localStorage rather than a page-local JS variable,
+    // because the whole point is surviving navigation: the delete is real and immediate the
+    // moment it's confirmed (see settings.html's confirmDeleteCustomRule), so a page reload
+    // during the 60-second window shouldn't silently forfeit the operator's chance to undo it.
+    // window.showRuleUndoToast is the entry point settings.html calls right after a real delete;
+    // this IIFE also resumes an already-pending one on every fresh page load.
+    (function () {
+      var STORAGE_KEY = "service-sentinel-rule-undo";
+      var UNDO_WINDOW_SECONDS = 60;
+      var container = document.getElementById("topbar-rule-undo");
+      var textEl = document.getElementById("topbar-rule-undo-text");
+      var btn = document.getElementById("topbar-rule-undo-btn");
+      var timer = null;
+
+      function clearPending() {
+        localStorage.removeItem(STORAGE_KEY);
+        if (timer) { clearInterval(timer); timer = null; }
+        if (container) container.classList.add("hidden");
+      }
+
+      function tick(expiresAt) {
+        var secondsLeft = Math.ceil((expiresAt - Date.now()) / 1000);
+        if (secondsLeft <= 0) { clearPending(); return; }
+        if (btn) btn.textContent = "Undo (" + secondsLeft + ")";
+      }
+
+      function showPending(ruleData, expiresAt) {
+        if (!container || !textEl || !btn) return;
+        container.classList.remove("hidden");
+        textEl.textContent = "Rule deleted.";
+        tick(expiresAt);
+        if (timer) clearInterval(timer);
+        timer = setInterval(function () { tick(expiresAt); }, 1000);
+
+        btn.onclick = function () {
+          clearPending();
+          fetch("/settings/ai-custom-rules/restore", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams(ruleData).toString(),
+          }).then(function (r) { return r.json(); }).then(function (result) {
+            if (result && result.ok && result.rule && typeof insertCustomRuleRow === "function") {
+              insertCustomRuleRow(result.rule);
+            }
+          });
+        };
+      }
+
+      window.showRuleUndoToast = function (ruleData) {
+        var expiresAt = Date.now() + UNDO_WINDOW_SECONDS * 1000;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ruleData: ruleData, expiresAt: expiresAt }));
+        showPending(ruleData, expiresAt);
+      };
+
+      var stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        try {
+          var parsed = JSON.parse(stored);
+          if (parsed && parsed.expiresAt > Date.now()) {
+            showPending(parsed.ruleData, parsed.expiresAt);
+          } else {
+            localStorage.removeItem(STORAGE_KEY);
+          }
+        } catch (e) {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+    })();
+
     // Sidebar collapse/expand -- the initial state is already restored by the head's blocking
     // script (same localStorage key, same before-first-paint treatment as theme/accent -- see
     // that script's own comment for why this moved there). This IIFE only wires up the click
@@ -964,6 +1044,12 @@
               box.remove();
               appendMessage(result && result.ok ? "action-result" : "error",
                              (result && result.message) || "Something went wrong.", false);
+              // Settings' own AI Custom Rules table (settings.html) defines this if, and only
+              // if, it's the page currently loaded -- confirming a rule from chat while already
+              // sitting on Settings updates the table live instead of needing a reload to see it.
+              if (result && result.ok && result.rule && typeof insertCustomRuleRow === "function") {
+                insertCustomRuleRow(result.rule);
+              }
             }).catch(function () {
               box.remove();
               appendMessage("error", "Couldn't reach the server.", false);

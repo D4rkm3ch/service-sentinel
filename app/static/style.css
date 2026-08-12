@@ -2306,6 +2306,9 @@ a.feature-card-issue-slot:hover {
 .custom-rules-table-wrap {
   overflow-x: auto;
 }
+.custom-rules-table th {
+  text-align: center;
+}
 .custom-rules-table th[data-sort-key] {
   cursor: pointer;
   user-select: none;
@@ -2319,9 +2322,9 @@ a.feature-card-issue-slot:hover {
   font-size: 10px;
   color: var(--accent);
 }
+.custom-rules-table col.col-category { width: 13%; }
 .custom-rules-table col.col-name { width: 24%; }
 .custom-rules-table col.col-type { width: 11%; }
-.custom-rules-table col.col-category { width: 13%; }
 .custom-rules-table col.col-actions { width: 56px; }
 .custom-rule-name {
   font-weight: 600;
@@ -2425,46 +2428,42 @@ tr.editing .custom-rule-name-cell .icon-button {
   color: var(--accent);
 }
 
-/* The Undo toast after a rule delete -- see confirmDeleteCustomRule/showRuleUndoToast in
-   settings.html. Fixed to the bottom of the viewport, stacking upward if more than one delete
-   happens inside the same 60-second window, so an operator clearing out several rules at once
-   doesn't have each toast silently replace the last. */
-.rule-undo-toast-container {
-  position: fixed;
-  left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 8px;
-  z-index: 200;
-}
-.rule-undo-toast {
+/* The Undo window after a rule delete -- see confirmDeleteCustomRule (settings.html) and the
+   showRuleUndoToast IIFE (base.html). Lives in the topbar itself (see .topbar-end's markup)
+   rather than a page-local toast, since its whole point is surviving navigation away from
+   Settings; a quiet corner toast that could vanish the moment the operator clicks anywhere else
+   undercuts that, so this is deliberately louder than a typical toast -- a solid error-red fill,
+   not just an outline, sized to sit comfortably among the topbar's other controls. */
+.topbar-rule-undo {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
+  gap: 10px;
+  padding: 5px 6px 5px 12px;
+  background: var(--error);
+  color: var(--on-error);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   font-size: 13px;
-  color: var(--text);
-}
-.rule-undo-btn {
-  border: 1px solid var(--accent);
-  color: var(--accent);
-  background: transparent;
-  border-radius: 6px;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
+  font-weight: 600;
   white-space: nowrap;
 }
-.rule-undo-btn:hover {
-  background: var(--accent);
-  color: var(--on-accent);
+.topbar-rule-undo.hidden {
+  display: none;
+}
+.topbar-rule-undo-btn {
+  /* .button-danger is an outlined red control everywhere else; on this already-solid-red pill
+     that reads as invisible, so it's inverted here to a solid light fill instead. */
+  background: var(--on-error);
+  border-color: var(--on-error);
+  color: var(--error);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.topbar-rule-undo-btn:hover {
+  background: transparent;
+  color: var(--on-error);
+  border-color: var(--on-error);
 }
 
 /* Updates' own 4-tier scale */

@@ -139,6 +139,7 @@ def test_confirm_action_executes_a_valid_action(client):
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is True
+        assert body["rule"]["name"] == "n"
         assert db.list_ai_custom_rules("logs")
     finally:
         for rule in db.list_ai_custom_rules("logs"):
