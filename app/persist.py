@@ -287,7 +287,15 @@ def _run_concurrent_phase(stage: str, containers: list[dict], worker: Callable[[
         # only ones still queued behind the concurrency cap skip straight to "not done" once
         # Cancel has been clicked (see check_state.request_cancel/is_cancel_requested), which is
         # what "in-flight calls finish naturally, queued ones don't start" means in practice.
-        result = None if check_state.is_cancel_requested("updates") else worker(container)
+        if check_state.is_cancel_requested("updates"):
+            result = None
+        else:
+            name = container["container_name"]
+            check_state.mark_item_active("updates", name)
+            try:
+                result = worker(container)
+            finally:
+                check_state.mark_item_done("updates", name)
         if on_progress:
             with progress_lock:
                 done_count += 1

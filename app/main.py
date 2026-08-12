@@ -1063,6 +1063,14 @@ def updates_partial(request: Request, sort: str = "importance", dir: str = "asc"
     )
 
 
+@app.get("/updates/active-items")
+def updates_active_items():
+    """Versions' equivalent of GET /logs/active-items -- see that route's own docstring. Covers
+    both of persist.py's concurrent phases (release-notes fetching, AI summarization), since
+    both go through the one shared _run_concurrent_phase that marks/unmarks a container active."""
+    return {"active": check_state.get_active_items("updates")}
+
+
 @app.get("/updates/partial/containers")
 def updates_partial_containers(request: Request, sort: str = "importance", dir: str = "asc",
                                 csort: str = "container", cdir: str = "asc"):

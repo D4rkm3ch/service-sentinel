@@ -93,3 +93,12 @@ def test_logs_and_compose_active_items_routes_are_independent(client):
         assert client.get("/compose/active-items").json() == {"active": []}
     finally:
         check_state.mark_item_done("logs", "radarr")
+
+
+def test_updates_active_items_route_reflects_current_state(client):
+    assert client.get("/updates/active-items").json() == {"active": []}
+    check_state.mark_item_active("updates", "sonarr")
+    try:
+        assert client.get("/updates/active-items").json() == {"active": ["sonarr"]}
+    finally:
+        check_state.mark_item_done("updates", "sonarr")

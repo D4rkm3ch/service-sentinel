@@ -1,0 +1,53 @@
+{#- Spinner next to whichever row's subject is in an AI call RIGHT NOW during a bulk check --
+    separate from a table's own much slower 20s content refresh (see that table's own
+    hx-trigger), polled far more often since which row that is changes far more quickly than the
+    table's actual content does. Shared by every table that shows per-subject bulk-check
+    progress (Runtime/Configuration findings, Versions) rather than three copies of the same
+    script -- see _issues_grouped_table.html and _updates_table.html for its two callers.
+
+    Re-executes on every htmx swap of the table's own outer div (htmx's default
+    allowScriptTags:true runs any <script> found in swapped-in content), so it clears any
+    previous interval first rather than stacking up duplicates on every 20s self-refresh.
+
+    Expects the including table to already carry data-subject="{{ the real subject name }}" on
+    each row, and a .row-name-cell class on the cell the spinner belongs in front of.
+
+    source: the url segment backing GET /{source}/active-items ("logs"/"compose"/"updates").
+    table_id: the id of the table's own outer polling div. -#}
+{% macro render(source, table_id) %}
+<script>
+  (function () {
+    if (window._activeItemsPollTimer) clearInterval(window._activeItemsPollTimer);
+    var source = "{{ source }}";
+    var tbody = document.querySelector('#{{ table_id }} tbody');
+    if (!tbody) return; // nothing currently shown to spin
+
+    function applyActive(names) {
+      var activeSet = new Set(names);
+      tbody.querySelectorAll('tr[data-subject]').forEach(function (row) {
+        var cell = row.querySelector('.row-name-cell');
+        if (!cell) return;
+        var existing = cell.querySelector('.row-analyzing-spinner');
+        var shouldShow = activeSet.has(row.dataset.subject);
+        if (shouldShow && !existing) {
+          var spin = document.createElement('span');
+          spin.className = 'spinner row-analyzing-spinner';
+          spin.setAttribute('aria-hidden', 'true');
+          cell.insertBefore(spin, cell.firstChild);
+        } else if (!shouldShow && existing) {
+          existing.remove();
+        }
+      });
+    }
+
+    function poll() {
+      fetch('/' + source + '/active-items').then(function (r) { return r.json(); }).then(function (data) {
+        applyActive(data.active || []);
+      }).catch(function () {});
+    }
+
+    poll();
+    window._activeItemsPollTimer = setInterval(poll, 1500);
+  })();
+</script>
+{% endmacro %}

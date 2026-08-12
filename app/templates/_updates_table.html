@@ -1,4 +1,5 @@
 {% import "_sort_header.html" as sh %}
+{% import "_active_items_spinner.html" as ais %}
 {% set preserve_silenced = "&show_silenced=1" if show_silenced else "" %}
 <div id="updates-table" hx-get="/updates/partial?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}{{ preserve_silenced }}"
      hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
@@ -27,8 +28,9 @@
   </thead>
   <tbody>
     {% for u in updates %}
-    <tr class="{{ 'row-error' if u.status == 'error' else 'row-unread' }} {{ 'row-clickable' if u.id else '' }}" {% if u.id %}onclick="window.location='/updates/{{ u.id }}'"{% endif %}>
-      <td class="mono"><span class="truncate-cell" title="{{ u.container_display_name }}">{{ u.container_display_name }}</span></td>
+    <tr class="{{ 'row-error' if u.status == 'error' else 'row-unread' }} {{ 'row-clickable' if u.id else '' }}"
+        data-subject="{{ u.container_name }}" {% if u.id %}onclick="window.location='/updates/{{ u.id }}'"{% endif %}>
+      <td class="mono row-name-cell"><span class="truncate-cell" title="{{ u.container_display_name }}">{{ u.container_display_name }}</span></td>
       <td>
         {% if u.stack_name %}
         <a href="/updates/stack?id={{ u.stack_id|urlencode }}" class="stack-cell" title="{{ u.stack_name }}" onclick="event.stopPropagation()">{{ u.stack_name }}</a>
@@ -77,4 +79,5 @@
 <p class="empty">No updates detected yet. Either everything's current, or the first check hasn't run.
 Use "Check Now" above to run one immediately.</p>
 {% endif %}
+{{ ais.render("updates", "updates-table") }}
 </div>

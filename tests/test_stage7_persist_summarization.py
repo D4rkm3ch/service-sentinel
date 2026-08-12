@@ -56,6 +56,26 @@ def test_new_update_with_notes_gets_summarized_and_stored():
     assert update["severity"] == "bugfix"
 
 
+def test_container_is_marked_active_during_its_summarization_call_and_cleared_after():
+    """Backs the Versions table's per-row spinner (see check_state.get_active_items,
+    GET /updates/active-items, _updates_table.html) -- a container must show as active while its
+    own summarization call is actually in flight, and never linger active afterward."""
+    seen_active_during_call = {}
+
+    def fake_summarize(**kwargs):
+        seen_active_during_call[kwargs["container_name"]] = set(check_state.get_active_items("updates"))
+        return ("## Bug Fixes\nFixed a bug.", "bugfix")
+
+    with patch("app.persist.ai_provider.is_configured", return_value=True), \
+         patch("app.persist.release_notes.get_release_notes", return_value=("Fixed a bug", "https://example.com")), \
+         patch("app.persist.compose_lookup.find_service_config", return_value={"image": "owner/repo"}), \
+         patch("app.persist.summarize_update", side_effect=fake_summarize):
+        persist.persist_check_outcome(_outcome(_c("sonarr", "update_available")))
+
+    assert seen_active_during_call["sonarr"] == {"sonarr"}
+    assert check_state.get_active_items("updates") == []
+
+
 def test_no_summarization_when_no_release_notes_were_found():
     with patch("app.persist.ai_provider.is_configured", return_value=True), \
          patch("app.persist.release_notes.get_release_notes", return_value=(None, "https://hub.docker.com/r/owner/repo/tags")), \
