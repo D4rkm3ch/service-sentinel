@@ -1626,12 +1626,20 @@ tr:hover .row-chevron {
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
-/* The findings table's per-row "this one's in an AI call right now" indicator (see
-   _issues_grouped_table.html) -- same .spinner look, just spaced off the container/file name
-   it sits in front of. */
+/* The name cell a bulk check's per-row "this one's in an AI call right now" spinner gets
+   inserted into (see _active_items_spinner.html) -- flex so the spinner sits inline to the
+   left of the name instead of stacking above it, which is what plain inline-block did against
+   .truncate-cell's own display:block (needed elsewhere for its ellipsis truncation to work). */
+.row-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.row-name-cell .truncate-cell {
+  min-width: 0;
+}
 .row-analyzing-spinner {
-  margin-right: 6px;
-  vertical-align: middle;
+  flex: none;
 }
 
 @keyframes spin {
