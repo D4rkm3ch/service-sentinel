@@ -1097,7 +1097,11 @@ function updateCustomRulesSortIndicators() {
     th.classList.toggle('sort-active', isActive);
     const indicator = th.querySelector('.sort-indicator');
     if (!indicator) return;
-    indicator.textContent = isActive ? (customRulesSortState.dir === 1 ? '▲' : '▼') : '';
+    // Always the same "^" glyph, flipped in place via a rotate class rather than swapped for a
+    // separate down-triangle character -- see .sort-arrow's own comment in style.css for why a
+    // glyph swap (even at the same font-size) isn't guaranteed to sit at the same vertical spot.
+    indicator.textContent = isActive ? '▲' : '';
+    indicator.classList.toggle('sort-indicator-desc', isActive && customRulesSortState.dir === -1);
   });
 }
 

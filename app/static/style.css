@@ -776,6 +776,9 @@ tr.row-clickable {
 }
 
 .sort-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: inherit;
   text-decoration: none;
   white-space: nowrap;
@@ -787,8 +790,25 @@ tr.row-clickable {
   color: var(--accent);
   font-weight: 700;
 }
+/* Site-wide sort arrow: a fixed inline-flex box (never just a bare inline glyph) is what makes
+   align-items:center on the flex row above actually center it against the text's full line
+   height instead of sitting low against its text baseline -- a plain inline character centers
+   only against its own single-character box, which read as sitting noticeably below the label.
+   Direction is shown by rotating this ONE glyph 180deg (.sort-arrow-desc) rather than swapping
+   between separate up/down glyph characters -- two different Unicode triangles don't share
+   identical glyph metrics/bounding boxes even at the same font-size, so the old swap-on-click
+   had a small but real vertical jump every time direction changed. A transform never touches
+   layout, so rotating in place is the one change that's guaranteed not to move anything. */
 .sort-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 9px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.sort-arrow-desc {
+  transform: rotate(180deg);
 }
 
 .nowrap {
@@ -2365,12 +2385,25 @@ a.feature-card-issue-slot:hover {
    the currently-sorted column's heading itself turns accent-colored, not just its arrow. */
 .custom-rules-table th.sort-active {
   color: var(--accent);
+  font-weight: 700;
 }
+/* Same fixed-glyph-plus-rotation treatment as .sort-arrow (see its own comment): always the
+   same "▲" character (set by updateCustomRulesSortIndicators in settings.html, not swapped for
+   "▼"), centered as its own inline-flex box rather than a bare inline glyph sitting low against
+   the header text's baseline, flipped in place via .sort-indicator-desc instead of jumping
+   between two different glyphs' slightly different metrics. */
 .sort-indicator {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
   width: 0.9em;
   font-size: 10px;
   color: var(--accent);
+  transition: transform 0.15s ease;
+}
+.sort-indicator-desc {
+  transform: rotate(180deg);
 }
 .custom-rules-table col.col-category { width: 13%; }
 .custom-rules-table col.col-name { width: 24%; }
@@ -3320,8 +3353,13 @@ textarea {
      leaving Category/Name too narrow. Giving it a percentage here too, mobile-only, keeps the
      desktop px value untouched while making this table redistribute the same predictable way
      every other one does. */
+  /* 20% was enough for the plain header text alone, but bolding the active sort column's text
+     (see .custom-rules-table th.sort-active's own font-weight, added alongside the arrow fix
+     below) made "CATEGORY" itself wide enough that the arrow no longer fit beside it on the
+     same line -- confirmed empirically (35.5px tall unwrapped at 22%+, 55px/wrapped below it).
+     23% keeps a small margin over that measured threshold. */
   .custom-rules-table col.col-category {
-    width: 20%;
+    width: 23%;
   }
   .custom-rules-table col.col-actions {
     width: 8%;

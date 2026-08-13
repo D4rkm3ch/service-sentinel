@@ -1,10 +1,10 @@
 {% macro sort_link(label, column, current_sort, current_dir, base_url, default_dir='asc', sort_param='sort', dir_param='dir', extra_qs='', partial_url=none, target_id=none, short_label=none) %}
 {% if current_sort == column %}
   {% set next_dir = 'desc' if current_dir == 'asc' else 'asc' %}
-  {% set arrow = '▲' if current_dir == 'asc' else '▼' %}
+  {% set arrow = true %}
 {% else %}
   {% set next_dir = default_dir %}
-  {% set arrow = '' %}
+  {% set arrow = false %}
 {% endif %}
 {% set qs = sort_param ~ '=' ~ column ~ '&' ~ dir_param ~ '=' ~ next_dir ~ extra_qs %}
 {# partial_url/target_id (when given) turn this into an htmx-driven swap of just that table's
@@ -23,6 +23,6 @@
   {%- else -%}
   {{ label }}
   {%- endif -%}
-  {% if arrow %} <span class="sort-arrow">{{ arrow }}</span>{% endif %}
+  {%- if arrow %}<span class="sort-arrow {{ 'sort-arrow-desc' if current_dir == 'desc' else '' }}" aria-hidden="true">▲</span>{% endif -%}
 </a>
 {% endmacro %}
