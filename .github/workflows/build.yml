@@ -9,6 +9,11 @@ on:
     # Version tags (v0.8.0, ...) build the same way a branch push does; the tag-name image tag
     # comes from the ref_name logic below, so a release gets a pullable :vX.Y.Z image.
     tags: ["v*"]
+  # Runs lint + tests on every PR against main, including Dependabot's, so a dependency bump is
+  # verified before it's merged rather than only after. The build job below skips this event
+  # entirely -- a PR has no business pushing an image to GHCR.
+  pull_request:
+    branches: [main]
   workflow_dispatch: {}
 
 # Workflow-level default is deliberately minimal -- only the build job actually pushes to GHCR,
@@ -48,6 +53,7 @@ jobs:
 
   build:
     needs: test
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
