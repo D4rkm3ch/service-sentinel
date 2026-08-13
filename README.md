@@ -5,92 +5,85 @@
 
 # Service Sentinel
 
-Service Sentinel watches your homelab's Docker containers and their compose files, and tells
-you three things: what a pending update actually changes for your setup, whether anything in
-your logs is genuinely broken, and whether your compose configuration has real security or
-reliability issues.
+An AI-assisted dashboard for your homelab's Docker containers: what updates actually change,
+whether your logs show a real problem, and whether your compose files have security or
+reliability issues. Point it at your Docker socket and your compose folder and it takes it from
+there.
 
-Three independent features, each off by default. Nothing runs and no AI tokens are spent until
-you enable a feature's schedule in Settings (or trigger a check yourself from the Overview
-page).
+## Features
 
-## What it does
+- **Update checks** - compares running containers against their registries and has your AI
+  provider summarize what changed and whether it's likely to break your setup.
+- **Runtime health** - watches container logs for genuine problems, filtered locally first so a
+  clean container never costs an API call.
+- **Configuration health** - reviews compose files for security, reliability, and optimization
+  issues whenever they change.
+- **Chat** - ask about the current state of your setup, or confirm a suggested action (silence a
+  finding, add a standing rule) straight from the chat panel.
 
-**Updates.** Checks your running containers against their registries on a schedule. When an
-image has genuinely changed, your configured AI provider summarizes what's new and what might
-break, checked against your own compose configuration rather than a generic changelog.
-
-**Runtime health.** Pulls each container's recent logs on a schedule and filters them locally
-down to lines that actually look suspicious. This happens before anything reaches an API, so a
-clean container never costs a token. Only the flagged excerpts go to your AI provider, which
-separates real problems from routine noise.
-
-**Configuration health.** Hashes every compose file it can see. A file that's new or has
-changed gets reviewed by your AI provider for security, reliability, and optimization issues,
-with secrets redacted before anything leaves your network. A file that hasn't changed costs
-nothing on repeat checks.
-
-Findings from Runtime and Configuration health are deduplicated by fingerprint, so a recurring
-issue updates its occurrence count instead of generating a new notification every day, and can
-be silenced from the dashboard once you've seen it and don't need to be told again.
-
-You can also ask it questions directly: a chat panel answers from your system's current state
-(pending updates, open findings, schedules) and, when you confirm the specific action it
-proposes, can silence a finding or teach it a standing rule for future checks. It never makes a
-change on its own; every action needs an explicit click.
+Each feature is off by default and runs on its own schedule once you turn it on, or on demand
+from a Check Now button.
 
 ## Screenshots
 
-### Desktop
+<p>
+  <img src="docs/screenshots/overview.jpg" width="49%">
+  <img src="docs/screenshots/runtime-health.jpg" width="49%">
+</p>
+<p>
+  <img src="docs/screenshots/finding-detail.jpg" width="49%">
+  <img src="docs/screenshots/settings.jpg" width="49%">
+</p>
 
-The Overview page, with each feature's status, latest findings, and schedule at a glance:
+The interface is fully responsive:
 
-![Overview page](docs/screenshots/overview.jpg)
+<p>
+  <img src="docs/screenshots/overview-mobile.jpg" width="32%">
+  <img src="docs/screenshots/nav-mobile.jpg" width="32%">
+  <img src="docs/screenshots/runtime-health-mobile.jpg" width="32%">
+</p>
 
-The navigation sidebar collapses to icons to give the dashboard the full width:
+## Setup
 
-![Overview page with the sidebar collapsed](docs/screenshots/overview-collapsed-nav.jpg)
+```yaml
+services:
+  service-sentinel:
+    image: ghcr.io/d4rkm3ch/service-sentinel:latest
+    container_name: service-sentinel
+    restart: unless-stopped
+    ports:
+      - "8420:8000"
+    environment:
+      - TZ=UTC
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /opt/stacks:/compose:ro
+      - service-sentinel-data:/data
 
-Runtime health, with active findings on top and every tracked container below:
+volumes:
+  service-sentinel-data:
+```
 
-![Runtime health page](docs/screenshots/runtime-health.jpg)
+The Docker socket and your compose folder only need to be mounted read-only. See
+`docker-compose.example.yml` for a hardened version of the same setup (read-only root
+filesystem, PUID/PGID, a dedicated `/etc` volume) and `.env.example` for the full list of
+variables with their defaults.
 
-A finding's detail page: the AI's read on what's wrong, and a suggested fix checked against
-your own setup:
+| Variable | Default | Description |
+| --- | --- | --- |
+| `COMPOSE_ROOT` | `/compose` | Path inside the container to your compose files |
+| `DATA_DIR` | `/data` | Path inside the container for the SQLite database |
+| `TZ` | `UTC` | Timezone used for schedules and timestamps |
+| `PUBLIC_URL` | (none) | Base URL for clickable notification links, optional |
+| `REGISTRY_CHECK_CONCURRENCY` | `10` | How many registries to check at once |
+| `LOG_MAX_LINES_PER_CONTAINER` | `5000` | Log lines pulled per container for Runtime health |
+| `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `SECRETS_ENCRYPTION_KEY` | (none) | Optional passphrase to encrypt secrets outside the data volume, see Security below |
+| `PUID` / `PGID` | `1000` | User/group ID the app runs as |
 
-![Finding detail page](docs/screenshots/finding-detail.jpg)
-
-Settings, including access control and your AI provider, all configured from the app rather
-than the compose file:
-
-![Settings page](docs/screenshots/settings.jpg)
-
-### Mobile
-
-The interface is fully responsive. Tables collapse to just a name, a severity indicator, and a
-read state so nothing scrolls sideways, and the sidebar and chat panel become full-screen
-overlays instead of permanently taking up space.
-
-![Overview page on mobile](docs/screenshots/overview-mobile.jpg)
-
-The navigation drawer opens over the page instead of pushing it aside:
-
-![Navigation drawer open on mobile](docs/screenshots/nav-mobile.jpg)
-
-Runtime health on mobile:
-
-![Runtime health page on mobile](docs/screenshots/runtime-health-mobile.jpg)
-
-## What it needs
-
-- Read-only access to the Docker socket, to list running containers, their images, and logs
-- Read-only access to the folder where your compose files live
-- An AI provider, configured from the Settings page in the app itself rather than the compose
-  file: an API key for Anthropic (Claude), Google Gemini, or OpenAI (GPT), or any
-  OpenAI-compatible endpoint (Ollama, LM Studio, llama.cpp, vLLM, OpenRouter), which for a
-  local model server means no API key and no per-token cost at all
-- Optionally, a GitHub token to raise the GitHub API rate limit used for fetching release notes
-  (60 requests an hour unauthenticated, 5000 with a token), also set from Settings
+Everything else, your AI provider and its API key, the GitHub token, notifications, and each
+feature's schedule, is set from the Settings page after the container is up, and takes effect
+immediately with no redeploy.
 
 ## Per-container labels
 
@@ -104,58 +97,24 @@ labels:
   servicesentinel.changelog_url: "https://example.com/changelog"  # use this URL directly, skip auto-detection
 ```
 
-## Running it
-
-See `docker-compose.example.yml`. Copy it into your stacks folder, fill in `.env`, and deploy.
-Once it's up, enable scheduling for whichever features you want under Settings → Scheduling
-(each feature's card on the Overview page also has a Check Now button for a one-off run).
-Everything starts off.
-
 ## Security
 
-**Access control.** There is no login by default. The app assumes it's running on a trusted
-private network. The first time you open it, an onboarding prompt asks you to either set a
-username and password or explicitly turn this off; you can change that choice later in
-Settings → Access Control, which sits at the top of the page. Once set, your browser will
-prompt for the credentials with its own standard sign-in dialog, and every request requires
-them until you disable it. There's also an optional "skip login on the local network" toggle,
-for keeping the gate off for your own LAN while still requiring it from anywhere else. Note
-that this checks the direct connection's own source address, so it isn't meaningful if the app
-sits behind a reverse proxy: the proxy's address is what it would see, not the original
-visitor's. For anything internet-facing, still prefer your own layer in front (a reverse proxy
-with auth, a VPN, or similar) rather than relying on any single gate.
-
-**Secrets at rest.** API keys, the Apprise notification URL, and the Access Control password
-are stored in the SQLite database under `DATA_DIR`, always encrypted, never as plain text. By
-default the app generates a random key on first launch and keeps it at `DATA_DIR/secrets.key`
-(owner-read-only). That protects against anything that exposes only the database file (a copied
-or synced `.db`, an SQL-level read), but since the key lives in the same volume, not against
-someone holding the entire volume. For that stronger case, set `SECRETS_ENCRYPTION_KEY` in your
-`.env`: it takes precedence over the key file and keeps the key out of the volume entirely; see
-`.env.example` for details. Either way, lose the key and you lose the secrets. They're
-unrecoverable without it, and you'd re-enter them in Settings.
-
-**Secret redaction is best-effort.** Compose files sent for Configuration health review get
-secret-looking values redacted first, by key name (`PASSWORD`, `TOKEN`, and similar), by value
-shape (connection-string passwords, long token-shaped strings), and across the `environment:`,
-`labels:`, `command:`, and `secrets:` sections. Heuristics can't catch everything, though. If a
-value is genuinely sensitive, keep it out of the compose file entirely (Docker secrets files or
-an external secrets manager) rather than trusting redaction alone.
-
-**The Docker socket.** The example compose file mounts the socket `:ro`, but know what that
-does and doesn't do: it stops the container replacing the socket file itself, and nothing more.
-It does not restrict which Docker Engine API calls are accepted over it. The real protection is
-that this app's code only ever issues list/inspect calls. If you want an enforced boundary
-rather than a code-review one, put a Docker socket proxy that allowlists specific API endpoints
-in front of it.
+There's no login by default, since the app assumes it's running on a trusted private network,
+but an onboarding prompt on first launch lets you set a username and password (Settings ->
+Access Control if you change your mind later). Everything secret it stores, API keys, the
+Apprise URL, that password, is always encrypted at rest, using either an auto-generated key or
+your own `SECRETS_ENCRYPTION_KEY` passphrase. The Docker socket is mounted read-only and the app
+only ever issues list/inspect calls against it; for a hard enforcement boundary rather than a
+code-reviewed one, put a socket proxy in front of it. Compose files sent to the AI for review
+are redacted for anything that looks like a secret first, but that's best-effort: keep truly
+sensitive values out of compose files entirely.
 
 ## Backup and restore
 
-Everything Service Sentinel knows lives in the `service-sentinel-data` volume: the SQLite
-database (`/data/service_sentinel.db` in the container) plus, unless you set
-`SECRETS_ENCRYPTION_KEY`, the auto-generated encryption key (`/data/secrets.key`) that the
-database's stored secrets are unrecoverable without. To back both up, stop the container first
-(SQLite files copied mid-write can be inconsistent), then copy them out:
+Everything lives in the `service-sentinel-data` volume: the SQLite database plus, unless you set
+`SECRETS_ENCRYPTION_KEY`, the auto-generated encryption key that the database's stored secrets
+are unrecoverable without. Stop the container first (SQLite files copied mid-write can be
+inconsistent), then copy both out:
 
 ```bash
 docker compose stop service-sentinel
@@ -164,9 +123,7 @@ docker cp service-sentinel:/data/secrets.key ./secrets.key.backup
 docker compose start service-sentinel
 ```
 
-To restore, stop the container, copy the backups over the same paths, and start it again. If
-you use `SECRETS_ENCRYPTION_KEY` instead, there's no key file. Back up the passphrase itself,
-somewhere separate from the database file.
+To restore, stop the container, copy the backups over the same paths, and start it again.
 
 ## Status
 
