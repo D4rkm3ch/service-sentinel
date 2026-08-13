@@ -57,6 +57,7 @@
   {% endif %}
 
   {% if members %}
+  <div class="table-scroll-wrap">
   <table class="findings-table">
     <colgroup>
       <col style="width: 26%">
@@ -109,6 +110,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="empty">No tracked members found for this stack.</p>
   {% endif %}

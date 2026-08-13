@@ -3,7 +3,7 @@
 {% set table_id = source ~ "-issues-table" %}
 {% set partial_url = "/" ~ source ~ "/partial/issues" %}
 {% set preserve_other = "&show_silenced=1" if show_silenced else "" %}
-<div id="{{ table_id }}" hx-get="{{ partial_url }}?sort={{ sort }}&dir={{ dir }}{{ preserve_other }}"
+<div id="{{ table_id }}" class="table-scroll-wrap" hx-get="{{ partial_url }}?sort={{ sort }}&dir={{ dir }}{{ preserve_other }}"
      hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
 {% if issues %}
 <table class="findings-table">

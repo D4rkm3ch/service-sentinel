@@ -2906,3 +2906,199 @@ textarea {
   -webkit-appearance: none;
   margin: 0;
 }
+
+/* ===========================================================================
+   Mobile
+   ===========================================================================
+   Every rule above this point was written for a desktop-width viewport --
+   this is the whole app's one mobile pass, applied as overrides rather than
+   scattered through the file, so the responsive story lives in one place.
+   One breakpoint (768px) rather than several: this app has exactly two
+   layout regimes that matter -- "wide enough for the sidebar/chat panel to
+   push content" and "not" -- not a spectrum of tablet/desktop/wide-desktop
+   tiers, so a second breakpoint would be complexity with nothing to spend it
+   on. Everything below only changes layout/sizing; no color/theme rule
+   lives in this section, on purpose, so light/dark/every accent still apply
+   identically above and below the breakpoint. */
+
+/* A generic horizontal-scroll safety net for every data table on the site
+   (see table-scroll-wrap's own callers -- every *_table.html partial plus
+   the plain findings/updates tables on stack and finding detail pages).
+   Applies at every width, not just under the breakpoint: harmless no-op on
+   desktop (nothing to scroll there), and it's what keeps a table usable on
+   mobile without needing table-layout:auto below to do all the work alone. */
+.table-scroll-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  /* ---- App shell: sidebar becomes a full overlay drawer, not a rail that
+     permanently reserves screen width (there's real developer commentary on
+     body's own padding-left, above, already flagging this as the planned
+     follow-up) -- and the chat panel becomes a full-screen overlay instead
+     of a resizable side column. Neither pushes content on mobile; both
+     cover it, dismissed by their own close control or (sidebar) a tap on
+     the scrim behind it. */
+  body {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .topbar {
+    right: 0;
+  }
+  .topbar-center {
+    max-width: calc(100vw - 180px);
+  }
+
+  .sidebar {
+    width: min(82vw, 300px);
+    top: 0;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 60;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+  }
+  html[data-sidebar="expanded"] .sidebar {
+    transform: translateX(0);
+  }
+  .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: var(--modal-scrim);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+  html[data-sidebar="expanded"] .sidebar-scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .chat-panel {
+    width: 100vw;
+  }
+  .chat-resize-handle {
+    display: none;
+  }
+
+  /* ---- Topbar: the brand wordmark and the accent picker's own color-name
+     label are the two lowest-value uses of topbar width at this size (the
+     logo mark and the swatch dot alone still carry their meaning) -- both
+     keep their accessible name (aria-label on the link/button), just hidden
+     visually, so screen readers are unaffected by either disappearing. ---- */
+  .brand-text {
+    display: none;
+  }
+  #accent-swatch-label {
+    display: none;
+  }
+  /* The Undo pill's own explanatory text ("Rule deleted.") is the one
+     thing in the topbar safe to drop on mobile without losing meaning --
+     the red pill plus "Undo (N)" is self-explanatory on its own, and this
+     is what keeps the pill from crowding out the accent/theme controls
+     beside it. */
+  #topbar-rule-undo-text {
+    display: none;
+  }
+
+  /* ---- A feature page's own header row (title + Check Now/Reset & Re-
+     Check/Regenerate) was deliberately built to clip rather than wrap on
+     desktop (see .feature-header's own comment) -- clipping a button
+     unreachable is fine when the alternative is a narrow side-panel squeeze
+     that resolves itself by widening the window back out, but on mobile
+     there's no wider window coming, so an unreachable "Reset & Re-Check"
+     is a dead end instead of a transient squeeze. Wrapping the actions onto
+     their own row is the better trade here. */
+  .feature-header {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .feature-header .topbar-right {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .feature-actions {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  /* Overview's own Check All / Reset & Re-Check row, and any other plain
+     button row that assumed desktop width -- wraps instead of overflowing. */
+  .action-row {
+    flex-wrap: wrap;
+  }
+
+  /* ---- Overview's module rows: .feature-card is a two-column flex row on
+     desktop (details on the left, top-issue slots on the right) with a
+     min-width on each side that adds up to well over a phone's width. Left
+     as-is, the row doesn't wrap -- it just squeezes .feature-card-main down
+     past what its Last run/Schedule/Notifications strip can lay out on one
+     line, and the overlapping labels never triggered the page-level
+     horizontal-scroll check because the overflow is clipped inside the
+     card, not visible as a scrollbar. Stacking both halves into a single
+     column fixes the root cause (there's no longer a competing sibling
+     forcing .feature-card-main narrow), rather than patching the symptom
+     with a smaller font. */
+  .feature-card {
+    flex-direction: column;
+  }
+  .feature-card-issues {
+    flex-direction: column;
+  }
+  .feature-card-issue-slot:nth-of-type(1),
+  .feature-card-issue-slot:nth-of-type(2) {
+    display: flex;
+  }
+  /* The meta strip's desktop layout (see .feature-card-meta-row's own
+     comments) pins Schedule/Notifications with a fixed margin-left and
+     max-widths sized for desktop's spare width -- on a narrow column those
+     add up to more than the row has, which is what overlapped the labels.
+     Wrapping plus letting each column size to roughly a third of the row
+     (instead of the desktop pinning) gives every label room without it. */
+  .feature-card-meta {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  .feature-card-meta-row:nth-child(1),
+  .feature-card-meta-row:nth-child(2),
+  .feature-card-meta-row:nth-child(3) {
+    flex: 1 1 30%;
+    max-width: none;
+    min-width: 100px;
+    margin-left: 0;
+  }
+
+  /* ---- Data tables: forcing table-layout:auto (rather than the fixed
+     layout every table uses above this section) lets each column claim
+     what its own content actually needs instead of a fraction of whatever
+     narrow width the phone happens to have -- combined with min-width
+     below (wider than any phone) and .table-scroll-wrap's overflow-x this
+     is what turns "every column squeezed to an unreadable sliver" into "a
+     normal-looking table you swipe sideways to see the rest of", the
+     standard mobile pattern for wide data tables short of a full stacked-
+     card redesign. */
+  .findings-table,
+  .updates-table,
+  .containers-table,
+  .custom-rules-table {
+    table-layout: auto;
+    min-width: 640px;
+  }
+
+  /* ---- Settings' side-by-side "field + Test & Save button" rows already
+     shrink the input via flex/min-width:0 rather than overflow, but the
+     input can get uncomfortably narrow (a few characters) before the
+     buttons beside it stop taking space -- letting the row wrap gives the
+     input its own full-width line instead. */
+  .api-key-row {
+    flex-wrap: wrap;
+  }
+  .api-key-row input {
+    max-width: 100%;
+    flex-basis: 100%;
+  }
+}

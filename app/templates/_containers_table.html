@@ -1,5 +1,5 @@
 {% import "_sort_header.html" as sh %}
-<div id="containers-table" hx-get="/updates/partial/containers?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}"
+<div id="containers-table" class="table-scroll-wrap" hx-get="/updates/partial/containers?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}"
      hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
 {% if is_partial %}<span id="containers-count-badge" class="heading-count" hx-swap-oob="true">({{ containers|length }})</span>{% endif %}
 {% set preserve_other = '&sort=' ~ sort ~ '&dir=' ~ dir %}

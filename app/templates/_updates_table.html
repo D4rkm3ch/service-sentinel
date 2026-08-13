@@ -1,7 +1,7 @@
 {% import "_sort_header.html" as sh %}
 {% import "_active_items_spinner.html" as ais %}
 {% set preserve_silenced = "&show_silenced=1" if show_silenced else "" %}
-<div id="updates-table" hx-get="/updates/partial?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}{{ preserve_silenced }}"
+<div id="updates-table" class="table-scroll-wrap" hx-get="/updates/partial?sort={{ sort }}&dir={{ dir }}&csort={{ csort }}&cdir={{ cdir }}{{ preserve_silenced }}"
      hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
 {% set preserve_other = '&csort=' ~ csort ~ '&cdir=' ~ cdir ~ preserve_silenced %}
 {% if updates %}

@@ -79,6 +79,7 @@
 
   {% if findings %}
   {% set sort_extra_qs = sort_extra_qs|default('') %}
+  <div class="table-scroll-wrap">
   <table class="findings-table">
     <colgroup>
       <col style="width: 30%">
@@ -126,6 +127,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="empty">
     No findings for this one.

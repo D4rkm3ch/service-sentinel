@@ -133,10 +133,10 @@
       <button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" aria-label="Toggle navigation" aria-expanded="false">
         <svg class="icon"><use href="#icon-menu"/></svg>
       </button>
-      <a href="/" class="brand">
+      <a href="/" class="brand" aria-label="Service Sentinel">
         <img src="/static/logo-white.svg" alt="" class="brand-logo brand-logo-dark">
         <img src="/static/logo-black.svg" alt="" class="brand-logo brand-logo-light">
-        Service Sentinel
+        <span class="brand-text">Service Sentinel</span>
       </a>
     </div>
     <div class="topbar-center">
@@ -194,7 +194,7 @@
            vision deficiency or anyone who wants zero color dependency. -->
       <div class="accent-picker">
         <button type="button" id="accent-swatch-btn" class="icon-button accent-swatch-btn"
-                aria-haspopup="true" aria-expanded="false" title="Accent color">
+                aria-haspopup="true" aria-expanded="false" title="Accent color" aria-label="Accent color">
           <span class="accent-swatch-dot accent-dot-nordic" aria-hidden="true"></span>
           <span id="accent-swatch-label">Nordic Blue</span>
         </button>
@@ -254,6 +254,14 @@
       <svg class="icon"><use href="#icon-settings"/></svg><span class="sidebar-label">Settings</span>
     </a>
   </nav>
+
+  <!-- Below the mobile breakpoint the sidebar becomes a full overlay drawer instead of a
+       permanently-visible push-layout rail (see .sidebar's own mobile override in style.css) --
+       this dims the content behind it and gives a tap-anywhere-outside way to close it, exactly
+       like a native app's nav drawer. Invisible and non-interactive (pointer-events:none)
+       whenever the sidebar isn't open, and above the mobile breakpoint it never renders at all,
+       since the desktop rail isn't an overlay to begin with. -->
+  <div id="sidebar-scrim" class="sidebar-scrim" aria-hidden="true"></div>
 
   <!-- The app's ONE scroll container -- the window itself never scrolls (body is a fixed-height
        shell, see body/.app-scroll in style.css). This is what keeps the vertical scrollbar
@@ -725,6 +733,30 @@
         var next = document.documentElement.dataset.sidebar === "expanded" ? "collapsed" : "expanded";
         apply(next);
         try { localStorage.setItem(STORAGE_KEY, next); } catch (e) { /* private browsing, etc. */ }
+      });
+
+      // Tapping the scrim (mobile-only overlay backdrop, see its own markup/CSS) closes the
+      // drawer exactly like clicking the hamburger again -- same apply()/persistence, just a
+      // second way to reach it. The scrim itself is invisible and pointer-events:none whenever
+      // the sidebar is collapsed, so this listener is inert (never reachable) on desktop or
+      // whenever the drawer isn't actually open.
+      var scrim = document.getElementById("sidebar-scrim");
+      if (scrim) {
+        scrim.addEventListener("click", function () {
+          apply("collapsed");
+          try { localStorage.setItem(STORAGE_KEY, "collapsed"); } catch (e) { /* private browsing, etc. */ }
+        });
+      }
+
+      // On mobile the sidebar is a full-screen overlay drawer (see its own CSS), not the
+      // desktop rail persisting open/collapsed across navigation is meant for -- without this, a
+      // real page navigation (these are plain links, not an SPA) would land on the next page
+      // with the drawer still covering it, since the persisted state carries straight over. Only
+      // touches the persisted value, not apply(), since the page is navigating away regardless.
+      document.querySelectorAll(".sidebar-link").forEach(function (link) {
+        link.addEventListener("click", function () {
+          try { localStorage.setItem(STORAGE_KEY, "collapsed"); } catch (e) { /* private browsing, etc. */ }
+        });
       });
     })();
 

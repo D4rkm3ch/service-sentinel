@@ -1,5 +1,5 @@
 {% import "_sort_header.html" as sh %}
-<div id="{{ target_id }}" hx-get="{{ partial_url }}?csort={{ csort }}&cdir={{ cdir }}"
+<div id="{{ target_id }}" class="table-scroll-wrap" hx-get="{{ partial_url }}?csort={{ csort }}&cdir={{ cdir }}"
      hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
 {% if is_partial %}<span id="{{ target_id }}-count-badge" class="heading-count" hx-swap-oob="true">({{ items|length }})</span>{% endif %}
 {% if items %}
