@@ -785,6 +785,7 @@ tr.row-clickable {
 }
 .sort-link-active {
   color: var(--accent);
+  font-weight: 700;
 }
 .sort-arrow {
   font-size: 9px;
@@ -3105,6 +3106,24 @@ textarea {
   .feature-header #check-status {
     grid-area: status;
   }
+  /* The idle status line used to be one long nowrap+ellipsis string ("Last checked: 08:43, 13
+     Aug 2026 * 61 checked * 15 updates fo..."), which on a phone-width row clipped well before
+     the actually-useful counts at the end even with the full-width row above. Splitting it (see
+     _status.html) into the date and the counts that follow it, then stacking those two parts as
+     their own lines, means the date is never competing with the counts for the same line's
+     width -- each gets its own, and the counts line still ellipsizes on its own if it's still
+     too long for one line rather than wrapping further. */
+  .feature-header .status-badge.status-idle {
+    display: block;
+    white-space: normal;
+  }
+  .status-summary-when,
+  .status-summary-counts {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   /* Overview's own Check All / Reset & Re-Check row, and any other plain
      button row that assumed desktop width -- wraps instead of overflowing. */
@@ -3259,21 +3278,29 @@ textarea {
      because -- unlike .col-category/.col-actions above, which are class-based to begin with --
      every <col> below carries its desktop width as an inline style attribute, which normal
      stylesheet specificity can never outrank. */
+  /* 9% (an earlier value here) undershot badly -- measuring the actual rendered header text
+     ("READ" bold+uppercase+letter-spaced, plus its sort arrow when active) came to ~49px, while
+     9% of this table's own rendered width was only ~31px including padding. That's not a small
+     visual overflow, it's less room than even the plain unsorted word needs on its own, which
+     is why either the word or the arrow was always getting sliced regardless of which one was
+     active. The values below are sized from that actual measurement (with margin), not guessed. */
   .findings-table col.col-name,
-  .updates-table col.col-name,
-  .status-list-table col.col-name {
-    width: 68% !important;
+  .updates-table col.col-name {
+    width: 56% !important;
   }
   .findings-table col.col-severity,
   .updates-table col.col-severity {
-    width: 9% !important;
+    width: 17% !important;
   }
   .findings-table col.col-read,
   .updates-table col.col-read {
-    width: 9% !important;
+    width: 17% !important;
+  }
+  .status-list-table col.col-name {
+    width: 68% !important;
   }
   .status-list-table col.col-status {
-    width: 14% !important;
+    width: 24% !important;
   }
   /* These columns are down to a 12px square or a 15px icon -- the base 12px left/right cell
      padding (fine for text) alone would need more width than the 9-14% share above leaves,

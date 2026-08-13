@@ -10,8 +10,16 @@
     <span id="check-status-text">A check is currently running…</span>
   </div>
 {% else %}
+  {# Split right after the date/time ("Last checked: 08:43, 13 Aug 2026") from the counts that
+     follow it ("61 checked • 15 updates found...") -- the first " • " in the string always
+     falls exactly there (see format_summary in check_state.py, which never puts one earlier),
+     so this is a safe, unambiguous split point rather than a guess. Kept as one line on desktop
+     (see .status-badge.status-idle), where there's room; mobile stacks the two parts instead of
+     truncating the whole thing to whatever fits after the header's action buttons take their
+     share -- see the mobile media query's own rule for this. #}
+  {% set summary_parts = status_summary_text.split(' • ', 1) %}
   <div class="status-badge status-idle" id="check-status-text">
-    {{ status_summary_text }}
+    <span class="status-summary-when">{{ summary_parts[0] }}</span>{% if summary_parts|length > 1 %}<span class="status-summary-counts"> • {{ summary_parts[1] }}</span>{% endif %}
   </div>
 {% endif %}
 </div>
