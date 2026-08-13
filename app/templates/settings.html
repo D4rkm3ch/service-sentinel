@@ -623,7 +623,7 @@ function saveOpenAiCompat() {
       }
       resultSlot.innerHTML = '<span class="key-configured-badge">✓ Configured</span>';
     } else {
-      resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+      resultSlot.innerHTML = '<span class="test-result-error">' + escapeHtml(data.message) + '</span>';
     }
   }).catch(() => {
     resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
@@ -688,7 +688,7 @@ function testAndSaveApiKey(provider) {
       document.getElementById(provider + '_key_cancel_btn').style.display = 'none';
       resultSlot.innerHTML = '<span class="key-configured-badge">✓ Configured</span>';
     } else {
-      resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+      resultSlot.innerHTML = '<span class="test-result-error">' + escapeHtml(data.message) + '</span>';
     }
   }).catch(() => {
     resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
@@ -766,7 +766,7 @@ function saveAuthSecret() {
   if (!username || !value) return;
   const gate = passwordStrengthGate('auth_secret_field', 'auth_secret_confirm_field', {{ auth_secret_min_length }});
   if (!gate.ok) {
-    resultSlot.innerHTML = '<span class="test-result-error">' + gate.message + '</span>';
+    resultSlot.innerHTML = '<span class="test-result-error">' + escapeHtml(gate.message) + '</span>';
     return;
   }
   fetch('/settings/access-control/credentials', {
@@ -790,7 +790,7 @@ function saveAuthSecret() {
       // Auth on its very next request.
       window.location.reload();
     } else {
-      resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+      resultSlot.innerHTML = '<span class="test-result-error">' + escapeHtml(data.message) + '</span>';
     }
   }).catch(() => {
     resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
@@ -842,7 +842,7 @@ function saveConcurrency(provider, rawValue) {
       input.value = data.value;
       slot.innerHTML = '<span class="saved-indicator">Saved</span>';
     } else {
-      slot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+      slot.innerHTML = '<span class="test-result-error">' + escapeHtml(data.message) + '</span>';
     }
   }).catch(() => {
     slot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
@@ -1143,7 +1143,7 @@ function saveRetries(rawValue) {
       input.value = data.value;
       slot.innerHTML = '<span class="saved-indicator">Saved</span>';
     } else {
-      slot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+      slot.innerHTML = '<span class="test-result-error">' + escapeHtml(data.message) + '</span>';
     }
   }).catch(() => {
     slot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';

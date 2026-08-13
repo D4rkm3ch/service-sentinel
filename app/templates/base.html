@@ -343,6 +343,24 @@
   </aside>
 
   <script>
+    // Shared by every "Test & Save" result slot across Settings and the onboarding wizard,
+    // which build their success/error markup via innerHTML string concatenation (e.g.
+    // resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>') --
+    // convenient for a one-line badge, but that message can come from surprisingly far outside
+    // this app's control: the AI-provider "Test & Save" routes echo back the underlying SDK
+    // exception's own text (ai_provider.py's test_*_key/test_openai_compat, e.g. "Couldn't
+    // verify the endpoint: <exc>"), which for the OpenAI-compatible provider is the *response
+    // body of whatever URL the operator just typed in* -- explicitly allowed to be a plain
+    // http:// LAN address (Ollama, LM Studio, etc.), not just a trusted vendor API. A
+    // compromised or spoofed endpoint on that LAN returning HTML/script in its error body would
+    // otherwise render as live markup in the operator's own browser instead of inert error text.
+    // Every such call site wraps its interpolated value in this before handing it to innerHTML.
+    function escapeHtml(value) {
+      var div = document.createElement("div");
+      div.textContent = value == null ? "" : String(value);
+      return div.innerHTML;
+    }
+
     // Live character-count/match/strength feedback under a new-password field, shared between
     // Settings > Connections & Access and the onboarding wizard's own Access Control step so
     // there's one scoring rule instead of two that could quietly drift apart. Only the client

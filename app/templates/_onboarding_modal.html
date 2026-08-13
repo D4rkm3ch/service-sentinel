@@ -184,7 +184,7 @@ function onboardingSaveAiKey() {
         slot.innerHTML = '';
         onboardingGoTo(2);
       } else {
-        slot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+        slot.innerHTML = '<span class="test-result-error">' + escapeHtml(data.message) + '</span>';
       }
     })
     .catch(() => {
@@ -212,7 +212,7 @@ function onboardingSaveGithub() {
       slot.innerHTML = '';
       onboardingGoTo(3);
     } else {
-      slot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+      slot.innerHTML = '<span class="test-result-error">' + escapeHtml(data.message) + '</span>';
     }
   }).catch(() => {
     slot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
@@ -229,7 +229,7 @@ function onboardingEnable() {
   }
   const gate = passwordStrengthGate('onboarding_password_field', 'onboarding_password_confirm_field', {{ auth_secret_min_length }});
   if (!gate.ok) {
-    resultSlot.innerHTML = '<span class="test-result-error">' + gate.message + '</span>';
+    resultSlot.innerHTML = '<span class="test-result-error">' + escapeHtml(gate.message) + '</span>';
     return;
   }
   fetch('/settings/access-control/credentials', {
@@ -244,7 +244,7 @@ function onboardingEnable() {
       // to discover that on whatever they happen to click next.
       window.location.reload();
     } else {
-      resultSlot.innerHTML = '<span class="test-result-error">' + data.message + '</span>';
+      resultSlot.innerHTML = '<span class="test-result-error">' + escapeHtml(data.message) + '</span>';
     }
   }).catch(() => {
     resultSlot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
