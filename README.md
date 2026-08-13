@@ -26,21 +26,20 @@ from a Check Now button.
 
 ## Screenshots
 
-<p>
-  <img src="docs/screenshots/overview.jpg" width="49%">
-  <img src="docs/screenshots/runtime-health.jpg" width="49%">
-</p>
-<p>
-  <img src="docs/screenshots/finding-detail.jpg" width="49%">
-  <img src="docs/screenshots/settings.jpg" width="49%">
-</p>
+![Overview page](docs/screenshots/overview.jpg)
+
+![Runtime health page](docs/screenshots/runtime-health.jpg)
+
+![Finding detail page](docs/screenshots/finding-detail.jpg)
+
+![Settings page](docs/screenshots/settings.jpg)
 
 The interface is fully responsive:
 
 <p>
-  <img src="docs/screenshots/overview-mobile.jpg" width="32%">
-  <img src="docs/screenshots/nav-mobile.jpg" width="32%">
+  <img src="docs/screenshots/updates-mobile.jpg" width="32%">
   <img src="docs/screenshots/runtime-health-mobile.jpg" width="32%">
+  <img src="docs/screenshots/finding-detail-mobile.jpg" width="32%">
 </p>
 
 ## Setup
@@ -55,6 +54,8 @@ services:
       - "8420:8000"
     environment:
       - TZ=UTC
+      - PUID=${PUID}
+      - PGID=${PGID}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /opt/stacks:/compose:ro
@@ -62,24 +63,20 @@ services:
 
 volumes:
   service-sentinel-data:
+
+networks: {}
 ```
 
 The Docker socket and your compose folder only need to be mounted read-only. See
 `docker-compose.example.yml` for a hardened version of the same setup (read-only root
-filesystem, PUID/PGID, a dedicated `/etc` volume) and `.env.example` for the full list of
-variables with their defaults.
+filesystem, a dedicated `/etc` volume) and `.env.example` for the full list of variables with
+their defaults.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `COMPOSE_ROOT` | `/compose` | Path inside the container to your compose files |
-| `DATA_DIR` | `/data` | Path inside the container for the SQLite database |
 | `TZ` | `UTC` | Timezone used for schedules and timestamps |
-| `PUBLIC_URL` | (none) | Base URL for clickable notification links, optional |
-| `REGISTRY_CHECK_CONCURRENCY` | `10` | How many registries to check at once |
-| `LOG_MAX_LINES_PER_CONTAINER` | `5000` | Log lines pulled per container for Runtime health |
-| `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `SECRETS_ENCRYPTION_KEY` | (none) | Optional passphrase to encrypt secrets outside the data volume, see Security below |
-| `PUID` / `PGID` | `1000` | User/group ID the app runs as |
+| `PUID` | `1000` | User ID the container runs as |
+| `PGID` | `1000` | Group ID the container runs as |
 
 Everything else, your AI provider and its API key, the GitHub token, notifications, and each
 feature's schedule, is set from the Settings page after the container is up, and takes effect
