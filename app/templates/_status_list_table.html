@@ -3,31 +3,31 @@
      hx-trigger="every 20s, checkComplete from:body" hx-swap="outerHTML">
 {% if is_partial %}<span id="{{ target_id }}-count-badge" class="heading-count" hx-swap-oob="true">({{ items|length }})</span>{% endif %}
 {% if items %}
-<table class="containers-table">
+<table class="containers-table status-list-table">
   <colgroup>
     {% if show_stack_column %}
     <col style="width: 26%">
-    <col style="width: 20%">
-    <col style="width: 20%">
+    <col style="width: 20%" class="mobile-hide">
+    <col style="width: 20%" class="mobile-hide">
     <col style="width: 16%">
-    <col style="width: 12%">
-    <col style="width: 6%">
+    <col style="width: 12%" class="mobile-hide">
+    <col style="width: 6%" class="mobile-hide">
     {% else %}
     <col style="width: 38%">
-    <col style="width: 24%">
+    <col style="width: 24%" class="mobile-hide">
     <col style="width: 20%">
-    <col style="width: 12%">
-    <col style="width: 6%">
+    <col style="width: 12%" class="mobile-hide">
+    <col style="width: 6%" class="mobile-hide">
     {% endif %}
   </colgroup>
   <thead>
     <tr>
       <th>{{ sh.sort_link('Configuration file' if use_query_param else 'Container', 'container', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
-      {% if show_stack_column %}<th>{{ sh.sort_link('Stack', 'stack', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>{% endif %}
-      <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, base_url, 'desc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
-      <th class="cell-centered">{{ sh.sort_link('Status', 'status', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
-      <th class="cell-centered">{{ sh.sort_link('Silenced', 'silenced', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
-      <th></th>
+      {% if show_stack_column %}<th class="mobile-hide">{{ sh.sort_link('Stack', 'stack', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>{% endif %}
+      <th class="mobile-hide">{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, base_url, 'desc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
+      <th class="cell-centered status-cell">{{ sh.sort_link('Status', 'status', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
+      <th class="cell-centered mobile-hide">{{ sh.sort_link('Silenced', 'silenced', csort, cdir, base_url, 'asc', sort_param='csort', dir_param='cdir', partial_url=partial_url, target_id=target_id) }}</th>
+      <th class="mobile-hide"></th>
     </tr>
   </thead>
   <tbody>
@@ -39,9 +39,9 @@
     {% set href = detail_base ~ '/' ~ item.name %}
     {% endif %}
     <tr class="row-clickable" onclick="window.location='{{ href }}'">
-      <td class="mono"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
+      <td class="mono row-name-cell"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
       {% if show_stack_column %}
-      <td>
+      <td class="mobile-hide">
         {% if item.stack_name %}
         <a href="/logs/stack?id={{ item.stack_id|urlencode }}" class="stack-cell" title="{{ item.stack_name }}" onclick="event.stopPropagation()">{{ item.stack_name }}</a>
         {% else %}
@@ -49,8 +49,8 @@
         {% endif %}
       </td>
       {% endif %}
-      <td class="nowrap">{{ item.last_at | local_dt }}</td>
-      <td class="cell-centered">
+      <td class="nowrap mobile-hide">{{ item.last_at | local_dt }}</td>
+      <td class="cell-centered status-cell">
         {% if item.status == 'error' %}
         <span class="status-warning-icon" title="{{ item.error }}">⚠</span>
         {% elif item.status == 'issue' %}
@@ -59,7 +59,7 @@
         <span class="badge badge-healthy">Healthy</span>
         {% endif %}
       </td>
-      <td class="cell-centered">
+      <td class="cell-centered mobile-hide">
         {% if item.silence_state == 'silenced' %}
         <span class="badge badge-silenced">Silenced</span>
         {% elif item.silence_state == 'partially_silenced' %}
@@ -68,7 +68,7 @@
         <span class="meta">-</span>
         {% endif %}
       </td>
-      <td><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
+      <td class="mobile-hide"><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
     </tr>
     {% endfor %}
   </tbody>

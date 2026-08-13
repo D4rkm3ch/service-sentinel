@@ -27,45 +27,45 @@
        also catch a scheduled firing that started the check without this button being clicked
        at all) for every .{{ feature }}-action-btn on the page, this one included. #}
     <button class="{{ feature }}-action-btn" hx-post="/{{ feature }}/check-now" hx-target="#check-status" hx-swap="innerHTML">
-      Check Now
+      <span class="btn-label-full">Check Now</span><span class="btn-label-short">Check</span>
     </button>
     {% if feature == "updates" %}
     <form method="post" action="/updates/regenerate-all"
           onsubmit="return confirm('This regenerates the AI response for every pending update. Continue?')">
       <button type="submit" class="button-warn updates-action-btn" title="Regenerate the AI-written summary for every currently pending update">
-        Regenerate AI Response
+        <span class="btn-label-full">Regenerate AI Response</span><span class="btn-label-short">Regen</span>
       </button>
     </form>
     <form method="post" action="/updates/reset-and-recheck"
           onsubmit="return confirm('This wipes all Update history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger updates-action-btn" title="Wipe all tracked-container and update history, then run a fresh check">
-        Reset &amp; Re-Check
+        <span class="btn-label-full">Reset &amp; Re-Check</span><span class="btn-label-short">Reset</span>
       </button>
     </form>
     {% elif feature == "logs" %}
     <form method="post" action="/logs/regenerate-all"
           onsubmit="return confirm('This regenerates every AI-written overview and cross-service analysis blurb currently shown on the Runtime pages. Continue?')">
       <button type="submit" class="button-warn logs-action-btn" title="Regenerate every AI-written overview/cross-service blurb currently shown">
-        Regenerate AI Response
+        <span class="btn-label-full">Regenerate AI Response</span><span class="btn-label-short">Regen</span>
       </button>
     </form>
     <form method="post" action="/logs/reset-and-recheck"
           onsubmit="return confirm('This wipes all Runtime history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger logs-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
-        Reset &amp; Re-Check
+        <span class="btn-label-full">Reset &amp; Re-Check</span><span class="btn-label-short">Reset</span>
       </button>
     </form>
     {% elif feature == "compose" %}
     <form method="post" action="/compose/regenerate-all"
           onsubmit="return confirm('This regenerates every AI-written overview currently shown on the Configuration pages. Continue?')">
       <button type="submit" class="button-warn compose-action-btn" title="Regenerate every AI-written overview currently shown">
-        Regenerate AI Response
+        <span class="btn-label-full">Regenerate AI Response</span><span class="btn-label-short">Regen</span>
       </button>
     </form>
     <form method="post" action="/compose/reset-and-recheck"
           onsubmit="return confirm('This wipes all Configuration history and tracking state, then re-checks everything fresh. Continue?')">
       <button type="submit" class="button-danger compose-action-btn" title="Wipe all findings and checkpoint history, then run a fresh check">
-        Reset &amp; Re-Check
+        <span class="btn-label-full">Reset &amp; Re-Check</span><span class="btn-label-short">Reset</span>
       </button>
     </form>
     {% endif %}

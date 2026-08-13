@@ -104,9 +104,11 @@ def test_issues_table_severity_and_read_columns_are_centered(client):
 
     resp = client.get("/logs")
     section = resp.text[:resp.text.index("Tracked Containers")]
-    assert 'class="cell-centered">' in section
-    # Both Severity and Read headers should be wrapped in cell-centered <th>s.
-    assert section.count('th class="cell-centered"') >= 2
+    assert 'class="cell-centered severity-cell">' in section
+    # Both Severity and Read headers should be wrapped in cell-centered <th>s (each also
+    # carries its own severity-cell/read-cell class -- see style.css's compact mobile rules).
+    assert 'th class="cell-centered severity-cell"' in section
+    assert 'th class="cell-centered read-cell"' in section
 
     db.set_finding_status(fid, "silenced")
 
@@ -116,7 +118,8 @@ def test_logs_stack_detail_severity_and_read_columns_are_centered():
     text = (Path(__file__).resolve().parent.parent / "app" / "templates" / "logs_stack_detail.html").read_text()
     # Headers are now sort links (see _sort_header.html), not bare <th>Label</th>.
     header = text[text.index("<thead>"):text.index("</thead>")]
-    assert header.count('th class="cell-centered"') == 2
+    assert header.count('th class="cell-centered severity-cell"') == 1
+    assert header.count('th class="cell-centered read-cell"') == 1
     assert "'severity'" in header
     assert "'read'" in header
 

@@ -325,14 +325,14 @@ on. Adding a new rule only ever happens through chat; from here you can edit or 
       <div class="custom-rules-table-wrap">
         <table class="custom-rules-table" id="custom_rules_table" {{ 'hidden' if not custom_rules else '' }}>
           <colgroup>
-            <col class="col-category"><col class="col-name"><col class="col-type"><col><col class="col-actions">
+            <col class="col-category"><col class="col-name"><col class="col-type mobile-hide"><col class="mobile-hide"><col class="col-actions">
           </colgroup>
           <thead>
             <tr>
               <th data-sort-key="category" onclick="sortCustomRulesTable('category')">Category <span class="sort-indicator"></span></th>
               <th data-sort-key="name" onclick="sortCustomRulesTable('name')">Name <span class="sort-indicator"></span></th>
-              <th data-sort-key="rule_type" onclick="sortCustomRulesTable('rule_type')">Type <span class="sort-indicator"></span></th>
-              <th data-sort-key="instruction" onclick="sortCustomRulesTable('instruction')">Explanation <span class="sort-indicator"></span></th>
+              <th class="mobile-hide" data-sort-key="rule_type" onclick="sortCustomRulesTable('rule_type')">Type <span class="sort-indicator"></span></th>
+              <th class="mobile-hide" data-sort-key="instruction" onclick="sortCustomRulesTable('instruction')">Explanation <span class="sort-indicator"></span></th>
               <th class="custom-rules-actions-col"></th>
             </tr>
           </thead>
@@ -350,12 +350,12 @@ on. Adding a new rule only ever happens through chat; from here you can edit or 
                   </button>
                 </span>
               </td>
-              <td>
+              <td class="mobile-hide">
                 <span class="badge badge-lg {{ 'badge-sev-critical' if rule.rule_type == 'watch' else 'badge-sev-suggestion' }}">
                   {{ 'Always flag' if rule.rule_type == 'watch' else 'Never flag' }}
                 </span>
               </td>
-              <td class="custom-rule-instruction">{{ rule.instruction }}</td>
+              <td class="custom-rule-instruction mobile-hide">{{ rule.instruction }}</td>
               <td class="custom-rules-actions-col">
                 <button type="button" class="icon-button custom-rule-delete-btn" title="Delete"
                         onclick="confirmDeleteCustomRule({{ rule.id }})">

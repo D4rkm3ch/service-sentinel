@@ -57,7 +57,7 @@ def test_logs_stack_page_lists_every_member_with_its_findings_summary(client):
         # coincidentally match a member's container name too (as it does here).
         tbody = resp.text[resp.text.index("<tbody>"):]
         row = tbody[tbody.index(">radarr<"):]
-        assert "badge-unread\">Unread</span>" in row[:row.index("</tr>")]
+        assert "badge-unread desktop-only\">Unread</span>" in row[:row.index("</tr>")]
 
         db.set_finding_status(fid, "silenced")
     finally:

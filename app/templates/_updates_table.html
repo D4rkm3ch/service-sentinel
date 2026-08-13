@@ -8,22 +8,22 @@
 <table class="updates-table">
   <colgroup>
     <col style="width: 21%">
-    <col style="width: 16%">
-    <col style="width: 22%">
-    <col style="width: 13%">
+    <col style="width: 16%" class="mobile-hide">
+    <col style="width: 22%" class="mobile-hide">
+    <col style="width: 13%" class="mobile-hide">
     <col style="width: 15%">
     <col style="width: 9%">
-    <col style="width: 4%">
+    <col style="width: 4%" class="mobile-hide">
   </colgroup>
   <thead>
     <tr>
       <th>{{ sh.sort_link('Container', 'container', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
-      <th>{{ sh.sort_link('Stack', 'stack', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
-      <th>{{ sh.sort_link('Version', 'version', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
-      <th>{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
+      <th class="mobile-hide">{{ sh.sort_link('Stack', 'stack', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
+      <th class="mobile-hide">{{ sh.sort_link('Version', 'version', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
+      <th class="mobile-hide">{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th class="read-cell">{{ sh.sort_link('Read', 'status', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
-      <th></th>
+      <th class="mobile-hide"></th>
     </tr>
   </thead>
   <tbody>
@@ -31,21 +31,21 @@
     <tr class="{{ 'row-error' if u.status == 'error' else 'row-unread' }} {{ 'row-clickable' if u.id else '' }}"
         data-subject="{{ u.container_name }}" {% if u.id %}onclick="window.location='/updates/{{ u.id }}'"{% endif %}>
       <td class="mono row-name-cell"><span class="truncate-cell" title="{{ u.container_display_name }}">{{ u.container_display_name }}</span></td>
-      <td>
+      <td class="mobile-hide">
         {% if u.stack_name %}
         <a href="/updates/stack?id={{ u.stack_id|urlencode }}" class="stack-cell" title="{{ u.stack_name }}" onclick="event.stopPropagation()">{{ u.stack_name }}</a>
         {% else %}
         <span class="meta">-</span>
         {% endif %}
       </td>
-      <td class="mono" title="{{ u.image_repo }}:{{ u.tag }}">
+      <td class="mono mobile-hide" title="{{ u.image_repo }}:{{ u.tag }}">
         {% if u.new_version %}
         <span class="truncate-cell">v{{ u.new_version.lstrip('vV') }}</span>
         {% else %}
         <span class="meta">-</span>
         {% endif %}
       </td>
-      <td class="nowrap">{{ u.created_at | local_dt }}</td>
+      <td class="nowrap mobile-hide">{{ u.created_at | local_dt }}</td>
       <td class="importance-cell">
         {% if u.severity %}
         <span class="badge badge-sev-{{ u.severity }}">{{ severity_label('updates', u.severity) }}</span>
@@ -59,12 +59,14 @@
         {% if u.status == 'error' %}
           <span class="status-warning-icon" title="Needs manual check">⚠</span>
         {% elif u.read_status == 'unread' %}
-          <span class="badge badge-unread">Unread</span>
+          <span class="badge badge-unread desktop-only">Unread</span>
+          <svg class="icon read-icon mobile-only" role="img" aria-label="Unread"><use href="#icon-eye-off"/></svg>
         {% else %}
-          <span class="badge badge-read">Read</span>
+          <span class="badge badge-read desktop-only">Read</span>
+          <svg class="icon read-icon mobile-only" role="img" aria-label="Read"><use href="#icon-eye"/></svg>
         {% endif %}
       </td>
-      <td>
+      <td class="mobile-hide">
         {% if u.id %}
         <a href="/updates/{{ u.id }}" class="row-chevron">›</a>
         {% else %}

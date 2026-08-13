@@ -95,8 +95,8 @@ def test_subject_findings_page_shows_a_read_column(client):
     resp = client.get(f"/compose/file?path={compose_path}")
     # Read column header is a sortable link (see _sort_header.html), not a bare <th>.
     assert "sort=read" in resp.text
-    assert "badge-unread\">Unread</span>" in resp.text
-    assert "badge-read\">Read</span>" in resp.text
+    assert "badge-unread desktop-only\">Unread</span>" in resp.text
+    assert "badge-read desktop-only\">Read</span>" in resp.text
 
     db.set_finding_status(fid, "silenced")
     db.set_finding_status(fid2, "silenced")
@@ -110,12 +110,12 @@ def test_issues_table_shows_an_aggregate_unread_indicator(client):
     resp = client.get("/logs")
     section = resp.text[resp.text.index("read-unread-agg-test"):]
     row = section[:section.index("</tr>")]
-    assert "badge-unread\">Unread</span>" in row
+    assert "badge-unread desktop-only\">Unread</span>" in row
 
     db.set_finding_read_status(fid, "read")
     resp = client.get("/logs")
     section = resp.text[resp.text.index("read-unread-agg-test"):]
     row = section[:section.index("</tr>")]
-    assert "badge-read\">Read</span>" in row
+    assert "badge-read desktop-only\">Read</span>" in row
 
     db.set_finding_status(fid, "silenced")

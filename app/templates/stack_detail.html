@@ -60,29 +60,29 @@
   <table class="updates-table">
     <colgroup>
       <col style="width: 18%">
-      <col style="width: 32%">
-      <col style="width: 15%">
+      <col style="width: 32%" class="mobile-hide">
+      <col style="width: 15%" class="mobile-hide">
       <col style="width: 17%">
       <col style="width: 14%">
-      <col style="width: 4%">
+      <col style="width: 4%" class="mobile-hide">
     </colgroup>
     <thead>
       <tr>
         <th>{{ sh.sort_link('Container', 'container', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th>{{ sh.sort_link('Image', 'image', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th>{{ sh.sort_link('Detected', 'detected', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
+        <th class="mobile-hide">{{ sh.sort_link('Image', 'image', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="mobile-hide">{{ sh.sort_link('Detected', 'detected', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
         <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
         <th class="read-cell">{{ sh.sort_link('Read', 'read', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th></th>
+        <th class="mobile-hide"></th>
       </tr>
     </thead>
     <tbody>
       {% for m in members %}
       {% if m.latest_update %}
       <tr id="row-{{ m.container_name }}" class="{{ 'row-error' if m.latest_update.error else 'row-unread' }} row-clickable" onclick="window.location='/updates/{{ m.latest_update.id }}'">
-        <td class="mono"><span class="truncate-cell" title="{{ m.container_display_name }}">{{ m.container_display_name }}</span></td>
-        <td class="mono"><span class="truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</span></td>
-        <td class="nowrap">{{ m.latest_update.created_at | local_dt }}</td>
+        <td class="mono row-name-cell"><span class="truncate-cell" title="{{ m.container_display_name }}">{{ m.container_display_name }}</span></td>
+        <td class="mono mobile-hide"><span class="truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</span></td>
+        <td class="nowrap mobile-hide">{{ m.latest_update.created_at | local_dt }}</td>
         <td class="importance-cell">
           {% if m.latest_update.severity %}
           <span class="badge badge-sev-{{ m.latest_update.severity }}">{{ severity_label('updates', m.latest_update.severity) }}</span>
@@ -96,21 +96,23 @@
           {% if m.latest_update.error %}
             <span class="status-warning-icon" title="Needs manual check">⚠</span>
           {% elif m.latest_update.status == 'unread' %}
-            <span class="badge badge-unread">Unread</span>
+            <span class="badge badge-unread desktop-only">Unread</span>
+            <svg class="icon read-icon mobile-only" role="img" aria-label="Unread"><use href="#icon-eye-off"/></svg>
           {% else %}
-            <span class="badge badge-read">Read</span>
+            <span class="badge badge-read desktop-only">Read</span>
+            <svg class="icon read-icon mobile-only" role="img" aria-label="Read"><use href="#icon-eye"/></svg>
           {% endif %}
         </td>
-        <td><a href="/updates/{{ m.latest_update.id }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
+        <td class="mobile-hide"><a href="/updates/{{ m.latest_update.id }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
       </tr>
       {% else %}
       <tr id="row-{{ m.container_name }}">
-        <td class="mono"><span class="truncate-cell" title="{{ m.container_display_name }}">{{ m.container_display_name }}</span></td>
-        <td class="mono"><span class="truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</span></td>
-        <td class="nowrap">-</td>
+        <td class="mono row-name-cell"><span class="truncate-cell" title="{{ m.container_display_name }}">{{ m.container_display_name }}</span></td>
+        <td class="mono mobile-hide"><span class="truncate-cell" title="{{ m.image_repo }}:{{ m.tag }}">{{ m.image_repo }}:{{ m.tag }}</span></td>
+        <td class="nowrap mobile-hide">-</td>
         <td class="importance-cell"><span class="badge badge-healthy">Up To Date</span></td>
         <td class="read-cell"><span class="meta">-</span></td>
-        <td></td>
+        <td class="mobile-hide"></td>
       </tr>
       {% endif %}
       {% endfor %}

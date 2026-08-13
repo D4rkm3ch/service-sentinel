@@ -682,8 +682,8 @@ table {
    ellipsis truncation actually reliable in table cells across browsers -- without it, cells
    containing inline-block content (badges, links) can refuse to shrink below their content's
    natural width even with overflow:hidden set. */
-.updates-table td, .containers-table td, .findings-table td,
-.updates-table th, .containers-table th, .findings-table th {
+.updates-table td, .containers-table td, .findings-table td, .custom-rules-table td,
+.updates-table th, .containers-table th, .findings-table th, .custom-rules-table th {
   overflow: hidden;
 }
 .importance-cell, .read-cell, .cell-centered {
@@ -834,6 +834,12 @@ a {
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
+}
+/* Mobile-only table read-state icons (see the mobile media query's own .desktop-only/
+   .mobile-only pair, and the icon markup beside each read/unread badge in the table
+   templates) -- hidden above the breakpoint by default here. */
+.mobile-only {
+  display: none;
 }
 /* Matches the violet Mark as Read/Unread buttons (--violet, see .button-info) -- Unread gets
    the full-strength color, Read stays a faint tint of the same hue so the pair still reads as
@@ -1896,6 +1902,11 @@ tr:hover .row-chevron {
   flex: none;
   white-space: nowrap;
 }
+/* Each action button's short label (see _feature_header.html) only ever renders on mobile --
+   see the matching rule in the mobile media query below that flips this pair the other way. */
+.btn-label-short {
+  display: none;
+}
 .feature-header #check-status {
   min-width: 0;
   overflow: hidden;
@@ -2950,6 +2961,15 @@ textarea {
   .topbar-center {
     max-width: calc(100vw - 180px);
   }
+  /* The idle health summary ("X pending * Y issues...") is sized for desktop's spare topbar
+     width -- on a phone it never has room to say anything before ellipsizing, so it reads as
+     clutter that's always cut off rather than useful information. Dropped entirely on mobile;
+     each module's own card on Overview already says the same thing at full length. !important
+     because base.html's poll toggles this via an inline style.display, which would otherwise
+     win over a plain class-level rule. */
+  #topbar-idle-summary {
+    display: none !important;
+  }
 
   .sidebar {
     width: min(82vw, 300px);
@@ -2984,6 +3004,13 @@ textarea {
   .chat-resize-handle {
     display: none;
   }
+  /* iOS Safari auto-zooms the whole page in on any input/textarea whose font-size is under
+     16px the moment it receives focus -- and opening the chat panel calls .focus() on this
+     textarea (see base.html), so the desktop-tuned 13px here was zooming the page and clipping
+     its left edge every time. 16px is the actual fix; nothing else about the composer changes. */
+  .chat-input {
+    font-size: 16px;
+  }
 
   /* ---- Topbar: the brand wordmark and the accent picker's own color-name
      label are the two lowest-value uses of topbar width at this size (the
@@ -3006,24 +3033,28 @@ textarea {
   }
 
   /* ---- A feature page's own header row (title + Check Now/Reset & Re-
-     Check/Regenerate) was deliberately built to clip rather than wrap on
-     desktop (see .feature-header's own comment) -- clipping a button
-     unreachable is fine when the alternative is a narrow side-panel squeeze
-     that resolves itself by widening the window back out, but on mobile
-     there's no wider window coming, so an unreachable "Reset & Re-Check"
-     is a dead end instead of a transient squeeze. Wrapping the actions onto
-     their own row is the better trade here. */
-  .feature-header {
-    flex-wrap: wrap;
-    overflow: visible;
+     Check/Regenerate): wrapping these onto their own second row (an earlier
+     version of this rule) was a real report -- two lines just to show three
+     buttons ate too much of a short phone screen before any real content
+     started. Kept on one line instead, same as desktop, with the buttons
+     themselves shrunk to fit (see .btn-label-full/.btn-label-short below
+     and .feature-actions button's own mobile sizing) rather than the row. */
+  .feature-actions button {
+    padding: 6px 9px;
+    font-size: 12px;
   }
-  .feature-header .topbar-right {
-    flex: 1 1 100%;
-    min-width: 0;
+  /* Each of the three action buttons carries both a full label (used
+     everywhere above this breakpoint) and a short one -- see
+     _feature_header.html. Swapping which is visible, rather than
+     abbreviating via CSS alone, keeps the full wording as the button's
+     actual accessible name change point: only one of the two text nodes is
+     ever in the accessibility tree at a time, screen readers never announce
+     both. */
+  .btn-label-full {
+    display: none;
   }
-  .feature-actions {
-    flex-wrap: wrap;
-    row-gap: 8px;
+  .btn-label-short {
+    display: inline;
   }
 
   /* Overview's own Check All / Reset & Re-Check row, and any other plain
@@ -3046,47 +3077,198 @@ textarea {
   .feature-card {
     flex-direction: column;
   }
-  .feature-card-issues {
-    flex-direction: column;
+  /* Same fix as .feature-card-issues below: the desktop rule's flex-basis/min-width (340px,
+     300px) are WIDTH hints for this box's share of a row layout -- stacked into a column here,
+     those numbers would otherwise apply to height instead. */
+  .feature-card-main {
+    flex: 0 1 auto;
+    min-width: 0;
   }
+  /* flex: 0 1 auto overrides the desktop rule's flex: 2 1 420px -- that 420px flex-basis was
+     always meant as a desktop WIDTH hint (the issues column's share of the row), but with
+     .feature-card now stacked into a column above, the same flex-basis applies to the main
+     axis again, just vertical instead of horizontal -- it was forcing this box to 420px tall
+     and then stretching whatever single real issue slot was in it to match, which is the actual
+     source of the huge dead space inside a lone slot's card, not the slot's own sizing. */
+  .feature-card-issues {
+    flex: 0 1 auto;
+    flex-direction: column;
+    gap: 8px;
+  }
+  /* Real issue slots show as many as actually exist (1-3), not a padded-out
+     minimum of 2 -- the third normally only reveals via the container query
+     below (@container issue-slots), which needs ~480px of container width
+     to fire and a stacked mobile column never reaches that. Forcing it on
+     unconditionally here is safe: with no 3rd sibling in the DOM this rule
+     simply never matches anything. */
   .feature-card-issue-slot:nth-of-type(1),
-  .feature-card-issue-slot:nth-of-type(2) {
+  .feature-card-issue-slot:nth-of-type(2),
+  .feature-card-issue-slot:nth-of-type(3) {
     display: flex;
   }
-  /* The meta strip's desktop layout (see .feature-card-meta-row's own
-     comments) pins Schedule/Notifications with a fixed margin-left and
-     max-widths sized for desktop's spare width -- on a narrow column those
-     add up to more than the row has, which is what overlapped the labels.
-     Wrapping plus letting each column size to roughly a third of the row
-     (instead of the desktop pinning) gives every label room without it. */
+  /* The filler box(es) _feature_card.html adds purely to pad a 1- or
+     2-issue row out to the same width 3 real slots would take -- that's a
+     deliberate desktop match-the-grid device, but on mobile (where slots
+     stack instead of sitting side by side) it's just empty bordered space
+     with nothing in it. Dropping it lets the row take only the height its
+     real content needs. Both classes named (rather than just
+     .feature-card-issue-slot-filler alone) so this ties the nth-of-type
+     rule above on specificity -- a single-class selector loses to
+     class+pseudo-class, which was silently winning and keeping the filler
+     visible despite this rule, since it's every filler's actual 2nd/3rd
+     DOM position. */
+  .feature-card-issue-slot.feature-card-issue-slot-filler {
+    display: none;
+  }
+  /* The fully-healthy state's box reused the same 19px/22px "real issue"
+     sizing and a border/shadow/full-height stretch meant to hold a 3-wide
+     row's height on desktop -- on mobile, stacked under a card that's
+     already tall, that read as a huge empty-feeling block for what's good
+     news. Shrunk to a single compact line instead. Same specificity-tying
+     reason as the filler rule above for the doubled-up class selector. */
+  .feature-card-issue-slot.feature-card-issue-slot-empty {
+    display: block;
+    padding: 2px 0 0;
+    border: none;
+    box-shadow: none;
+    min-height: 0;
+  }
+  .feature-card-issue-slot-empty .issue-slot-empty-message {
+    font-size: 13px;
+    font-weight: 500;
+    gap: 6px;
+  }
+  .feature-card-issue-slot-empty .issue-slot-empty-icon {
+    font-size: 14px;
+  }
+
+  /* ---- The meta strip: "Last run" reads as its own full-width line
+     ("LAST RUN: <value>", label and value inline via the ::after colon
+     rather than the desktop label-above-value stack), with Schedule and
+     Notifications sharing the row below it instead of each claiming a
+     desktop-sized column -- Notifications no longer ends up dangling alone
+     on its own line the way the unmodified desktop wrapping left it. */
   .feature-card-meta {
     flex-wrap: wrap;
     row-gap: 10px;
   }
-  .feature-card-meta-row:nth-child(1),
+  .feature-card-meta-row:nth-child(1) {
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
+    margin-left: 0;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .feature-card-meta-row:nth-child(1) .meta-label::after {
+    content: ":";
+  }
   .feature-card-meta-row:nth-child(2),
   .feature-card-meta-row:nth-child(3) {
-    flex: 1 1 30%;
+    flex: 1 1 50%;
     max-width: none;
-    min-width: 100px;
+    min-width: 0;
     margin-left: 0;
   }
 
-  /* ---- Data tables: forcing table-layout:auto (rather than the fixed
-     layout every table uses above this section) lets each column claim
-     what its own content actually needs instead of a fraction of whatever
-     narrow width the phone happens to have -- combined with min-width
-     below (wider than any phone) and .table-scroll-wrap's overflow-x this
-     is what turns "every column squeezed to an unreadable sliver" into "a
-     normal-looking table you swipe sideways to see the rest of", the
-     standard mobile pattern for wide data tables short of a full stacked-
-     card redesign. */
-  .findings-table,
-  .updates-table,
-  .containers-table,
-  .custom-rules-table {
-    table-layout: auto;
-    min-width: 640px;
+  /* ---- Data tables: no horizontal scrolling, full stop -- an earlier version of this pass
+     used table-layout:auto + a wide min-width inside .table-scroll-wrap's overflow-x (the
+     standard "swipe sideways" mobile table pattern), and a direct report called that out as
+     poor UX. Every table instead drops down to just the 2-3 columns that actually matter at
+     this width -- the columns to drop are tagged .mobile-hide directly in each table's own
+     template (both the <td>/<th> AND its matching <col>) rather than targeted here by
+     position, because the findings table alone renders two different column counts depending
+     on whether a Stack column is present for a given page -- position-based (nth-child) hiding
+     would silently hide the wrong column between those two variants.
+
+     Deliberately kept on the base table-layout:fixed every table already uses (see the plain
+     `table` rule up top) rather than switching to auto: fixed is what makes this app's existing
+     ellipsis-truncation trick (max-width:0 + overflow:hidden, see the comment above `table`)
+     reliable in the first place, and it's also what makes a hidden <col> actually redistribute
+     its reserved width to the remaining visible columns, proportional to their own declared
+     percentages -- auto layout sizes columns from content instead, which was the root cause of
+     a real regression here: a long custom-rule name pushed the whole table wider than its
+     wrapper, right back into the horizontal scrolling this pass exists to remove. */
+  .mobile-hide {
+    display: none;
+  }
+  /* Every table above uses percentage-only <col> widths except this one, whose Actions column
+     is a fixed 56px (fine on desktop, which never hides a column) -- mixed with the hidden
+     Type/Explanation columns' percentages, that px value confused the redistribution above:
+     empirically it grabbed nearly all of the freed space (~190px) instead of staying near 56px,
+     leaving Category/Name too narrow. Giving it a percentage here too, mobile-only, keeps the
+     desktop px value untouched while making this table redistribute the same predictable way
+     every other one does. */
+  .custom-rules-table col.col-category {
+    width: 20%;
+  }
+  .custom-rules-table col.col-actions {
+    width: 8%;
+  }
+  /* The Category cell is plain, unwrapped text ("Configuration"/"Runtime") with no truncation
+     of its own -- comfortable at desktop's much wider 13% share, but the same 75px-ish mobile
+     share (with overflow:hidden alone, just added above) would clip mid-character with no
+     ellipsis and visually run into Name's column. first-child is unambiguous here: this table
+     has exactly one row layout, unlike the findings table's two Stack-column variants. */
+  .custom-rules-table td:first-child {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Severity/importance/status cells collapse from a text badge ("Critical",
+     "Healthy", ...) to a small colored square -- font-size:0 rather than
+     display:none/visibility:hidden is what keeps the label in the
+     accessibility tree (a screen reader still announces it) while removing
+     only the visual glyphs, so the square stays as informative as the
+     badge it replaces for anyone not just looking at its color. */
+  .findings-table .severity-cell .badge,
+  .updates-table .importance-cell .badge,
+  .status-list-table .status-cell .badge {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    min-width: 0;
+    padding: 0;
+    border-radius: 3px;
+    font-size: 0;
+    line-height: 0;
+    overflow: hidden;
+    vertical-align: middle;
+    /* Every severity/status badge variant (badge-sev-critical, badge-healthy, etc.) pairs a
+       strong `color` (the text) with only a faint ~15%-opacity tint for its own `background` --
+       fine for a pill with visible text sitting on it, but left as-is here the square read as a
+       washed-out grey smudge instead of a legible color chip. currentColor pulls in that same
+       strong color as a solid fill. */
+    background-color: currentColor;
+  }
+
+  /* Read/unread cells swap the desktop text badge for an open/closed eye
+     icon instead (see the markup alongside each badge in the table
+     templates) -- there's no color scale to reuse the way severity has, so
+     this is two separate elements toggled by display rather than one
+     element with its text hidden. Exactly one of the pair is ever in the
+     accessibility tree at a time: the badge text on desktop, or the icon's
+     own aria-label on mobile once the badge itself is display:none. */
+  .desktop-only {
+    display: none;
+  }
+  .mobile-only {
+    display: inline-block;
+  }
+  .read-icon {
+    width: 15px;
+    height: 15px;
+    color: var(--text-dim);
+    vertical-align: middle;
+  }
+
+  /* The name cell is the one column mobile actually wants to grow -- the
+     desktop min-width this used to sit inside a wide fixed-layout table no
+     longer applies now that most siblings are gone, so let it use
+     whatever's left instead of leaving it pinned to a desktop-sized share. */
+  .row-name-cell {
+    min-width: 0;
   }
 
   /* ---- Settings' side-by-side "field + Test & Save button" rows already

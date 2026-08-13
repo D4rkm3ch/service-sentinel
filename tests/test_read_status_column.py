@@ -60,12 +60,12 @@ def test_updates_page_shows_a_read_column(client):
     page = client.get("/updates")
     assert "sort=status" in page.text  # Read is now a sortable column header, not a bare <th>
     assert page.text.count("Read") == 1  # only the header label -- "Unread" badges don't match
-    assert "badge-unread\">Unread</span>" in page.text
+    assert "badge-unread desktop-only\">Unread</span>" in page.text
 
     rows = {r["container_name"]: r for r in db.list_tracked_containers_with_status()}
     db.mark_update_status(rows["sonarr"]["id"], "read")
 
     page = client.get("/updates")
-    assert "badge-read\">Read</span>" in page.text
+    assert "badge-read desktop-only\">Read</span>" in page.text
     # The error row (never marked read/unread -- not applicable) shows a dash, not a badge.
-    assert page.text.count("badge-unread\">Unread</span>") == 0
+    assert page.text.count("badge-unread desktop-only\">Unread</span>") == 0

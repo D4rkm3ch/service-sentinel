@@ -10,30 +10,30 @@
   <colgroup>
     {% if show_stack_column %}
     <col style="width: 22%">
-    <col style="width: 16%">
-    <col style="width: 14%">
-    <col style="width: 16%">
+    <col style="width: 16%" class="mobile-hide">
+    <col style="width: 14%" class="mobile-hide">
+    <col style="width: 16%" class="mobile-hide">
     <col style="width: 16%">
     <col style="width: 12%">
-    <col style="width: 4%">
+    <col style="width: 4%" class="mobile-hide">
     {% else %}
     <col style="width: 26%">
-    <col style="width: 16%">
-    <col style="width: 18%">
+    <col style="width: 16%" class="mobile-hide">
+    <col style="width: 18%" class="mobile-hide">
     <col style="width: 16%">
     <col style="width: 12%">
-    <col style="width: 4%">
+    <col style="width: 4%" class="mobile-hide">
     {% endif %}
   </colgroup>
   <thead>
     <tr>
       <th>{{ sh.sort_link('Container' if source == 'logs' else 'Configuration file', 'name', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
-      {% if show_stack_column %}<th>{{ sh.sort_link('Stack', 'stack', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>{% endif %}
-      <th>{{ sh.sort_link('Findings', 'findings', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
-      <th>{{ sh.sort_link('Detected', 'lastseen', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
-      <th class="cell-centered">{{ sh.sort_link('Severity', 'severity', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
-      <th class="cell-centered">{{ sh.sort_link('Read', 'unread', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
-      <th></th>
+      {% if show_stack_column %}<th class="mobile-hide">{{ sh.sort_link('Stack', 'stack', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>{% endif %}
+      <th class="mobile-hide">{{ sh.sort_link('Findings', 'findings', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th class="mobile-hide">{{ sh.sort_link('Detected', 'lastseen', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th class="cell-centered severity-cell">{{ sh.sort_link('Severity', 'severity', sort, dir, '/' ~ source, 'asc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th class="cell-centered read-cell">{{ sh.sort_link('Read', 'unread', sort, dir, '/' ~ source, 'desc', extra_qs=preserve_other, partial_url=partial_url, target_id=table_id) }}</th>
+      <th class="mobile-hide"></th>
     </tr>
   </thead>
   <tbody>
@@ -48,7 +48,7 @@
         data-subject="{{ issue.subject }}" onclick="window.location='{{ href }}'">
       <td class="mono row-name-cell"><span class="truncate-cell" title="{{ name }}">{{ name }}</span></td>
       {% if show_stack_column %}
-      <td>
+      <td class="mobile-hide">
         {% if issue.stack_name %}
         <a href="/logs/stack?id={{ issue.stack_id|urlencode }}" class="stack-cell" title="{{ issue.stack_name }}" onclick="event.stopPropagation()">{{ issue.stack_name }}</a>
         {% else %}
@@ -56,24 +56,26 @@
         {% endif %}
       </td>
       {% endif %}
-      <td>
+      <td class="mobile-hide">
         {{ issue.active_count }} active
         {%- if show_silenced and issue.silenced_count %}, {{ issue.silenced_count }} silenced{% endif %}
       </td>
-      <td class="nowrap">{{ issue.last_seen_at | local_dt }}</td>
-      <td class="cell-centered">
+      <td class="nowrap mobile-hide">{{ issue.last_seen_at | local_dt }}</td>
+      <td class="cell-centered severity-cell">
         <span class="badge badge-sev-{{ issue.top_severity }}">{{ severity_label(source, issue.top_severity) }}</span>
       </td>
-      <td class="cell-centered">
+      <td class="cell-centered read-cell">
         {% if issue.unread_count %}
-        <span class="badge badge-unread">Unread</span>
+        <span class="badge badge-unread desktop-only">Unread</span>
+        <svg class="icon read-icon mobile-only" role="img" aria-label="Unread"><use href="#icon-eye-off"/></svg>
         {% elif issue.active_count %}
-        <span class="badge badge-read">Read</span>
+        <span class="badge badge-read desktop-only">Read</span>
+        <svg class="icon read-icon mobile-only" role="img" aria-label="Read"><use href="#icon-eye"/></svg>
         {% else %}
         <span class="meta">-</span>
         {% endif %}
       </td>
-      <td><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
+      <td class="mobile-hide"><a href="{{ href }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
     </tr>
     {% endfor %}
   </tbody>

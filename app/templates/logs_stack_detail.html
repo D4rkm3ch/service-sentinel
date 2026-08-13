@@ -61,51 +61,53 @@
   <table class="findings-table">
     <colgroup>
       <col style="width: 26%">
-      <col style="width: 22%">
-      <col style="width: 18%">
+      <col style="width: 22%" class="mobile-hide">
+      <col style="width: 18%" class="mobile-hide">
       <col style="width: 16%">
       <col style="width: 12%">
-      <col style="width: 6%">
+      <col style="width: 6%" class="mobile-hide">
     </colgroup>
     <thead>
       <tr>
         <th>{{ sh.sort_link('Container', 'container', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th>{{ sh.sort_link('Findings', 'findings', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
-        <th>{{ sh.sort_link('Detected', 'detected', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
-        <th class="cell-centered">{{ sh.sort_link('Severity', 'severity', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th class="cell-centered">{{ sh.sort_link('Read', 'read', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th></th>
+        <th class="mobile-hide">{{ sh.sort_link('Findings', 'findings', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
+        <th class="mobile-hide">{{ sh.sort_link('Detected', 'detected', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
+        <th class="cell-centered severity-cell">{{ sh.sort_link('Severity', 'severity', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="cell-centered read-cell">{{ sh.sort_link('Read', 'read', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="mobile-hide"></th>
       </tr>
     </thead>
     <tbody>
       {% for m in members %}
       <tr class="row-clickable" onclick="window.location='/logs/container/{{ m.container_name }}'">
-        <td class="mono"><span class="truncate-cell" title="{{ m.container_display_name }}">{{ m.container_display_name }}</span></td>
-        <td>
+        <td class="mono row-name-cell"><span class="truncate-cell" title="{{ m.container_display_name }}">{{ m.container_display_name }}</span></td>
+        <td class="mobile-hide">
           {% if m.top_severity %}
           {{ m.active_count }} active{% if m.silenced_count %}, {{ m.silenced_count }} silenced{% endif %}
           {% else %}
           <span class="meta">-</span>
           {% endif %}
         </td>
-        <td class="nowrap">{{ m.last_checked_at | local_dt }}</td>
-        <td class="cell-centered">
+        <td class="nowrap mobile-hide">{{ m.last_checked_at | local_dt }}</td>
+        <td class="cell-centered severity-cell">
           {% if m.top_severity %}
           <span class="badge badge-sev-{{ m.top_severity }}">{{ severity_label('logs', m.top_severity) }}</span>
           {% else %}
           <span class="badge badge-healthy">Healthy</span>
           {% endif %}
         </td>
-        <td class="cell-centered">
+        <td class="cell-centered read-cell">
           {% if m.unread_count %}
-          <span class="badge badge-unread">Unread</span>
+          <span class="badge badge-unread desktop-only">Unread</span>
+          <svg class="icon read-icon mobile-only" role="img" aria-label="Unread"><use href="#icon-eye-off"/></svg>
           {% elif m.active_count %}
-          <span class="badge badge-read">Read</span>
+          <span class="badge badge-read desktop-only">Read</span>
+          <svg class="icon read-icon mobile-only" role="img" aria-label="Read"><use href="#icon-eye"/></svg>
           {% else %}
           <span class="meta">-</span>
           {% endif %}
         </td>
-        <td><a href="/logs/container/{{ m.container_name }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
+        <td class="mobile-hide"><a href="/logs/container/{{ m.container_name }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
       </tr>
       {% endfor %}
     </tbody>

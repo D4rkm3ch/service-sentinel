@@ -8,23 +8,23 @@
   <colgroup>
     <col style="width: 20%">
     <col style="width: 20%">
-    <col style="width: 32%">
-    <col style="width: 16%">
-    <col style="width: 12%">
+    <col style="width: 32%" class="mobile-hide">
+    <col style="width: 16%" class="mobile-hide">
+    <col style="width: 12%" class="mobile-hide">
   </colgroup>
   <thead>
     <tr>
       <th>{{ sh.sort_link('Container', 'container', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
       <th>{{ sh.sort_link('Stack', 'stack', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
-      <th>{{ sh.sort_link('Image', 'image', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
-      <th>{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, '/updates', 'desc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
-      <th class="cell-centered">{{ sh.sort_link('Silenced', 'silenced', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
+      <th class="mobile-hide">{{ sh.sort_link('Image', 'image', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
+      <th class="mobile-hide">{{ sh.sort_link('Last checked', 'lastchecked', csort, cdir, '/updates', 'desc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
+      <th class="cell-centered mobile-hide">{{ sh.sort_link('Silenced', 'silenced', csort, cdir, '/updates', 'asc', sort_param='csort', dir_param='cdir', extra_qs=preserve_other, partial_url='/updates/partial/containers', target_id='containers-table') }}</th>
     </tr>
   </thead>
   <tbody>
     {% for c in containers %}
     <tr>
-      <td class="mono"><span class="truncate-cell" title="{{ c.container_display_name }}">{{ c.container_display_name }}</span></td>
+      <td class="mono row-name-cell"><span class="truncate-cell" title="{{ c.container_display_name }}">{{ c.container_display_name }}</span></td>
       <td>
         {% if c.stack_name %}
         <a href="/updates/stack?id={{ c.stack_id|urlencode }}" class="stack-cell" title="{{ c.stack_name }}">{{ c.stack_name }}</a>
@@ -32,9 +32,9 @@
         <span class="meta">-</span>
         {% endif %}
       </td>
-      <td class="mono"><span class="truncate-cell" title="{{ c.image_repo }}:{{ c.tag }}">{{ c.image_repo }}:{{ c.tag }}</span></td>
-      <td class="nowrap">{{ c.last_checked_at | local_dt }}</td>
-      <td class="cell-centered">{% if c.silenced %}<span class="badge badge-silenced">Silenced</span>{% else %}<span class="meta">-</span>{% endif %}</td>
+      <td class="mono mobile-hide"><span class="truncate-cell" title="{{ c.image_repo }}:{{ c.tag }}">{{ c.image_repo }}:{{ c.tag }}</span></td>
+      <td class="nowrap mobile-hide">{{ c.last_checked_at | local_dt }}</td>
+      <td class="cell-centered mobile-hide">{% if c.silenced %}<span class="badge badge-silenced">Silenced</span>{% else %}<span class="meta">-</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>

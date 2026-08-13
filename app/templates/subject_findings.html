@@ -83,46 +83,48 @@
   <table class="findings-table">
     <colgroup>
       <col style="width: 30%">
+      <col style="width: 12%" class="mobile-hide">
+      <col style="width: 16%" class="mobile-hide">
       <col style="width: 12%">
-      <col style="width: 16%">
+      <col style="width: 12%" class="mobile-hide">
       <col style="width: 12%">
-      <col style="width: 12%">
-      <col style="width: 12%">
-      <col style="width: 6%">
+      <col style="width: 6%" class="mobile-hide">
     </colgroup>
     <thead>
       <tr>
         <th>{{ sh.sort_link('Title', 'title', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th>{{ sh.sort_link('Category', 'category', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th>{{ sh.sort_link('Detected', 'seen', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
-        <th class="cell-centered">{{ sh.sort_link('Severity', 'severity', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th class="cell-centered">{{ sh.sort_link('Silenced', 'silenced', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th class="cell-centered">{{ sh.sort_link('Read', 'read', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
-        <th></th>
+        <th class="mobile-hide">{{ sh.sort_link('Category', 'category', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="mobile-hide">{{ sh.sort_link('Detected', 'seen', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
+        <th class="cell-centered severity-cell">{{ sh.sort_link('Severity', 'severity', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="cell-centered mobile-hide">{{ sh.sort_link('Silenced', 'silenced', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="cell-centered read-cell">{{ sh.sort_link('Read', 'read', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="mobile-hide"></th>
       </tr>
     </thead>
     <tbody>
       {% for f in findings %}
       <tr class="row-clickable" onclick="window.location='/findings/{{ f.id }}'">
-        <td><span class="truncate-cell" title="{{ f.title }}">{{ f.title }}</span></td>
-        <td>{{ f.category|capitalize }}</td>
-        <td class="nowrap">{{ f.last_seen_at | local_dt }}</td>
-        <td class="cell-centered"><span class="badge badge-sev-{{ f.severity }}">{{ severity_label(source, f.severity) }}</span></td>
-        <td class="cell-centered">
+        <td class="row-name-cell"><span class="truncate-cell" title="{{ f.title }}">{{ f.title }}</span></td>
+        <td class="mobile-hide">{{ f.category|capitalize }}</td>
+        <td class="nowrap mobile-hide">{{ f.last_seen_at | local_dt }}</td>
+        <td class="cell-centered severity-cell"><span class="badge badge-sev-{{ f.severity }}">{{ severity_label(source, f.severity) }}</span></td>
+        <td class="cell-centered mobile-hide">
           {% if f.status == 'silenced' %}
           <span class="badge badge-silenced">Silenced</span>
           {% else %}
           <span class="meta">-</span>
           {% endif %}
         </td>
-        <td class="cell-centered">
+        <td class="cell-centered read-cell">
           {% if f.read_status == 'unread' %}
-          <span class="badge badge-unread">Unread</span>
+          <span class="badge badge-unread desktop-only">Unread</span>
+          <svg class="icon read-icon mobile-only" role="img" aria-label="Unread"><use href="#icon-eye-off"/></svg>
           {% else %}
-          <span class="badge badge-read">Read</span>
+          <span class="badge badge-read desktop-only">Read</span>
+          <svg class="icon read-icon mobile-only" role="img" aria-label="Read"><use href="#icon-eye"/></svg>
           {% endif %}
         </td>
-        <td><a href="/findings/{{ f.id }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
+        <td class="mobile-hide"><a href="/findings/{{ f.id }}" class="row-chevron" onclick="event.stopPropagation()">›</a></td>
       </tr>
       {% endfor %}
     </tbody>
