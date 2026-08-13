@@ -2471,14 +2471,9 @@ tr.editing .custom-rule-name-cell .icon-button {
   color: var(--on-error);
   border-color: var(--error);
 }
-.custom-rules-table input.custom-rule-edit-name,
-.custom-rules-table select.custom-rule-edit-type,
-.custom-rules-table textarea.custom-rule-edit-instruction {
+.custom-rules-table input.custom-rule-edit-name {
   width: 100%;
   font-size: 13px;
-}
-.custom-rules-table textarea.custom-rule-edit-instruction {
-  resize: vertical;
 }
 .custom-rule-edit-error {
   display: block;
@@ -2874,10 +2869,6 @@ textarea {
   padding: 8px;
   font-size: 13px;
   resize: vertical;
-}
-.apprise-disclaimer {
-  font-style: italic;
-  margin: 6px 0 10px;
 }
 .test-result-ok { color: var(--accent); font-size: 12px; margin-left: 10px; }
 .test-result-error { color: var(--error); font-size: 12px; margin-left: 10px; }

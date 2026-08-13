@@ -3242,8 +3242,8 @@ def _validate_compose_path(path: str) -> str:
     try:
         resolved = Path(path).resolve()
         root = settings.compose_root.resolve()
-    except (OSError, RuntimeError, ValueError):
-        raise HTTPException(status_code=404, detail="Compose file not found")
+    except (OSError, RuntimeError, ValueError) as err:
+        raise HTTPException(status_code=404, detail="Compose file not found") from err
     if not resolved.is_relative_to(root):
         raise HTTPException(status_code=404, detail="Compose file not found")
     return path

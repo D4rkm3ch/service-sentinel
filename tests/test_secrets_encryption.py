@@ -13,10 +13,12 @@ Tests patch app.secrets_crypto.settings.secrets_encryption_key directly rather t
 env var, since Settings (app/config.py) is read once at import time -- this is the same pattern
 already used for other config-derived test scenarios in this codebase."""
 
+import os
 import stat
 from unittest.mock import patch
 
 import pytest
+from cryptography.fernet import Fernet
 
 from app import db, secrets_crypto
 
@@ -60,13 +62,45 @@ def test_encrypt_is_never_a_passthrough_even_with_no_passphrase_configured():
 
 
 def test_auto_generated_key_file_is_created_under_data_dir_with_owner_only_permissions():
+    # DATA_DIR is a fixed path (see conftest.py), not a fresh tmpdir per run, so a key file left
+    # behind by an earlier test run/session sticks around on disk indefinitely -- without
+    # clearing it (and the module's own cached Fernet instance, which would otherwise keep
+    # serving the stale file's key from memory even after it's deleted) first, this test always
+    # took the "already exists" fast path in _load_or_create_key_file and never actually
+    # exercised key *creation* -- silently degrading to just "a key file happens to exist with
+    # the right permissions", which would stay green even if the creation code itself broke.
+    path = secrets_crypto.key_file_path()
+    path.unlink(missing_ok=True)
+    secrets_crypto._cache_token = None
+    secrets_crypto._cached_fernet = None
     with patch.object(secrets_crypto.settings, "secrets_encryption_key", ""):
         secrets_crypto.encrypt("anything")
-        path = secrets_crypto.key_file_path()
         assert path.exists()
         assert path.parent == secrets_crypto.settings.data_dir
         mode = stat.S_IMODE(path.stat().st_mode)
         assert mode == 0o600, f"expected 0600, got {oct(mode)}"
+
+
+def test_concurrent_key_file_creation_loses_the_race_cleanly_instead_of_crashing():
+    """The O_EXCL open is there specifically so two processes racing to create the key file on
+    first use don't both "win" -- one raises FileExistsError and falls back to reading whatever
+    the other one just wrote, rather than crashing or silently overwriting it. The initial
+    path.exists() check (line 57) can't itself observe that race (nothing's there yet when both
+    processes check), so this simulates it the same way it actually happens: the file genuinely
+    exists on disk when os.open(O_EXCL) runs, but Path.exists() is patched to still say False for
+    the earlier check, standing in for the other process's create winning in between."""
+    path = secrets_crypto.key_file_path()
+    path.unlink(missing_ok=True)
+    secrets_crypto._cache_token = None
+    secrets_crypto._cached_fernet = None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    winner_key = Fernet.generate_key()
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(winner_key)
+    with patch.object(secrets_crypto.settings, "secrets_encryption_key", ""), \
+         patch("pathlib.Path.exists", return_value=False):
+        assert secrets_crypto._load_or_create_key_file() == winner_key
 
 
 def test_auto_key_round_trips_across_fresh_reads_of_the_same_key_file():

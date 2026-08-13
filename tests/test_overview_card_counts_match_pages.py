@@ -4,9 +4,20 @@ only / raw active-finding rows regardless of silenced state) than what each feat
 actually displays by default. The Overview hero metric must always agree with what a click into
 that tab shows."""
 
+import re
 from unittest.mock import patch
 
 from app import db
+
+
+def _runtime_issue_count(card_html: str) -> int:
+    """Reads the Runtime card's own hero number back out of its rendered HTML ("3 Issues" / "1
+    Issue" / "All clean"), for tests that need to assert on it moving by some amount."""
+    if "All clean" in card_html:
+        return 0
+    match = re.search(r'feature-card-hero-text">\s*(\d+)\s*Issues?', card_html)
+    assert match, "could not find the Runtime card's hero issue count in its HTML"
+    return int(match.group(1))
 
 
 def _seed_container_with_update(container_name: str):
@@ -56,20 +67,30 @@ def test_overview_updates_hero_excludes_silenced_containers(client):
 
 
 def test_overview_runtime_hero_counts_subjects_not_raw_finding_rows(client):
+    # Baseline read before seeding anything -- the `client` fixture is session-scoped (one DB
+    # shared across the whole test run, see conftest.py), so other subjects can legitimately
+    # already be active here depending on what ran earlier. Asserting an absolute "1 Issue" was
+    # only ever correct by coincidence of execution order: a real report where this test failed
+    # in isolation (passing fine as part of the full suite) traced back to exactly that -- an
+    # unrelated test's own "logs" finding was still active at this point. Asserting the count's
+    # own delta instead of its absolute value is immune to that regardless of what else is active.
+    resp = client.get("/")
+    card = resp.text[resp.text.index('id="card-logs"'):resp.text.index('id="card-compose"')]
+    baseline = _runtime_issue_count(card)
+
     fid1, _ = db.upsert_finding("logs", "ovcount-subject", "First issue", "reliability", "warning", "desc")
     fid2, _ = db.upsert_finding("logs", "ovcount-subject", "Second issue", "reliability", "warning", "desc 2")
     try:
         resp = client.get("/")
         card = resp.text[resp.text.index('id="card-logs"'):resp.text.index('id="card-compose"')]
         # Two active findings on the same subject -- the Issues table shows one row for it, so
-        # the hero metric must say "1 Issue", not "2 Issues".
-        assert "1 Issue" in card
-        assert "2 Issue" not in card
+        # the hero metric must go up by exactly 1, not 2.
+        assert _runtime_issue_count(card) == baseline + 1
 
         db.set_finding_status(fid1, "silenced")
         db.set_finding_status(fid2, "silenced")
         resp = client.get("/")
         card = resp.text[resp.text.index('id="card-logs"'):resp.text.index('id="card-compose"')]
-        assert "All clean" in card
+        assert _runtime_issue_count(card) == baseline
     finally:
         _cleanup_findings("logs", "ovcount-subject")
