@@ -685,6 +685,17 @@ table {
 .updates-table td, .containers-table td, .findings-table td, .custom-rules-table td,
 .updates-table th, .containers-table th, .findings-table th, .custom-rules-table th {
   overflow: hidden;
+  /* Every real piece of cell content in these tables (.mono names, .meta placeholders,
+     .truncate-cell text) already renders at 13px via its own class, but the <td> itself still
+     inherited body's 14px -- invisible everywhere a cell's content fills its own line, but a
+     td's own font establishes an equally invisible "strut" that sets a line box's MINIMUM
+     height even when the visible content is smaller, per how inline layout works. A plain,
+     non-flex cell (e.g. a bare "-" placeholder) used that taller 14px strut for its own height,
+     while a flex cell (.row-name-cell, which bypasses the strut mechanism entirely) sized
+     purely to its 13px content -- two different heights in the same row, which is what was
+     staggering the divider line between rows right at that column boundary. Matching the
+     inherited size to what's already visually rendering removes the mismatch at its source. */
+  font-size: 13px;
 }
 .importance-cell, .read-cell, .cell-centered {
   text-align: center;
@@ -720,6 +731,16 @@ th {
 td {
   padding: 10px 12px;
   box-shadow: inset 0 -1px 0 var(--border);
+  /* Without this, a row whose cells mix .mono (monospace, e.g. a container name) with plain
+     text (e.g. a Stack "-" placeholder in .meta) computes a different natural line height per
+     cell -- different font families have different metrics at the same font-size, even a
+     couple hundredths of an em adds up to a visible pixel or two once padding is added on top.
+     Each td's own bottom border (the box-shadow above) is drawn at that cell's own bottom edge,
+     so two different heights in the same row means their border lines don't line up -- a real
+     report of the divider between rows visibly "stepping" right where a mono cell sits next to
+     a plain-text one. An explicit shared line-height makes every cell's height agree regardless
+     of which font its content happens to use. */
+  line-height: 1.4;
 }
 
 tr.row-unread { background: var(--accent-wash); }
@@ -3056,6 +3077,34 @@ textarea {
   .btn-label-short {
     display: inline;
   }
+  /* The status text ("Last checked ...") used to sit inline between the title and the action
+     buttons (see .topbar-right's desktop grid) -- there's no room left for it there once the
+     buttons are the priority, so it read as a few truncated words wedged in the middle. Moved
+     to its own full-width row instead, directly under the title/buttons row and directly above
+     the page's own "Show silenced" row right below this header -- reads as one coherent block
+     of "what's this module's status" instead of a clipped fragment. display:contents on
+     .topbar-right (rather than moving it in the template) unwraps it so its two children,
+     #check-status and .feature-actions, become direct grid items of .feature-header itself,
+     which is what lets them land in different named areas below. */
+  .feature-header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "title actions" "status status";
+    overflow: visible;
+  }
+  .feature-header h1 {
+    grid-area: title;
+  }
+  .feature-header .topbar-right {
+    display: contents;
+  }
+  .feature-header .feature-actions {
+    grid-area: actions;
+    justify-self: end;
+  }
+  .feature-header #check-status {
+    grid-area: status;
+  }
 
   /* Overview's own Check All / Reset & Re-Check row, and any other plain
      button row that assumed desktop width -- wraps instead of overflowing. */
@@ -3128,7 +3177,7 @@ textarea {
      reason as the filler rule above for the doubled-up class selector. */
   .feature-card-issue-slot.feature-card-issue-slot-empty {
     display: block;
-    padding: 2px 0 0;
+    padding: 6px 0 16px;
     border: none;
     box-shadow: none;
     min-height: 0;
@@ -3164,9 +3213,15 @@ textarea {
   .feature-card-meta-row:nth-child(1) .meta-label::after {
     content: ":";
   }
+  /* calc(50% - 10px), not a plain 50% -- .feature-card-meta's own 20px gap sits BETWEEN these
+     two items in addition to their own basis, so two unadjusted 50%s never actually fit on one
+     line together (50% + 50% + 20px > 100%) and flex-wrap just dropped Notifications onto its
+     own row again, the exact dangling-alone layout this rule exists to prevent. Subtracting
+     half the gap from each item's basis is what makes the pair's total width, including the
+     real gap between them, land at exactly 100%. */
   .feature-card-meta-row:nth-child(2),
   .feature-card-meta-row:nth-child(3) {
-    flex: 1 1 50%;
+    flex: 1 1 calc(50% - 10px);
     max-width: none;
     min-width: 0;
     margin-left: 0;
@@ -3192,6 +3247,44 @@ textarea {
      wrapper, right back into the horizontal scrolling this pass exists to remove. */
   .mobile-hide {
     display: none;
+  }
+  /* Reclaiming a hidden column's space (above) redistributes it to the visible columns
+     proportional to their OWN declared percentages -- fine when Name was already the largest
+     declared share, but a real report: Importance/Severity and Read still ended up wide enough
+     to leave the container name cramped, because their desktop percentages (9-16%, sized for a
+     much wider row with more competing columns) aren't actually that small relative to Name's
+     own 18-30% once Stack/Detected/etc. drop out. Overriding all three (Name larger, the
+     indicator columns much smaller) fixes the *ratio* directly instead of hoping the leftover
+     desktop numbers happen to redistribute well. !important is required here specifically
+     because -- unlike .col-category/.col-actions above, which are class-based to begin with --
+     every <col> below carries its desktop width as an inline style attribute, which normal
+     stylesheet specificity can never outrank. */
+  .findings-table col.col-name,
+  .updates-table col.col-name,
+  .status-list-table col.col-name {
+    width: 68% !important;
+  }
+  .findings-table col.col-severity,
+  .updates-table col.col-severity {
+    width: 9% !important;
+  }
+  .findings-table col.col-read,
+  .updates-table col.col-read {
+    width: 9% !important;
+  }
+  .status-list-table col.col-status {
+    width: 14% !important;
+  }
+  /* These columns are down to a 12px square or a 15px icon -- the base 12px left/right cell
+     padding (fine for text) alone would need more width than the 9-14% share above leaves,
+     clipping the indicator itself instead of just trimming empty space around it. */
+  .findings-table .severity-cell,
+  .updates-table .importance-cell,
+  .status-list-table .status-cell,
+  .findings-table .read-cell,
+  .updates-table .read-cell {
+    padding-left: 4px;
+    padding-right: 4px;
   }
   /* Every table above uses percentage-only <col> widths except this one, whose Actions column
      is a fixed 56px (fine on desktop, which never hides a column) -- mixed with the hidden
@@ -3262,6 +3355,14 @@ textarea {
     color: var(--text-dim);
     vertical-align: middle;
   }
+  /* Unread's icon gets the same violet identity color the desktop "Unread" badge itself uses
+     (see .badge-unread) instead of the same muted grey as Read's -- a report that the two were
+     too easy to mistake for each other at a glance, which defeats the point of an unread
+     indicator. The adjacent-sibling selector is safe here because the badge and icon are always
+     rendered as a pair in that exact order (see each table template's read-cell markup). */
+  .badge-unread + .read-icon {
+    color: var(--violet);
+  }
 
   /* The name cell is the one column mobile actually wants to grow -- the
      desktop min-width this used to sit inside a wide fixed-layout table no
@@ -3282,5 +3383,19 @@ textarea {
   .api-key-row input {
     max-width: 100%;
     flex-basis: 100%;
+  }
+
+  /* ---- A subject/update/finding detail page's own title row (name + rename pencil + severity
+     badge + read badge + silence badge, all in one nowrap flex row on desktop) doesn't wrap --
+     a long container name pushed the badges straight off the right edge of the screen instead
+     of onto a second line, breaking the page's own width the same way the tables used to.
+     flex-basis:100% on the heading forces it alone onto the first line; everything else (still
+     one flex row) wraps onto a second line below it, reading as "name, then the rest inline
+     underneath" instead of overflowing. */
+  .subject-title-row {
+    flex-wrap: wrap;
+  }
+  .subject-heading {
+    flex: 1 1 100%;
   }
 }

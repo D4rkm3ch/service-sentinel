@@ -1,4 +1,4 @@
-{% macro sort_link(label, column, current_sort, current_dir, base_url, default_dir='asc', sort_param='sort', dir_param='dir', extra_qs='', partial_url=none, target_id=none) %}
+{% macro sort_link(label, column, current_sort, current_dir, base_url, default_dir='asc', sort_param='sort', dir_param='dir', extra_qs='', partial_url=none, target_id=none, short_label=none) %}
 {% if current_sort == column %}
   {% set next_dir = 'desc' if current_dir == 'asc' else 'asc' %}
   {% set arrow = '▲' if current_dir == 'asc' else '▼' %}
@@ -18,6 +18,11 @@
 <a href="{{ base_url }}?{{ qs }}"
    {% if partial_url %}hx-get="{{ partial_url }}?{{ qs }}" hx-target="#{{ target_id }}" hx-swap="outerHTML" hx-push-url="{{ base_url }}?{{ qs }}"{% endif %}
    class="sort-link {{ 'sort-link-active' if current_sort == column else '' }}">
-  {{ label }}{% if arrow %} <span class="sort-arrow">{{ arrow }}</span>{% endif %}
+  {%- if short_label -%}
+  <span class="btn-label-full">{{ label }}</span><span class="btn-label-short">{{ short_label }}</span>
+  {%- else -%}
+  {{ label }}
+  {%- endif -%}
+  {% if arrow %} <span class="sort-arrow">{{ arrow }}</span>{% endif %}
 </a>
 {% endmacro %}

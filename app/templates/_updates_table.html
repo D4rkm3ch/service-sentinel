@@ -7,12 +7,12 @@
 {% if updates %}
 <table class="updates-table">
   <colgroup>
-    <col style="width: 21%">
+    <col style="width: 21%" class="col-name">
     <col style="width: 16%" class="mobile-hide">
     <col style="width: 22%" class="mobile-hide">
     <col style="width: 13%" class="mobile-hide">
-    <col style="width: 15%">
-    <col style="width: 9%">
+    <col style="width: 15%" class="col-severity">
+    <col style="width: 9%" class="col-read">
     <col style="width: 4%" class="mobile-hide">
   </colgroup>
   <thead>
@@ -21,7 +21,7 @@
       <th class="mobile-hide">{{ sh.sort_link('Stack', 'stack', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th class="mobile-hide">{{ sh.sort_link('Version', 'version', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th class="mobile-hide">{{ sh.sort_link('Detected', 'detected', sort, dir, '/updates', 'desc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
-      <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
+      <th class="importance-cell">{{ sh.sort_link('Importance', 'importance', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table', short_label='Pri') }}</th>
       <th class="read-cell">{{ sh.sort_link('Read', 'status', sort, dir, '/updates', 'asc', extra_qs=preserve_other, partial_url='/updates/partial', target_id='updates-table') }}</th>
       <th class="mobile-hide"></th>
     </tr>

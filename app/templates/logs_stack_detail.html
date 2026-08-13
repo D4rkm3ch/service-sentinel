@@ -60,11 +60,11 @@
   <div class="table-scroll-wrap">
   <table class="findings-table">
     <colgroup>
-      <col style="width: 26%">
+      <col style="width: 26%" class="col-name">
       <col style="width: 22%" class="mobile-hide">
       <col style="width: 18%" class="mobile-hide">
-      <col style="width: 16%">
-      <col style="width: 12%">
+      <col style="width: 16%" class="col-severity">
+      <col style="width: 12%" class="col-read">
       <col style="width: 6%" class="mobile-hide">
     </colgroup>
     <thead>
@@ -72,7 +72,7 @@
         <th>{{ sh.sort_link('Container', 'container', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
         <th class="mobile-hide">{{ sh.sort_link('Findings', 'findings', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
         <th class="mobile-hide">{{ sh.sort_link('Detected', 'detected', sort, dir, sort_base_url, 'desc', extra_qs=sort_extra_qs) }}</th>
-        <th class="cell-centered severity-cell">{{ sh.sort_link('Severity', 'severity', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
+        <th class="cell-centered severity-cell">{{ sh.sort_link('Severity', 'severity', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs, short_label='Sev') }}</th>
         <th class="cell-centered read-cell">{{ sh.sort_link('Read', 'read', sort, dir, sort_base_url, 'asc', extra_qs=sort_extra_qs) }}</th>
         <th class="mobile-hide"></th>
       </tr>
