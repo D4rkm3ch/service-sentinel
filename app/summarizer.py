@@ -300,8 +300,10 @@ def _custom_rules_prompt_block(source: str) -> str:
         lines.append(f"- {verb}: {rule['instruction']}")
     return (
         "\n\nThe operator has also set these standing rules for what you should and shouldn't "
-        "flag, through the chat widget. Apply them the same way regardless of which container "
-        "or file they come up in:\n" + "\n".join(lines)
+        "flag, through the chat widget. These take priority over any default guidance above "
+        "when the two disagree -- including the default guidance on how to categorize specific "
+        "kinds of failures. Apply them the same way regardless of which container or file they "
+        "come up in:\n" + "\n".join(lines)
     )
 
 
