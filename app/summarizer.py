@@ -307,6 +307,117 @@ def _custom_rules_prompt_block(source: str) -> str:
     )
 
 
+RULE_ENFORCEMENT_SYSTEM_PROMPT = """You are a second, independent check on another AI's review \
+of a homelab operator's setup, checking its output strictly against the operator's own standing \
+rules and nothing else. The operator's rules always win over the first review's own judgment, no \
+matter how reasonable that judgment looks -- that first review doesn't get a vote here.
+
+You're given the operator's active rules (each either "Exclude" -- never flag this as an issue \
+-- or "Watch" -- always flag this as an issue), the findings the first review proposed, and the \
+original material it reviewed.
+
+Two independent jobs:
+1. For each proposed finding, decide whether it describes exactly the situation an "Exclude" \
+rule says never to flag. If so, its index goes in "drop".
+2. Read the original material yourself for anything a "Watch" rule says must always be flagged \
+that isn't already among the proposed findings. Each one goes in "add", shaped like a finding: \
+{{"title": "short, specific", "category": one of {category_options}, "severity": one of \
+"critical", "warning", "suggestion", "description": "1-2 sentences"{container_field}}}.
+
+Do not second-guess anything else. A proposed finding that doesn't match any "Exclude" rule \
+stays exactly as given, even if you personally would have judged it differently -- only rule \
+matches count here, nothing else about whether it's a "real" issue. Likewise, only add something \
+under job 2 if a "Watch" rule specifically covers it, not just because you notice it yourself.
+
+Respond with ONLY a JSON object and nothing else -- no markdown fences, no preamble: {{"drop": \
+[indices of proposed findings to remove], "add": [new findings to add]}}. Use an empty array for \
+either when there's nothing to change."""
+
+
+def _enforce_custom_rules(source: str, context_text: str, findings: list[dict],
+                           category_options: str, include_container: bool = False) -> list[dict]:
+    """A guaranteed second pass over the primary review's own findings, checked strictly against
+    the operator's active custom rules (db.ai_custom_rules) -- rather than trusting the primary
+    triage/review call alone to have honored them. A real-world report: the base system prompt
+    above bakes in detailed default categorization guidance (e.g. Logs' *arr parse-failure
+    guidance) specific and emphatic enough to outweigh a short operator rule appended after it in
+    that very same call, even with _custom_rules_prompt_block's own priority line. This runs as
+    an entirely separate call whose only job is comparing the proposed findings and the original
+    material against the rules, so it isn't competing with the primary review's own default
+    guidance at all -- it's the one call in the whole pipeline where the operator's rules are the
+    ONLY instruction that matters.
+
+    No active rules for this source -- true for every install until an operator actually adds
+    one through the chat widget -- returns findings completely unchanged without spending a
+    token, same fast path as _custom_rules_prompt_block. A failure of this call itself (provider
+    error, unparseable response) also returns findings unchanged rather than risk losing an
+    otherwise-good primary result to a transient problem in this second, non-essential pass.
+
+    Only ever adds or removes finding dicts already destined for db.upsert_finding, same shape
+    the primary call already produces -- like the rest of AI review, this never reads, writes, or
+    otherwise touches any file, container, or setting itself."""
+    rules = db.list_ai_custom_rules(source)
+    if not rules or not ai_provider.is_configured():
+        return findings
+
+    has_watch_rule = any(r["rule_type"] == "watch" for r in rules)
+    if not findings and not has_watch_rule:
+        return findings
+
+    rule_lines = "\n".join(
+        f'- {"Exclude" if r["rule_type"] == "exclude" else "Watch"}: {r["instruction"]}'
+        for r in rules
+    )
+    findings_block = "\n".join(
+        f'{i}. [{f.get("category", "?")}/{f.get("severity", "?")}] '
+        f'{f.get("title", "")}: {f.get("description", "")}'
+        for i, f in enumerate(findings)
+    ) or "(none proposed)"
+    user_message = (
+        f"Operator rules:\n{rule_lines}\n\n"
+        f"Proposed findings:\n{findings_block}\n\n"
+        f"Original material reviewed:\n{context_text}"
+    )
+    container_field = (
+        ', "container": "the container name from the material\'s own === Container: X === header"'
+        if include_container else ""
+    )
+    system_prompt = RULE_ENFORCEMENT_SYSTEM_PROMPT.format(
+        category_options=category_options, container_field=container_field,
+    )
+
+    try:
+        text = ai_provider.complete_text(
+            system=system_prompt, user_message=user_message, max_tokens=1200,
+        )
+        result = extract_json(text)
+    except Exception:
+        logger.exception(
+            "Custom-rule enforcement call failed for source=%s; keeping the primary result unchanged", source,
+        )
+        return findings
+
+    if not isinstance(result, dict):
+        return findings
+
+    drop_indices = {i for i in result.get("drop", []) if isinstance(i, int) and 0 <= i < len(findings)}
+    additions = [a for a in result.get("add", []) if isinstance(a, dict) and a.get("title")]
+
+    if drop_indices:
+        logger.info(
+            "Custom-rule enforcement dropped %d finding(s) for source=%s (matched an Exclude rule)",
+            len(drop_indices), source,
+        )
+    if additions:
+        logger.info(
+            "Custom-rule enforcement added %d finding(s) for source=%s (matched a Watch rule)",
+            len(additions), source,
+        )
+
+    kept = [f for i, f in enumerate(findings) if i not in drop_indices]
+    return kept + additions
+
+
 LOG_TRIAGE_SYSTEM_PROMPT_BASE = """You are triaging pre-filtered log excerpts from a homelab \
 operator's self-hosted Docker containers. Each excerpt already only contains lines that matched \
 suspicious keywords (error, exception, failed, etc.) plus a little surrounding context -- most \
@@ -456,7 +567,13 @@ def analyze_logs_batch(excerpts_by_container: dict[str, str], include_fix: bool 
         system=system_prompt, user_message=user_message, max_tokens=2500 if include_fix else 2000,
     )
     data = extract_json(text)
-    return data if isinstance(data, list) else []
+    results = data if isinstance(data, list) else []
+    findings = [r for r in results if isinstance(r, dict) and r.get("title")]
+    other = [r for r in results if not (isinstance(r, dict) and r.get("title"))]
+    findings = _enforce_custom_rules(
+        "logs", user_message, findings, '"error", "reliability", "optimization"', include_container=True,
+    )
+    return findings + other
 
 
 COMPOSE_REVIEW_SYSTEM_PROMPT_BASE = """You are reviewing a docker-compose file from a homelab \
@@ -727,6 +844,9 @@ def review_compose_file(file_path: str, redacted_yaml: str, include_fix: bool = 
     )
     data = extract_json(text)
     findings = data if isinstance(data, list) else []
+    findings = _enforce_custom_rules(
+        "compose", user_message, findings, '"security", "reliability", "optimization"',
+    )
 
     # is not False: covers both True (mount exists and is already :ro -- a misread) and None (no
     # docker.sock mount in the file at all -- a real-world report showed the model naming

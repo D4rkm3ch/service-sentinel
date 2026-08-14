@@ -92,18 +92,22 @@ def test_analyze_logs_batch_omits_the_block_with_no_rules():
 
 
 def test_review_compose_file_includes_custom_rules_in_the_system_prompt():
+    # A watch rule makes a second, real call to summarizer._enforce_custom_rules (see
+    # test_summarizer_rule_enforcement.py) even when the primary pass found nothing -- so this
+    # captures every system prompt seen, not just the last one, and checks the primary call's own
+    # (the first).
     db.add_ai_custom_rule("compose", "watch", "Always flag ports pu...", "Always flag ports published without a firewall.")
-    captured = {}
+    captured = []
 
     def _fake(system, user_message, max_tokens):
-        captured["system"] = system
+        captured.append(system)
         return "[]"
 
     with patch("app.summarizer.ai_provider.is_configured", return_value=True), \
          patch("app.summarizer.ai_provider.complete_text", side_effect=_fake):
         summarizer.review_compose_file("/compose/x.yaml", "services:\n  web:\n    image: nginx")
 
-    assert "Always flag ports published without a firewall." in captured["system"]
+    assert "Always flag ports published without a firewall." in captured[0]
 
 
 def test_logs_rules_never_leak_into_the_compose_review_prompt():
