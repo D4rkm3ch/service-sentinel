@@ -75,6 +75,25 @@
       {{ sf.schedule_fields('master', master, '/settings/schedule/master', false) }}
     </div>
 
+    <div class="settings-subsection" id="staleness_section">
+      <h4>Staleness</h4>
+      <p class="meta">Flags a finding "Stale" once nothing, human or AI, has re-confirmed it's
+still happening in a while - a Runtime finding whose evidence keeps recurring, or a
+Configuration finding whose file keeps changing, never goes stale no matter how old it is.
+Shared by both modules; doesn't silence anything by itself, see each module's own panel below
+for that.</p>
+      <select name="stale_after_days" class="mono field-input" hx-post="/settings/stale-after"
+              hx-trigger="change" hx-target="#saved-stale-after">
+        <option value="off" {{ 'selected' if stale_after == 'off' else '' }}>Off</option>
+        <option value="3" {{ 'selected' if stale_after == '3' else '' }}>After 3 days</option>
+        <option value="7" {{ 'selected' if stale_after == '7' else '' }}>After 7 days</option>
+        <option value="14" {{ 'selected' if stale_after == '14' else '' }}>After 14 days</option>
+        <option value="30" {{ 'selected' if stale_after == '30' else '' }}>After 30 days</option>
+        <option value="60" {{ 'selected' if stale_after == '60' else '' }}>After 60 days</option>
+      </select>
+      <span class="saved-indicator-slot" id="saved-stale-after"></span>
+    </div>
+
     <div class="settings-subsection" id="notification_delivery_section">
       <h4>Notification Delivery</h4>
       {#- No "above"/"below" here: this panel has already moved once, and a sentence that points
@@ -460,6 +479,45 @@ error - registries occasionally rate limit or time out on an otherwise healthy c
         {{ ts.toggle_switch('logs_use_checkpoint', logs_use_checkpoint, '/settings/logs-use-checkpoint',
                              'Only look at logs since the last check - turn off to always rescan the window above') }}
       </div>
+    </div>
+    <div class="settings-subsection">
+      <h4>Removed Containers</h4>
+      <p class="meta">A stopped, renamed, or deleted container never sends fresh evidence again,
+so its findings can otherwise stay active forever with no way for a check to clear them on its
+own - this silences them once the container has genuinely been gone a while, rather than merely
+missing from one check.</p>
+      {{ ts.toggle_switch('logs_auto_silence_removed_enabled', logs_auto_silence_removed_enabled,
+                           '/settings/logs-auto-silence-removed', 'Auto-silence findings for removed containers') }}
+      <div style="margin-top:12px">
+        <select name="logs_auto_silence_removed_after_days" class="mono field-input" hx-post="/settings/logs-auto-silence-removed-after"
+                hx-trigger="change" hx-target="#saved-logs-auto-silence-removed-after">
+          <option value="1" {{ 'selected' if logs_auto_silence_removed_after == '1' else '' }}>After 1 day gone</option>
+          <option value="3" {{ 'selected' if logs_auto_silence_removed_after == '3' else '' }}>After 3 days gone</option>
+          <option value="7" {{ 'selected' if logs_auto_silence_removed_after == '7' else '' }}>After 7 days gone</option>
+          <option value="14" {{ 'selected' if logs_auto_silence_removed_after == '14' else '' }}>After 14 days gone</option>
+          <option value="30" {{ 'selected' if logs_auto_silence_removed_after == '30' else '' }}>After 30 days gone</option>
+        </select>
+        <span class="saved-indicator-slot" id="saved-logs-auto-silence-removed-after"></span>
+      </div>
+    </div>
+    {% elif feature == 'compose' %}
+    <div class="settings-subsection">
+      <h4>Periodic Re-review</h4>
+      <p class="meta">An unchanged compose file is never re-reviewed at all, so a finding for one
+can only clear by editing that file, silencing it by hand, or a Reset &amp; re-check - turning
+this on re-reviews every file on this schedule even with no edit, so something fixed another way
+(a new standing rule, a config change elsewhere) can eventually clear on its own. Off by default:
+unlike Staleness above, this spends AI tokens.</p>
+      <select name="compose_rereview_after_days" class="mono field-input" hx-post="/settings/compose-rereview-after"
+              hx-trigger="change" hx-target="#saved-compose-rereview-after">
+        <option value="off" {{ 'selected' if compose_rereview_after == 'off' else '' }}>Off</option>
+        <option value="7" {{ 'selected' if compose_rereview_after == '7' else '' }}>Every 7 days</option>
+        <option value="14" {{ 'selected' if compose_rereview_after == '14' else '' }}>Every 14 days</option>
+        <option value="30" {{ 'selected' if compose_rereview_after == '30' else '' }}>Every 30 days</option>
+        <option value="60" {{ 'selected' if compose_rereview_after == '60' else '' }}>Every 60 days</option>
+        <option value="90" {{ 'selected' if compose_rereview_after == '90' else '' }}>Every 90 days</option>
+      </select>
+      <span class="saved-indicator-slot" id="saved-compose-rereview-after"></span>
     </div>
     {% endif %}
 

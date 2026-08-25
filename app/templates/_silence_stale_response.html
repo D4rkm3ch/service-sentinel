@@ -1,0 +1,6 @@
+{# htmx response for POST /{{ source }}/silence-stale: the issues table refreshes in place (its
+   own hx-target on the button), the "Silence N Stale" button/count follows out-of-band, same
+   "primary swap + oob companion" shape as _silence_toggle_response.html. Same context as the
+   read-only partial routes (logs_partial_issues/compose_partial_issues) plus stale_count. #}
+{% include "_issues_grouped_table.html" %}
+{% with oob = true %}{% include "_stale_silence_button.html" %}{% endwith %}

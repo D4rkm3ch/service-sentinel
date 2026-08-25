@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import threading
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
@@ -95,6 +96,18 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
     hashes_by_path = db.get_compose_file_hashes([str(p) for p in paths])
     hashes_to_stamp: dict[str, str] = {}
 
+    # Periodic re-review (Settings -> Configuration -> "re-review even unchanged files", off by
+    # default -- see db.py's own docstring on why this exists). Only ever reads
+    # last_reviewed_at when the setting is actually on, so leaving it off costs this pass nothing
+    # beyond the one already-fast setting lookup.
+    rereview_days = db.get_compose_rereview_after_days()
+    if rereview_days is not None:
+        last_reviewed_by_path = db.get_compose_file_last_reviewed([str(p) for p in paths])
+        rereview_cutoff = (datetime.now(timezone.utc) - timedelta(days=rereview_days)).isoformat()
+    else:
+        last_reviewed_by_path = {}
+        rereview_cutoff = None
+
     for path in paths:
         if check_state.is_cancel_requested("compose"):
             cancelled = True
@@ -113,7 +126,12 @@ def run_compose_check_for(paths: list[Path], on_progress: ProgressFunc = None) -
         checked_ok_paths.append(path_str)
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         previous_hash = hashes_by_path.get(path_str)
-        if previous_hash == content_hash:
+        unchanged = previous_hash == content_hash
+        due_for_rereview = (
+            unchanged and rereview_cutoff is not None
+            and (last_reviewed_by_path.get(path_str) or "") < rereview_cutoff
+        )
+        if unchanged and not due_for_rereview:
             done_count += 1
             if on_progress:
                 on_progress("checking_compose_files", done_count, total)

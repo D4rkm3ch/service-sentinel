@@ -1,6 +1,7 @@
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 from app import ai_provider, check_state, db, stacks
@@ -82,6 +83,7 @@ def run_log_check() -> dict:
         "Log check complete: %d containers checked, %d findings", result["checked"], result["findings_found"]
     )
     _run_log_stack_analysis_pass_safely(checked_names)
+    _auto_silence_removed_containers_safely(checked_names)
     set_finished("logs", result)
     return result
 
@@ -434,3 +436,42 @@ def _run_log_stack_analysis_pass_safely(checked_names: list[str]) -> None:
         stacks.run_log_stack_analysis_pass(checked_names)
     except Exception:
         logger.exception("Log stack analysis pass failed for this check")
+
+
+def _auto_silence_removed_containers_safely(current_names: list[str]) -> None:
+    """Opt-in housekeeping (Settings -> Runtime -> "Auto-silence findings for removed
+    containers", off by default -- see db.py's own docstring on why this exists). A container
+    that's been stopped, renamed, or deleted drops out of list_running_containers_for_logs()
+    entirely, so nothing ever sends it fresh evidence again -- run_log_check_for's own
+    resolution-checking (see that function's docstring) can only judge a finding against evidence
+    it actually receives, and a removed container never provides any. Left alone, such a finding
+    stays "active" forever with no path to clearing it besides the operator noticing by hand.
+
+    current_names is this check's own full running-container list (run_log_check's own
+    checked_names) -- only ever called from there, never from a scoped Check now/Reset & re-check
+    covering a handful of containers, which would otherwise make every OTHER container in the
+    system look "removed" simply because this particular run never looked at it.
+
+    Only silences a subject once its last successful check (db.get_log_watch_checkpoints, the
+    same checkpoint the incremental log fetch itself reads) is older than the configured grace
+    period -- not merely "missing from this run", which would also catch a container that's
+    simply mid-restart or briefly unreachable. Never fatal to the check itself, same "log and
+    move on" treatment the stack analysis pass above gets."""
+    if not db.get_logs_auto_silence_removed_enabled():
+        return
+    try:
+        active_subjects = db.list_subjects_with_findings("logs", include_silenced=False)
+        missing = [s["subject"] for s in active_subjects if s["subject"] not in current_names]
+        if not missing:
+            return
+        grace_days = db.get_logs_auto_silence_removed_after_days()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=grace_days)).isoformat()
+        checkpoints = db.get_log_watch_checkpoints(missing)
+        due = [name for name in missing if (checkpoints.get(name) or "") < cutoff]
+        if due:
+            logger.info(
+                "Auto-silencing findings for %d container(s) no longer seen running: %s", len(due), due,
+            )
+            db.silence_all_findings_for_subjects("logs", due)
+    except Exception:
+        logger.exception("Auto-silence-removed-containers pass failed")

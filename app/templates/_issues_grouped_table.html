@@ -60,7 +60,10 @@
         {{ issue.active_count }} active
         {%- if show_silenced and issue.silenced_count %}, {{ issue.silenced_count }} silenced{% endif %}
       </td>
-      <td class="nowrap mobile-hide">{{ issue.last_seen_at | local_dt }}</td>
+      <td class="nowrap mobile-hide">
+        {{ issue.last_seen_at | local_dt }}
+        {%- if issue.last_seen_at | is_stale %} <span class="badge badge-stale" title="Nothing has re-confirmed this is still happening in a while">Stale</span>{% endif %}
+      </td>
       <td class="cell-centered severity-cell">
         <span class="badge badge-sev-{{ issue.top_severity }}">{{ severity_label(source, issue.top_severity) }}</span>
       </td>

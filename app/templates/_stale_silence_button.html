@@ -1,0 +1,16 @@
+{# Bulk "Silence N Stale" button -- silences every active finding whose last_seen_at is older
+   than the operator's configured staleness threshold (Settings -> Timing & Delivery). Renders
+   nothing when there's nothing to silence, which is also true whenever staleness itself is
+   turned off (db.count_stale_findings returns 0 in that case too -- same source of truth the
+   "Stale" badge itself reads, see main.is_stale). Params: source, stale_count, oob (true only in
+   the post-action response, see _silence_stale_response.html). #}
+<span id="stale-silence-{{ source }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if stale_count %}
+<button type="button" class="button-warn"
+        hx-post="/{{ source }}/silence-stale"
+        hx-target="#{{ source }}-issues-table" hx-swap="outerHTML"
+        hx-confirm="Silence {{ stale_count }} finding{{ 's' if stale_count != 1 else '' }} that {{ 'hasn' if stale_count == 1 else 'haven' }}&#39;t been re-confirmed in a while? This only silences them - nothing is deleted, and each can still be found again from Show silenced.">
+  Silence {{ stale_count }} Stale
+</button>
+{% endif %}
+</span>

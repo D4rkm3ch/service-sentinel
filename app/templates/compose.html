@@ -6,7 +6,7 @@
   {% include "_feature_header.html" %}
   <div id="compose-collapse-body" class="collapse-body">
     <div class="section-header">
-      <span></span>
+      {% with source = "compose" %}{% include "_stale_silence_button.html" %}{% endwith %}
       <a href="/compose{{ '' if show_silenced else '?show_silenced=1' }}" class="show-silenced-link">
         {{ 'Hide silenced' if show_silenced else 'Show silenced' }}
       </a>

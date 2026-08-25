@@ -2556,6 +2556,10 @@ tr.editing .custom-rule-name-cell .icon-button {
    its wording. */
 .badge-partially-silenced { background: rgba(91, 147, 217, 0.08); color: var(--info); border: 1px dashed rgba(91, 147, 217, 0.4); }
 .badge-healthy { background: var(--accent-wash); color: var(--accent); }
+/* A finding nobody, human or AI, has actually re-confirmed in a while (Settings -> Timing &
+   Delivery -- Staleness). Same --warn amber as .badge-sev-action_needed -- it's the same "worth
+   a look" signal, just about the finding's own freshness rather than its severity. */
+.badge-stale { background: rgba(217, 164, 65, 0.15); color: var(--warn); }
 
 /* Severity segmented buttons -- replaces the old dropdown */
 .severity-group-row {

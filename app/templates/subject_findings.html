@@ -106,7 +106,10 @@
       <tr class="row-clickable" onclick="window.location='/findings/{{ f.id }}'">
         <td class="row-name-cell"><span class="truncate-cell" title="{{ f.title }}">{{ f.title }}</span></td>
         <td class="mobile-hide">{{ f.category|capitalize }}</td>
-        <td class="nowrap mobile-hide">{{ f.last_seen_at | local_dt }}</td>
+        <td class="nowrap mobile-hide">
+          {{ f.last_seen_at | local_dt }}
+          {%- if f.last_seen_at | is_stale %} <span class="badge badge-stale" title="Nothing has re-confirmed this is still happening in a while">Stale</span>{% endif %}
+        </td>
         <td class="cell-centered severity-cell"><span class="badge badge-sev-{{ f.severity }}">{{ severity_label(source, f.severity) }}</span></td>
         <td class="cell-centered mobile-hide">
           {% if f.status == 'silenced' %}

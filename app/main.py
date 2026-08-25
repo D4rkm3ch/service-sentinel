@@ -431,6 +431,23 @@ def local_dt(iso_utc: str | None) -> str:
 
 templates.env.filters["local_dt"] = local_dt
 
+
+def is_stale(last_seen_at: str | None) -> bool:
+    """True when a finding's last_seen_at is older than the operator's configured staleness
+    threshold (Settings -> Timing & Delivery, db.get_stale_cutoff_iso) -- "Stale" badge/bulk-
+    silence signal for "nothing has actually re-confirmed this is still real in a while," not
+    just "this is old." Plain string comparison against the cutoff, same as every other
+    last_seen_at comparison in this app (see db.get_stale_cutoff_iso's own docstring) -- cheap
+    enough to call per row without needing to thread a precomputed cutoff through every route
+    that renders a finding."""
+    if not last_seen_at:
+        return False
+    cutoff = db.get_stale_cutoff_iso()
+    return cutoff is not None and last_seen_at < cutoff
+
+
+templates.env.filters["is_stale"] = is_stale
+
 # Every markdown-rendered block in the app (release notes, AI summaries/overviews, finding
 # descriptions and suggested fixes) can contain links the user didn't put there themselves --
 # a GitHub release body linking to Watchtower, a CHANGELOG.md, an upstream issue. Those should
@@ -1109,6 +1126,27 @@ def logs_partial_issues(request: Request, show_silenced: bool = False, sort: str
     )
 
 
+@app.post("/logs/silence-stale")
+def logs_silence_stale(request: Request, show_silenced: bool = False, sort: str = "severity", dir: str = "asc"):
+    """The Issues table's own bulk "Silence N Stale" button (see _stale_silence_button.html) --
+    silences every currently active Runtime finding whose last_seen_at is older than the
+    configured staleness threshold (db.silence_stale_findings), then returns the same "table +
+    out-of-band button" shape as the button's own template describes."""
+    db.silence_stale_findings("logs")
+    issues = _attach_stack_info(db.list_subjects_with_findings("logs", include_silenced=show_silenced), "subject")
+    for issue in issues:
+        issue["display_name"] = compose_lookup.subject_display_name("logs", issue["subject"])
+    issues = _sort_issue_rows(issues, sort, dir)
+    return templates.TemplateResponse(
+        request, "_silence_stale_response.html",
+        {
+            "issues": issues, "source": "logs", "show_silenced": show_silenced,
+            "sort": sort, "dir": dir, "is_partial": True, "show_stack_column": True,
+            "stale_count": db.count_stale_findings("logs"),
+        },
+    )
+
+
 @app.get("/logs/active-items")
 def logs_active_items():
     """Fast, cheap poll target for the findings table's own spinner-per-row (see
@@ -1158,6 +1196,25 @@ def compose_partial_issues(request: Request, show_silenced: bool = False, sort: 
         {
             "issues": issues, "source": "compose", "show_silenced": show_silenced,
             "sort": sort, "dir": dir, "is_partial": True,
+        },
+    )
+
+
+@app.post("/compose/silence-stale")
+def compose_silence_stale(request: Request, show_silenced: bool = False, sort: str = "severity", dir: str = "asc"):
+    """Configuration health's equivalent of POST /logs/silence-stale -- see that route's own
+    docstring."""
+    db.silence_stale_findings("compose")
+    issues = db.list_subjects_with_findings("compose", include_silenced=show_silenced)
+    for issue in issues:
+        issue["display_name"] = compose_lookup.subject_display_name("compose", issue["subject"])
+    issues = _sort_issue_rows(issues, sort, dir)
+    return templates.TemplateResponse(
+        request, "_silence_stale_response.html",
+        {
+            "issues": issues, "source": "compose", "show_silenced": show_silenced,
+            "sort": sort, "dir": dir, "is_partial": True,
+            "stale_count": db.count_stale_findings("compose"),
         },
     )
 
@@ -1679,6 +1736,10 @@ def settings_page(request: Request):
             "release_notes_lookback": db.get_release_notes_lookback(),
             "logs_lookback": db.get_logs_lookback(),
             "logs_use_checkpoint": db.get_logs_use_checkpoint(),
+            "stale_after": db.get_stale_after(),
+            "compose_rereview_after": db.get_compose_rereview_after(),
+            "logs_auto_silence_removed_enabled": db.get_logs_auto_silence_removed_enabled(),
+            "logs_auto_silence_removed_after": db.get_logs_auto_silence_removed_after(),
             "timezone": db.get_timezone(), "available_timezones": AVAILABLE_TIMEZONES,
             "ai_provider": db.get_ai_provider(),
             "anthropic_key_configured": bool(db.get_anthropic_api_key()),
@@ -1772,6 +1833,43 @@ async def save_logs_lookback(request: Request):
 async def save_logs_use_checkpoint(request: Request):
     form = await request.form()
     db.set_logs_use_checkpoint(form.get("enabled") == "on")
+    return _saved(request)
+
+
+@app.post("/settings/stale-after")
+async def save_stale_after(request: Request):
+    form = await request.form()
+    value = form.get("stale_after_days", "14")
+    if value not in db.STALE_AFTER_DAYS:
+        raise HTTPException(status_code=400, detail="Unknown staleness value")
+    db.set_stale_after(value)
+    return _saved(request)
+
+
+@app.post("/settings/compose-rereview-after")
+async def save_compose_rereview_after(request: Request):
+    form = await request.form()
+    value = form.get("compose_rereview_after_days", "off")
+    if value not in db.COMPOSE_REREVIEW_AFTER_DAYS:
+        raise HTTPException(status_code=400, detail="Unknown re-review value")
+    db.set_compose_rereview_after(value)
+    return _saved(request)
+
+
+@app.post("/settings/logs-auto-silence-removed")
+async def save_logs_auto_silence_removed(request: Request):
+    form = await request.form()
+    db.set_logs_auto_silence_removed_enabled(form.get("enabled") == "on")
+    return _saved(request)
+
+
+@app.post("/settings/logs-auto-silence-removed-after")
+async def save_logs_auto_silence_removed_after(request: Request):
+    form = await request.form()
+    value = form.get("logs_auto_silence_removed_after_days", "7")
+    if value not in db.LOGS_REMOVED_GRACE_DAYS:
+        raise HTTPException(status_code=400, detail="Unknown grace period value")
+    db.set_logs_auto_silence_removed_after(value)
     return _saved(request)
 
 
@@ -2531,6 +2629,7 @@ def logs_page(request: Request, show_silenced: bool = False,
             "issues": issues, "containers": containers, "show_silenced": show_silenced,
             "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
             "active_tab": "logs", "show_stack_column": True,
+            "stale_count": db.count_stale_findings("logs"),
         },
     )
 
@@ -2758,6 +2857,7 @@ def compose_page(request: Request, show_silenced: bool = False,
             "issues": issues, "files": files, "show_silenced": show_silenced,
             "sort": sort, "dir": dir, "csort": csort, "cdir": cdir,
             "active_tab": "compose",
+            "stale_count": db.count_stale_findings("compose"),
         },
     )
 

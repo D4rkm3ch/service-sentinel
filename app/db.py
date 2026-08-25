@@ -4,7 +4,7 @@ import logging
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app import secrets_crypto
 from app.config import settings
@@ -1752,6 +1752,171 @@ def set_compose_file_hashes(hashes_by_path: dict[str, str]) -> None:
             """,
             [(path, content_hash, now) for path, content_hash in hashes_by_path.items()],
         )
+
+
+def get_compose_file_last_reviewed(file_paths: list[str]) -> dict[str, str]:
+    """Batched last_reviewed_at lookup, the periodic-re-review counterpart to
+    get_compose_file_hashes -- only ever called when Settings' "re-review even unchanged files"
+    (get_compose_rereview_after_days) is turned on, see compose_reviewer.run_compose_check_for's
+    fast pass, so a fresh install/anyone who leaves it off pays nothing extra for this."""
+    if not file_paths:
+        return {}
+    with get_conn() as conn:
+        qs = ",".join("?" * len(file_paths))
+        cur = conn.execute(
+            f"SELECT file_path, last_reviewed_at FROM compose_file_state WHERE file_path IN ({qs})",
+            file_paths,
+        )
+        return {r["file_path"]: r["last_reviewed_at"] for r in cur.fetchall()}
+
+
+# ---------------------------------------------------------------------------
+# Staleness -- a real-world report: an operator away for weeks came back to a dashboard full of
+# findings with no way to tell "still genuinely a problem" from "nothing has actually re-examined
+# this in a long time." last_seen_at already carries exactly that signal for both sources, just
+# via different mechanisms: Logs only bumps it when the AI re-confirms the same problem in fresh
+# evidence (see summarizer.analyze_logs_batch's resolution-checking), and Compose only bumps it
+# when the file is actually re-reviewed at all (unchanged files are skipped entirely, see
+# compose_reviewer.run_compose_check_for) -- so "last_seen_at hasn't moved in N days" means the
+# same thing for both: nobody, human or AI, has actually looked at this in a while. One shared
+# threshold rather than a per-source one, since that's the same real-world question either way.
+# ---------------------------------------------------------------------------
+
+STALE_AFTER_DAYS = {
+    "off": None,
+    "3": 3,
+    "7": 7,
+    "14": 14,
+    "30": 30,
+    "60": 60,
+}
+
+
+def get_stale_after(conn: sqlite3.Connection | None = None) -> str:
+    return _get_setting("stale_after_days", "14", conn=conn)
+
+
+def set_stale_after(value: str) -> None:
+    _set_setting("stale_after_days", value)
+
+
+def get_stale_after_days(conn: sqlite3.Connection | None = None) -> int | None:
+    return STALE_AFTER_DAYS.get(get_stale_after(conn=conn))
+
+
+def get_stale_cutoff_iso(conn: sqlite3.Connection | None = None) -> str | None:
+    """The last_seen_at value a finding must be older than to count as stale, or None when
+    staleness is turned off entirely (every caller treats that as "nothing is stale"). ISO
+    strings compare correctly with plain `<` here since every timestamp in this database comes
+    from now_iso() -- same assumption every existing `ORDER BY last_seen_at` already relies on."""
+    days = get_stale_after_days(conn=conn)
+    if days is None:
+        return None
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def count_stale_findings(source: str) -> int:
+    """Read-only counterpart to silence_stale_findings, for the Issues table's own bulk-action
+    button label."""
+    cutoff = get_stale_cutoff_iso()
+    if cutoff is None:
+        return 0
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM findings WHERE source = ? AND status = 'active' AND last_seen_at < ?",
+            (source, cutoff),
+        ).fetchone()
+    return row["n"] if row else 0
+
+
+def silence_stale_findings(source: str) -> int:
+    """Bulk-silences every currently active finding for this source whose last_seen_at is older
+    than the configured staleness threshold -- the action behind the Issues table's "Silence N
+    Stale" button. A no-op (returns 0) when staleness is off, same fast path as
+    count_stale_findings above."""
+    cutoff = get_stale_cutoff_iso()
+    if cutoff is None:
+        return 0
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE findings SET status = 'silenced' WHERE source = ? AND status = 'active' AND last_seen_at < ?",
+            (source, cutoff),
+        )
+        return cur.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Compose periodic re-review -- opt-in (off by default, unlike staleness above, since this one
+# actually spends AI tokens rather than just labeling something). An unchanged compose file is
+# never re-reviewed at all (see compose_reviewer.run_compose_check_for), so a finding for one can
+# only ever clear by the operator editing that file, silencing it by hand, or forcing a Reset &
+# re-check -- turning this on instead re-reviews a file every N days even with no edit, so a
+# finding whose cause was fixed some OTHER way (an indexer reconfigured, a new custom rule added
+# since it was first flagged) eventually clears on its own, the same evidence-based way Logs
+# already can.
+# ---------------------------------------------------------------------------
+
+COMPOSE_REREVIEW_AFTER_DAYS = {
+    "off": None,
+    "7": 7,
+    "14": 14,
+    "30": 30,
+    "60": 60,
+    "90": 90,
+}
+
+
+def get_compose_rereview_after(conn: sqlite3.Connection | None = None) -> str:
+    return _get_setting("compose_rereview_after_days", "off", conn=conn)
+
+
+def set_compose_rereview_after(value: str) -> None:
+    _set_setting("compose_rereview_after_days", value)
+
+
+def get_compose_rereview_after_days(conn: sqlite3.Connection | None = None) -> int | None:
+    return COMPOSE_REREVIEW_AFTER_DAYS.get(get_compose_rereview_after(conn=conn))
+
+
+# ---------------------------------------------------------------------------
+# Logs auto-silence for removed containers -- opt-in (off by default: this silences things
+# automatically rather than just labeling them). A container that's stopped, been renamed, or no
+# longer exists drops out of list_running_containers_for_logs() entirely, so nothing ever sends
+# its findings fresh evidence again -- run_log_check_for's own resolution-checking (see its
+# docstring) can only judge a finding against evidence it actually receives, and a removed
+# container never provides any, so such a finding would otherwise stay "active" forever with no
+# path to clearing it besides the operator noticing by hand.
+# ---------------------------------------------------------------------------
+
+LOGS_REMOVED_GRACE_DAYS = {
+    "1": 1,
+    "3": 3,
+    "7": 7,
+    "14": 14,
+    "30": 30,
+}
+
+
+def get_logs_auto_silence_removed_enabled() -> bool:
+    return _get_setting("logs_auto_silence_removed_enabled", "false") == "true"
+
+
+def set_logs_auto_silence_removed_enabled(value: bool) -> None:
+    _set_setting("logs_auto_silence_removed_enabled", "true" if value else "false")
+
+
+def get_logs_auto_silence_removed_after(conn: sqlite3.Connection | None = None) -> str:
+    return _get_setting("logs_auto_silence_removed_after_days", "7", conn=conn)
+
+
+def set_logs_auto_silence_removed_after(value: str) -> None:
+    _set_setting("logs_auto_silence_removed_after_days", value)
+
+
+def get_logs_auto_silence_removed_after_days(conn: sqlite3.Connection | None = None) -> int:
+    # .get(..., 7) rather than a direct index, same defensive shape as get_logs_lookback_hours --
+    # protects against a stale value left behind by a future removed choice.
+    return LOGS_REMOVED_GRACE_DAYS.get(get_logs_auto_silence_removed_after(conn=conn), 7)
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,9 @@
     <span class="badge badge-lg badge-sev-{{ finding.severity }}">{{ severity_label(finding.source, finding.severity) }}</span>
     {% with is_unread = finding.read_status == 'unread', show_badge = true %}{% include "_read_badge.html" %}{% endwith %}
     {% with silence_state = finding.status if finding.status == 'silenced' else none %}{% include "_silence_badge.html" %}{% endwith %}
+    {% if finding.last_seen_at | is_stale %}
+    <span class="badge badge-stale" title="Nothing has re-confirmed this is still happening in a while">Stale</span>
+    {% endif %}
   </div>
   {% if finding.source == 'compose' %}
   <form id="finding-rename-form" method="post" action="/compose/file/rename" class="hidden stack-rename-form">

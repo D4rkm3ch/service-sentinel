@@ -27,10 +27,12 @@ def _compose_file(name: str, content: str) -> Path:
 
 def test_run_compose_check_for_uses_a_fixed_number_of_connections_not_one_per_file():
     """All files already hashed and unchanged -- no AI review needed, so this only exercises the
-    fast sequential pass. Expect exactly 2 connections (one batched hash read, one batched
-    clear-errors write) regardless of file count -- no connection for set_compose_file_hashes
-    (nothing to stamp, every file was already unchanged) or record_compose_check_errors/
-    notify_findings_digest (both no-op on empty input)."""
+    fast sequential pass. Expect exactly 3 connections (one batched hash read, one setting read
+    for periodic re-review -- off by default, so it short-circuits before its own batched
+    last_reviewed_at read, see db.get_compose_rereview_after_days -- and one batched clear-errors
+    write) regardless of file count -- no connection for set_compose_file_hashes (nothing to
+    stamp, every file was already unchanged) or record_compose_check_errors/notify_findings_
+    digest (both no-op on empty input)."""
     paths = []
     try:
         for i in range(12):
@@ -49,7 +51,7 @@ def test_run_compose_check_for_uses_a_fixed_number_of_connections_not_one_per_fi
         with patch("app.db.sqlite3.connect", side_effect=counting_connect):
             result = compose_reviewer.run_compose_check_for(paths)
 
-        assert connect_calls == [1, 1], f"expected a fixed 2-connection batch, got {len(connect_calls)}"
+        assert connect_calls == [1, 1, 1], f"expected a fixed 3-connection batch, got {len(connect_calls)}"
         assert result == {"checked": 12, "reviewed": 0, "findings_found": 0, "errors": 0, "rate_limited": 0, "cancelled": False}
     finally:
         for path in paths:
@@ -63,7 +65,8 @@ def test_run_compose_check_for_batches_hash_writes_for_redaction_skipped_files()
     """New/changed files whose redaction step returns None (see redact_compose_file_text) get
     their hash stamped without an AI review -- also part of the fast sequential pass, so those
     writes must go through the same single batched set_compose_file_hashes call, not one
-    connection per skipped file."""
+    connection per skipped file. The extra connection beyond that (4 total) is the same
+    periodic-re-review setting read the other connection-count test in this file documents."""
     paths = []
     try:
         for i in range(6):
@@ -81,7 +84,7 @@ def test_run_compose_check_for_batches_hash_writes_for_redaction_skipped_files()
              patch("app.db.sqlite3.connect", side_effect=counting_connect):
             result = compose_reviewer.run_compose_check_for(paths)
 
-        assert connect_calls == [1, 1, 1], f"expected a fixed 3-connection batch, got {len(connect_calls)}"
+        assert connect_calls == [1, 1, 1, 1], f"expected a fixed 4-connection batch, got {len(connect_calls)}"
         assert result["checked"] == 6
         assert result["reviewed"] == 0
 

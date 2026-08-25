@@ -1187,10 +1187,12 @@ def test_run_log_check_uses_a_fixed_number_of_connections_end_to_end():
 
     # 4 for run_log_check_for's own batch (use-checkpoint read, checkpoint read, active-
     # findings-by-subject read, checkpoint write, error-clear -- 5 total) + 1 for
-    # get_cross_service_analysis_enabled (the stack-analysis-pass gate) + 1 for set_finished's
+    # get_cross_service_analysis_enabled (the stack-analysis-pass gate) + 1 for
+    # get_logs_auto_silence_removed_enabled (off by default, so it short-circuits before any
+    # further read -- see _auto_silence_removed_containers_safely) + 1 for set_finished's
     # persisted last_check_result -- a small fixed number regardless of container count, not
     # one connection per container.
-    assert len(connect_calls) <= 7, f"expected a small fixed connection count, got {len(connect_calls)}"
+    assert len(connect_calls) <= 8, f"expected a small fixed connection count, got {len(connect_calls)}"
     assert result["checked"] == 10
 
 
