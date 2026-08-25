@@ -3449,6 +3449,20 @@ def finding_detail(request: Request, finding_id: int):
         stack_info = compose_lookup.get_stack_info(finding["subject"])
         stack_id = stack_info["stack_id"] if stack_info and len(stack_info["service_names"]) >= 2 else None
 
+    # Seeds the "Suggest Ignore Rule" button (see finding_detail.html, base.html's
+    # askServiceSentinelChat) with the exact finding text rather than trusting the chat's own
+    # context snapshot to have it -- that snapshot itemizes at most a handful of findings per
+    # module with a short blurb each (see chat._ITEMS_PER_SECTION), so a busy dashboard's finding
+    # could easily be one of the "...and N more" ones the model never actually sees. Phrased as
+    # an explicit ignore/standing-rule request, matching SYSTEM_PROMPT_HEADER's own worked
+    # example, so the model proposes an "exclude" rule rather than just discussing the finding.
+    module_label = "Runtime" if finding["source"] == "logs" else "Configuration"
+    ignore_rule_prompt = (
+        f'Propose a standing rule so {module_label} health never flags this again for '
+        f'"{finding["subject"]}": "{finding["title"]}". Here is the current finding: '
+        f'{(finding["description_markdown"] or "")[:500]}'
+    )
+
     return templates.TemplateResponse(
         request, "finding_detail.html",
         {
@@ -3456,7 +3470,7 @@ def finding_detail(request: Request, finding_id: int):
             "suggested_fix_html": suggested_fix_html,
             "display_name": display_name, "active_tab": finding["source"],
             "stack_id": stack_id, "subject_findings_count": subject_findings_count,
-            "subject_url": subject_url,
+            "subject_url": subject_url, "ignore_rule_prompt": ignore_rule_prompt,
         },
     )
 

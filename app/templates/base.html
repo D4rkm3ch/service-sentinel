@@ -1218,6 +1218,24 @@
       // Replays any conversation still alive in this tab -- must run after appendMessage is
       // defined, so it sits at the end of this IIFE rather than up with the other setup.
       restoreHistory();
+
+      // Lets a button anywhere on the page open the panel with a question already typed and
+      // sent -- e.g. a finding page's "Suggest Ignore Rule" button (see finding_detail.html) --
+      // without duplicating any of the open/send logic above. Exposed on window since those
+      // buttons live in templates this IIFE has no reach into; any element can opt in with a
+      // plain data-chat-ask="..." attribute rather than each caller needing its own onclick
+      // wiring here.
+      window.askServiceSentinelChat = function (text) {
+        if (!text || pending) return;
+        setOpen(true);
+        input.value = text;
+        submit();
+      };
+      document.addEventListener("click", function (evt) {
+        var trigger = evt.target.closest("[data-chat-ask]");
+        if (!trigger) return;
+        window.askServiceSentinelChat(trigger.dataset.chatAsk);
+      });
     })();
 
     // Chat panel resizing -- drag its left edge (or focus the handle and use the arrow keys) to
