@@ -56,6 +56,23 @@ _MAX_MANUAL_REDIRECTS = 5
 # very active release cadence) could otherwise pull in an unbounded number of releases.
 _MAX_COMPILED_RELEASES = 20
 
+# A real-world report: a container's changelog_url label (or a cached "url"-method source, see
+# get_release_notes' priority order) pointed at an ordinary marketing/documentation page rather
+# than a real changelog. _fetch_manual_url has no way to know that in advance -- it fetches
+# whatever's there -- so without a cap, the entire page's text (nav links, banners, everything)
+# gets stored as release_notes_raw verbatim, sent whole into the summarization prompt (see
+# summarizer.summarize_update, which embeds it with no length check of its own), and, once that
+# oversized prompt makes summarization itself fail (particularly likely against a small-context
+# local model), shown to the operator AS the summary via the detail page's own "fall back to
+# showing the raw notes when there's no summary" behavior (see persist._summarize_container's
+# docstring). A genuine changelog is essentially never anywhere near this size; this exists
+# purely to bound the pathological case, not to trim real content. Truncates from the end (keeps
+# the start) -- right for a scraped page (real content, if any, is usually near the top) and for
+# a single release body, imperfect for an unusually large compiled multi-release blob (see
+# _compile_releases_text, ordered oldest-to-newest, so truncating there loses the newest release
+# first) -- an edge case of an edge case not worth a more elaborate truncation strategy for.
+_MAX_RELEASE_NOTES_CHARS = 12000
+
 
 def _github_headers() -> dict:
     headers = {"Accept": "application/vnd.github+json"}
@@ -352,6 +369,22 @@ faithful description of what changed in this release in your own words, or null 
 
 
 def get_release_notes(
+    image_repo: str,
+    tag: str,
+    source_override: str | None = None,
+    changelog_url_override: str | None = None,
+    since: datetime | None = None,
+) -> tuple[str | None, str | None]:
+    """Thin wrapper over _get_release_notes -- every real exit path funnels through here so the
+    _MAX_RELEASE_NOTES_CHARS cap (see its own comment) applies regardless of which source found
+    something, without having to duplicate it at every return statement inside."""
+    notes, url = _get_release_notes(image_repo, tag, source_override, changelog_url_override, since)
+    if notes and len(notes) > _MAX_RELEASE_NOTES_CHARS:
+        notes = notes[:_MAX_RELEASE_NOTES_CHARS] + "\n\n(truncated -- this source returned more than could be used)"
+    return notes, url
+
+
+def _get_release_notes(
     image_repo: str,
     tag: str,
     source_override: str | None = None,

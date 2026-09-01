@@ -2117,6 +2117,37 @@ def set_openai_compat_concurrency(value: int) -> None:
     _set_setting("openai_compat_concurrency", str(value))
 
 
+# Max Response Tokens -- an operator-configurable ceiling on the output-token budget
+# ai_provider.py requests from (and lets its truncation retry grow up to for) the OpenAI-
+# compatible provider specifically, see ai_provider._effective_max_tokens_ceiling's own docstring
+# for why only this provider needs one. Stored as "" for "no limit" (falls back to the app's own
+# built-in ceiling) rather than a sentinel string, so a plain empty Settings text box round-trips
+# naturally with no separate off/on toggle needed.
+
+def get_openai_compat_max_tokens() -> int | None:
+    raw = _get_setting("openai_compat_max_tokens", "")
+    return int(raw) if raw else None
+
+
+def set_openai_compat_max_tokens(value: int | None) -> None:
+    _set_setting("openai_compat_max_tokens", str(value) if value else "")
+
+
+# Auto-retry-with-a-smaller-request on a context/token-limit error (see ai_provider._with_
+# context_limit_shrink) -- off by default since it's a behavior change, not just a label/cap.
+# Only ever consulted for the OpenAI-compatible provider regardless of this value; the setting
+# itself only lives in that provider's own Settings section since it's the only one it can ever
+# apply to (see that function's own docstring for why: free to retry against a local model,
+# not against a paid cloud call).
+
+def get_openai_compat_auto_shrink_enabled() -> bool:
+    return _get_setting("openai_compat_auto_shrink_enabled", "false") == "true"
+
+
+def set_openai_compat_auto_shrink_enabled(value: bool) -> None:
+    _set_setting("openai_compat_auto_shrink_enabled", "true" if value else "false")
+
+
 # How many extra attempts a single container's registry digest lookup gets before it's recorded
 # as a check error (see reconcile._fetch_group). A real-world report: update checks failing on
 # containers that were perfectly fine, because a registry lookup is one HTTP call to a

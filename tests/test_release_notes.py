@@ -20,6 +20,63 @@ def _github_response(status_code=200, body="Fixed a bug", html_url="https://gith
     return resp
 
 
+# ---------------------------------------------------------------------------
+# _MAX_RELEASE_NOTES_CHARS -- a real-world report: a changelog_url override pointing at an
+# ordinary marketing/documentation page fetched (and stored, and fed whole into the AI
+# summarization prompt) that entire page's text, unbounded -- garbled nav links and all --
+# because _fetch_manual_url just returns resp.text verbatim with no size check. get_release_
+# notes() now caps whatever comes back before returning it, regardless of which source produced
+# it.
+# ---------------------------------------------------------------------------
+
+def test_an_oversized_manual_url_result_is_truncated():
+    huge_page = "x" * (release_notes._MAX_RELEASE_NOTES_CHARS + 5000)
+    with patch("app.release_notes.httpx.Client") as mock_client_cls, \
+         patch("app.release_notes._is_safe_public_url", return_value=True):
+        mock_client = mock_client_cls.return_value.__enter__.return_value
+        resp = MagicMock(status_code=200, text=huge_page)
+        resp.raise_for_status.return_value = None
+        mock_client.get.return_value = resp
+
+        notes, _url = release_notes.get_release_notes(
+            "owner/repo", "latest", changelog_url_override="https://example.com/CHANGELOG.md",
+        )
+
+    assert len(notes) < len(huge_page)
+    assert notes.startswith("x" * 100)
+    assert "truncated" in notes
+
+
+def test_a_normal_sized_manual_url_result_is_untouched():
+    with patch("app.release_notes.httpx.Client") as mock_client_cls, \
+         patch("app.release_notes._is_safe_public_url", return_value=True):
+        mock_client = mock_client_cls.return_value.__enter__.return_value
+        resp = MagicMock(status_code=200, text="a normal, short changelog entry")
+        resp.raise_for_status.return_value = None
+        mock_client.get.return_value = resp
+
+        notes, _url = release_notes.get_release_notes(
+            "owner/repo", "latest", changelog_url_override="https://example.com/CHANGELOG.md",
+        )
+
+    assert notes == "a normal, short changelog entry"
+
+
+def test_an_oversized_web_search_result_is_also_truncated():
+    huge_notes = "y" * (release_notes._MAX_RELEASE_NOTES_CHARS + 1000)
+    with patch("app.release_notes.db.get_release_notes_source", return_value=None), \
+         patch("app.release_notes.httpx.Client") as mock_client_cls, \
+         patch("app.release_notes._guess_github_repos", return_value=[]), \
+         patch("app.release_notes._web_search_release_notes", return_value=(huge_notes, "https://blog.example.com")), \
+         patch("app.release_notes.db.set_release_notes_source"):
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = MagicMock(status_code=404)
+
+        notes, _url = release_notes.get_release_notes("somenamespace/someimage", "latest")
+
+    assert len(notes) < len(huge_notes)
+    assert "truncated" in notes
+
+
 def test_changelog_url_override_takes_priority_over_everything():
     with patch("app.release_notes.httpx.Client") as mock_client_cls, \
          patch("app.release_notes.db.get_release_notes_source") as mock_cache, \

@@ -315,6 +315,15 @@ _TRUNCATION_RETRY_MULTIPLIER = 2
 _MAX_TRUNCATION_RETRIES = 3
 _MAX_TOKENS_CEILING = 8192
 
+# On the opposite failure -- the provider rejects the request outright because it (prompt +
+# requested output) exceeds the model's own context window, rather than gracefully truncating --
+# _with_context_limit_shrink below retries with a SMALLER budget instead of _with_truncation_
+# retry's grow-and-retry. Halves each attempt down to this floor rather than one single guess,
+# since how much headroom a real prompt needs back isn't knowable in advance.
+_CONTEXT_SHRINK_FACTOR = 2
+_CONTEXT_SHRINK_MIN_TOKENS = 256
+_CONTEXT_SHRINK_MAX_ATTEMPTS = 4
+
 # Gemini's "thinking" models (2.5 Flash/Pro) spend an unpredictable number of internal
 # reasoning tokens before writing the actual answer, and those thinking tokens count against
 # max_output_tokens too -- so even a budget sized generously for the expected answer length can
@@ -328,6 +337,14 @@ _MAX_TOKENS_CEILING = 8192
 # without letting thinking alone consume an entire small output budget; 0 (fully disabled) isn't
 # used here since Gemini 2.5 Pro rejects it outright (Flash models allow 0, Pro requires >0).
 _GEMINI_THINKING_BUDGET = 512
+
+
+def _is_context_length_error(exc: Exception) -> bool:
+    """True for the narrow 'request (prompt + requested output) exceeds the model's context
+    window' shape -- factored out of _classify_ai_error so _with_context_limit_shrink below can
+    detect exactly this case without duplicating (or drifting from) the same heuristic."""
+    message = str(exc).lower()
+    return "context" in message and ("length" in message or "token" in message)
 
 
 def _classify_ai_error(exc: Exception) -> tuple[str, bool]:
@@ -352,7 +369,13 @@ def _classify_ai_error(exc: Exception) -> tuple[str, bool]:
         return "Couldn't reach the AI provider - check the endpoint and that the server is running.", True
     message = str(exc)
     lowered = message.lower()
-    if "context" in lowered and ("length" in lowered or "token" in lowered):
+    if _is_context_length_error(exc):
+        if db.get_ai_provider() == "openai_compat":
+            return (
+                "The request exceeded the model's context/token limit - lower Max Response "
+                "Tokens for the OpenAI-compatible provider in Settings, or the prompt itself "
+                "may be too large for this model's context window.", False,
+            )
         return "The request exceeded the model's context/token limit.", False
     # Anthropic reports a hard monthly/usage-limit cutoff as a 400 invalid_request_error rather
     # than the 429 RateLimitError case above, and it hands back a genuinely useful reset date --
@@ -423,10 +446,19 @@ def complete_text(system: str | None, user_message: str, max_tokens: int) -> str
     an exception here as "this attempt failed," regardless of which provider raised it. Also
     records a friendly version of that failure for the topbar banner (see
     _record_background_ai_error) before re-raising, so every call site keeps its existing
-    per-item error handling completely unchanged."""
+    per-item error handling completely unchanged.
+
+    The requested budget is clamped to _effective_max_tokens_ceiling() and, on a context/token-
+    limit error, retried with a smaller one (see _with_context_limit_shrink) -- both only ever
+    change anything for the OpenAI-compatible provider; every other provider's own context window
+    comfortably exceeds anything this app asks for, so this is a no-op there."""
     fn = _COMPLETE_FNS.get(db.get_ai_provider(), _COMPLETE_FNS["anthropic"])
+    ceiling = _effective_max_tokens_ceiling()
     try:
-        return _with_truncation_retry(lambda mt: fn(system, user_message, mt), max_tokens)
+        return _with_context_limit_shrink(
+            lambda budget: _with_truncation_retry(lambda mt: fn(system, user_message, mt), budget, ceiling),
+            min(max_tokens, ceiling),
+        )
     except Exception as exc:
         _record_background_ai_error(exc)
         raise
@@ -450,7 +482,7 @@ def web_search(user_message: str, max_tokens: int) -> str:
     topbar banner exactly like complete_text does, for the same reason."""
     fn = _WEB_SEARCH_FNS.get(db.get_ai_provider(), _WEB_SEARCH_FNS["anthropic"])
     try:
-        return _with_truncation_retry(lambda mt: fn(user_message, mt), max_tokens)
+        return _with_truncation_retry(lambda mt: fn(user_message, mt), max_tokens, _MAX_TOKENS_CEILING)
     except Exception as exc:
         _record_background_ai_error(exc)
         raise
@@ -471,25 +503,82 @@ def complete_chat(system: str | None, messages: list[dict], max_tokens: int) -> 
     ending on the newest user turn; system carries the chat's instructions plus the live
     read-only system-state snapshot chat.py builds fresh each turn. Same provider dispatch and
     same truncation-retry wrapper as complete_text; raises on failure identically, so the route
-    that calls this handles a provider error the same way every other AI call site does."""
+    that calls this handles a provider error the same way every other AI call site does. Same
+    budget clamp/context-limit shrink as complete_text too (see _effective_max_tokens_ceiling/
+    _with_context_limit_shrink) -- a small-context local model can hit this from a chat question
+    just as easily as from a background check."""
     fn = _CHAT_FNS.get(db.get_ai_provider(), _CHAT_FNS["anthropic"])
-    return _with_truncation_retry(lambda mt: fn(system, messages, mt), max_tokens)
+    ceiling = _effective_max_tokens_ceiling()
+    return _with_context_limit_shrink(
+        lambda budget: _with_truncation_retry(lambda mt: fn(system, messages, mt), budget, ceiling),
+        min(max_tokens, ceiling),
+    )
 
 
-def _with_truncation_retry(fn, max_tokens: int) -> str:
+def _effective_max_tokens_ceiling() -> int:
+    """The output-token ceiling _with_truncation_retry's growth is capped at, and the floor every
+    call site's own initial max_tokens request is clamped to before ever being sent. Always
+    _MAX_TOKENS_CEILING for a hosted provider -- Anthropic/Gemini/OpenAI's cloud context windows
+    comfortably exceed anything this app asks for. Only the OpenAI-compatible provider has an
+    operator-configurable ceiling (Settings -> OpenAI-compatible -> Max Response Tokens), since
+    that's the one provider whose actual context window (a local model's own configured context
+    length) can be far smaller than what this app's larger prompts plus a full _MAX_TOKENS_CEILING
+    retry would ask for -- a real-world report: a truncation retry kept re-asking an 8K-context
+    local model for more output tokens than it had left after its own already-sizeable system
+    prompt, turning what should have been one clean answer into a guaranteed context-length-
+    exceeded error. Unset (the default) means "no extra cap beyond the app's own built-in
+    ceiling" -- not literally unbounded, since retrying forever against a genuinely oversized
+    prompt would just hang."""
+    if db.get_ai_provider() != "openai_compat":
+        return _MAX_TOKENS_CEILING
+    configured = db.get_openai_compat_max_tokens()
+    return min(configured, _MAX_TOKENS_CEILING) if configured else _MAX_TOKENS_CEILING
+
+
+def _with_context_limit_shrink(run, max_tokens: int) -> str:
+    """Runs run(budget), and on a context/token-limit error, retries with a SMALLER budget
+    instead of giving up outright -- opt-in (Settings -> OpenAI-compatible -> "Automatically
+    retry with a smaller request...", off by default) and only ever for the OpenAI-compatible
+    provider (a local model costs nothing extra to retry against, unlike a paid cloud call, which
+    is exactly why this stays off for every other provider regardless of the setting -- see
+    db.get_openai_compat_auto_shrink_enabled). Halves the budget each attempt down to
+    _CONTEXT_SHRINK_MIN_TOKENS rather than one single guess, since how much headroom a real
+    prompt actually needs back isn't knowable in advance. Any OTHER kind of failure (a bad key,
+    an unreachable endpoint, a genuine rate limit) is never retried here -- only this narrow,
+    free-to-retry case."""
+    auto_shrink = db.get_ai_provider() == "openai_compat" and db.get_openai_compat_auto_shrink_enabled()
+    budget = max_tokens
+    for attempt in range(_CONTEXT_SHRINK_MAX_ATTEMPTS):
+        try:
+            return run(budget)
+        except Exception as exc:
+            if not auto_shrink or not _is_context_length_error(exc):
+                raise
+            next_budget = budget // _CONTEXT_SHRINK_FACTOR
+            if next_budget < _CONTEXT_SHRINK_MIN_TOKENS or attempt == _CONTEXT_SHRINK_MAX_ATTEMPTS - 1:
+                raise
+            logger.warning(
+                "Context/token limit hit with a %d-token budget -- retrying with %d (attempt %d/%d)",
+                budget, next_budget, attempt + 2, _CONTEXT_SHRINK_MAX_ATTEMPTS,
+            )
+            budget = next_budget
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _with_truncation_retry(fn, max_tokens: int, ceiling: int) -> str:
     text = ""
     budget = max_tokens
     for attempt in range(_MAX_TRUNCATION_RETRIES + 1):
         text, truncated = fn(budget)
         if not truncated:
             return text
-        if budget >= _MAX_TOKENS_CEILING:
+        if budget >= ceiling:
             logger.warning(
                 "Response still truncated at the %d-token ceiling after %d attempt(s) -- giving up",
-                _MAX_TOKENS_CEILING, attempt + 1,
+                ceiling, attempt + 1,
             )
             break
-        next_budget = min(budget * _TRUNCATION_RETRY_MULTIPLIER, _MAX_TOKENS_CEILING)
+        next_budget = min(budget * _TRUNCATION_RETRY_MULTIPLIER, ceiling)
         logger.warning(
             "Response hit max_tokens (%d) and was cut off -- retrying with %d (attempt %d/%d)",
             budget, next_budget, attempt + 1, _MAX_TRUNCATION_RETRIES,

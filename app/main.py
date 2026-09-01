@@ -1758,6 +1758,8 @@ def settings_page(request: Request):
             "openai_compat_model": db.get_openai_compat_model(),
             "openai_compat_key_configured": bool(db.get_openai_compat_api_key()),
             "openai_compat_concurrency": db.get_openai_compat_concurrency(),
+            "openai_compat_max_tokens": db.get_openai_compat_max_tokens(),
+            "openai_compat_auto_shrink_enabled": db.get_openai_compat_auto_shrink_enabled(),
             "ai_concurrency_min": db.AI_CONCURRENCY_MIN,
             "ai_concurrency_max": db.AI_CONCURRENCY_MAX,
             "update_check_retries": db.get_update_check_retries(),
@@ -2112,6 +2114,34 @@ async def save_openai_compat_concurrency(request: Request):
         return {"ok": False, "message": error}
     db.set_openai_compat_concurrency(value)
     return {"ok": True, "value": value}
+
+
+@app.post("/settings/ai/openai-compat-max-tokens")
+async def save_openai_compat_max_tokens(request: Request):
+    """A blank value means "no limit" (see db.get_openai_compat_max_tokens's own docstring for
+    why that's stored as "" rather than a sentinel) -- the one field on this page where empty is
+    a valid, deliberate choice rather than "nothing entered yet", so it's accepted as its own
+    branch before the int-parsing below ever runs."""
+    form = await request.form()
+    raw = (form.get("value") or "").strip()
+    if not raw:
+        db.set_openai_compat_max_tokens(None)
+        return {"ok": True, "value": ""}
+    try:
+        value = int(raw)
+    except ValueError:
+        return {"ok": False, "message": "Enter a whole number, or leave it blank for no limit."}
+    if value < 1:
+        return {"ok": False, "message": "Must be at least 1, or leave it blank for no limit."}
+    db.set_openai_compat_max_tokens(value)
+    return {"ok": True, "value": value}
+
+
+@app.post("/settings/ai/openai-compat-auto-shrink")
+async def save_openai_compat_auto_shrink(request: Request):
+    form = await request.form()
+    db.set_openai_compat_auto_shrink_enabled(form.get("enabled") == "on")
+    return _saved(request)
 
 
 def _rewind_checkpoint_for(source: str) -> None:

@@ -315,6 +315,28 @@ The web search fallback for release notes isn't available with this provider.</p
           <span class="saved-indicator-slot" id="saved-openai_compat_concurrency"></span>
         </div>
       </div>
+      <div class="settings-subsection">
+        <h4>Max Response Tokens</h4>
+        <p class="meta">Caps how many output tokens are ever requested from this model, and the
+ceiling a cut-off response is allowed to retry up to - leave blank for no extra limit. A local
+model's own context window can be far smaller than what this app's default budgets assume;
+lowering this stops a request from exceeding it in the first place.</p>
+        <div class="stepper-row">
+          <input type="number" inputmode="numeric" min="1" class="mono field-input"
+                 id="openai_compat_max_tokens_input" placeholder="No limit"
+                 value="{{ openai_compat_max_tokens or '' }}" onchange="saveMaxTokens(this.value)"
+                 onkeydown="if (event.key === 'Enter') this.blur();" style="max-width:160px">
+          <span class="saved-indicator-slot" id="saved-openai_compat_max_tokens"></span>
+        </div>
+      </div>
+      <div class="settings-subsection">
+        <h4>Auto-Retry on Token Limit</h4>
+        <p class="meta">If a request is rejected for exceeding the context/token limit, try again
+with a smaller one instead of giving up - safe to leave on for a local model (nothing gets
+billed), which is why this only ever exists here, not for a paid provider.</p>
+        {{ ts.toggle_switch('openai_compat_auto_shrink_enabled', openai_compat_auto_shrink_enabled,
+                             '/settings/ai/openai-compat-auto-shrink', 'Auto-retry with a smaller request') }}
+      </div>
     </div>
 
     <div class="settings-subsection">
@@ -895,6 +917,33 @@ function saveConcurrency(provider, rawValue) {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'value=' + encodeURIComponent(value),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      input.value = data.value;
+      slot.innerHTML = '<span class="saved-indicator">Saved</span>';
+    } else {
+      slot.innerHTML = '<span class="test-result-error">' + escapeHtml(data.message) + '</span>';
+    }
+  }).catch(() => {
+    slot.innerHTML = '<span class="test-result-error">Request failed -- try again.</span>';
+  });
+}
+
+// A blank value here is a deliberate, valid choice ("no limit"), unlike the concurrency fields
+// above which always snap into their min/max range -- so this posts the raw value as-is rather
+// than substituting a default when it's empty.
+function saveMaxTokens(rawValue) {
+  const input = document.getElementById('openai_compat_max_tokens_input');
+  const slot = document.getElementById('saved-openai_compat_max_tokens');
+  const trimmed = (rawValue || '').trim();
+  if (trimmed !== '' && (isNaN(parseInt(trimmed, 10)) || parseInt(trimmed, 10) < 1)) {
+    slot.innerHTML = '<span class="test-result-error">Enter a whole number, or leave it blank for no limit.</span>';
+    return;
+  }
+  fetch('/settings/ai/openai-compat-max-tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'value=' + encodeURIComponent(trimmed),
   }).then(r => r.json()).then(data => {
     if (data.ok) {
       input.value = data.value;
