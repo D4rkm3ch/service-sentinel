@@ -77,6 +77,14 @@ def test_is_configured_openai_compat_needs_url_and_model_but_no_key():
     assert ai_provider.is_configured() is True
 
 
+def test_has_web_search_is_false_only_for_openai_compat():
+    for provider in ("anthropic", "gemini", "openai"):
+        db.set_ai_provider(provider)
+        assert ai_provider.has_web_search() is True
+    db.set_ai_provider("openai_compat")
+    assert ai_provider.has_web_search() is False
+
+
 def test_concurrency_limit_dispatches_to_each_openai_provider():
     db.set_ai_provider("openai")
     db.set_openai_concurrency(6)

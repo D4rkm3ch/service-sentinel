@@ -263,6 +263,23 @@ def is_configured() -> bool:
     return bool(db.get_anthropic_api_key())
 
 
+def has_web_search() -> bool:
+    """Whether the currently configured provider can actually perform a real web search/
+    grounding call -- checked BEFORE ever calling web_search(), same "early-out before spending
+    effort" shape as is_configured() above. A real-world report: release_notes.py's own web
+    search fallback already treats a web_search() failure as just one more thing to gracefully
+    fall through from (see its try/except), but ai_provider.web_search() unconditionally records
+    every failure for the topbar banner and cancels the running check on anything it can't
+    otherwise classify (see _record_background_ai_error/_classify_ai_error) -- appropriate for a
+    genuine provider failure, not for a local OpenAI-compatible model that was NEVER going to
+    have a search tool. That turned an expected, permanent capability gap for one container into
+    a scary "AI provider error" banner (worse, one that told the operator to flip a Settings
+    toggle removed when this fallback became unconditional) and an abandoned check for every
+    other container in the same run. Callers should treat False as "skip this step entirely,"
+    the same way they already treat is_configured() returning False."""
+    return db.get_ai_provider() != "openai_compat"
+
+
 def concurrency_limit() -> int:
     """How many AI calls persist.py's fan-out phases (release notes web search fallback,
     summarization) should run at once, for whichever provider is currently active. Used to be
@@ -603,9 +620,13 @@ def _web_search_openai(user_message: str, max_tokens: int) -> tuple[str, bool]:
 
 
 def _web_search_openai_compat(user_message: str, max_tokens: int) -> tuple[str, bool]:
+    # Defensive only -- has_web_search() above should stop release_notes.py (the only caller)
+    # from ever reaching this for the openai_compat provider at all. Message doesn't mention a
+    # Settings toggle: the web search fallback has been unconditional since release_notes.py's
+    # own docstring change, there's nothing left to disable.
     raise RuntimeError(
         "The OpenAI-compatible provider has no web search tool - "
-        "disable the web search fallback in Settings or switch providers."
+        "switch to Anthropic, Gemini, or OpenAI to use this fallback."
     )
 
 

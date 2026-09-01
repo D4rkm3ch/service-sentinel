@@ -118,6 +118,67 @@ def test_web_search_result_pointing_at_github_is_cached_as_a_github_source():
     mock_set_cache.assert_called_once_with("somenamespace/someimage", "github", "owner/found-repo")
 
 
+# ---------------------------------------------------------------------------
+# _web_search_release_notes's own gating -- a real-world report: an OpenAI-compatible (local)
+# provider raised on every fallback attempt, which ai_provider.web_search() recorded as a fatal
+# "AI provider error" (cancelling the whole running check) even though this function's own
+# try/except already treats that failure as just "nothing found here." has_web_search() stops
+# the call from ever being attempted for a provider that structurally can't do it, so neither the
+# topbar banner nor the check-cancelling side effect ever fires for something that was never
+# going to work in the first place.
+# ---------------------------------------------------------------------------
+
+def test_web_search_release_notes_skips_the_call_when_the_provider_has_no_web_search():
+    with patch("app.release_notes.ai_provider.is_configured", return_value=True), \
+         patch("app.release_notes.ai_provider.has_web_search", return_value=False), \
+         patch("app.release_notes.ai_provider.web_search") as mock_web_search:
+        notes, url = release_notes._web_search_release_notes("owner/repo", "latest")
+
+    mock_web_search.assert_not_called()
+    assert (notes, url) == (None, None)
+
+
+def test_web_search_release_notes_skips_the_call_when_not_configured():
+    with patch("app.release_notes.ai_provider.is_configured", return_value=False), \
+         patch("app.release_notes.ai_provider.has_web_search", return_value=True), \
+         patch("app.release_notes.ai_provider.web_search") as mock_web_search:
+        notes, url = release_notes._web_search_release_notes("owner/repo", "latest")
+
+    mock_web_search.assert_not_called()
+    assert (notes, url) == (None, None)
+
+
+def test_web_search_release_notes_calls_through_when_configured_and_supported():
+    payload = '{"found": true, "source_url": "https://example.com", "notes": "some notes"}'
+    with patch("app.release_notes.ai_provider.is_configured", return_value=True), \
+         patch("app.release_notes.ai_provider.has_web_search", return_value=True), \
+         patch("app.release_notes.ai_provider.web_search", return_value=payload) as mock_web_search:
+        notes, url = release_notes._web_search_release_notes("owner/repo", "latest")
+
+    mock_web_search.assert_called_once()
+    assert notes == "some notes"
+    assert url == "https://example.com"
+
+
+def test_get_release_notes_falls_through_to_docker_hub_when_provider_has_no_web_search():
+    """End to end through get_release_notes, not just the inner helper -- an openai_compat
+    provider must still land on the same Docker Hub last resort a real "nothing found" web
+    search would, not raise or return something else."""
+    with patch("app.release_notes.db.get_release_notes_source", return_value=None), \
+         patch("app.release_notes.httpx.Client") as mock_client_cls, \
+         patch("app.release_notes._guess_github_repos", return_value=[]), \
+         patch("app.release_notes.ai_provider.is_configured", return_value=True), \
+         patch("app.release_notes.ai_provider.has_web_search", return_value=False), \
+         patch("app.release_notes.ai_provider.web_search") as mock_web_search:
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = MagicMock(status_code=404)
+
+        notes, url = release_notes.get_release_notes("somenamespace/someimage", "latest")
+
+    mock_web_search.assert_not_called()
+    assert notes is None
+    assert url == "https://hub.docker.com/r/somenamespace/someimage/tags"
+
+
 def test_web_search_not_reached_if_a_naming_convention_guess_already_succeeded():
     with patch("app.release_notes.db.get_release_notes_source", return_value=None), \
          patch("app.release_notes.db.set_release_notes_source"), \

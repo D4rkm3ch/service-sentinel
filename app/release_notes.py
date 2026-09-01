@@ -9,7 +9,10 @@ repeat cost for the same image. This used to be an opt-in Settings toggle, off b
 unconditional now because the whole point of the app is real release notes, and a container
 that falls through every guess above without this step never gets any -- silently defeating the
 purpose for exactly the images that need it most (ones that don't follow a guessable naming
-convention). Priority order get_release_notes() actually uses:
+convention). Skipped outright (see ai_provider.has_web_search) for a provider that structurally
+can't do it -- a local OpenAI-compatible model has no search tool to call, so this falls straight
+through to step 6 for those, the same as it always did for a container this step genuinely
+couldn't find anything for. Priority order get_release_notes() actually uses:
 1. A per-container 'servicesentinel.changelog_url' label override -- fetched as plain text/markdown.
 2. The cached location that worked last time for this exact image (see release_notes_cache
    in db.py) -- skips straight past guessing if it still works, and falls through to full
@@ -313,7 +316,7 @@ def _web_search_release_notes(image_repo: str, tag: str) -> tuple[str | None, st
     options above have already failed, since this costs a small amount per search. Capped at 3
     searches (Anthropic) so even this worst case has a predictable ceiling rather than
     open-ended exploration -- Gemini's grounding tool decides its own query count."""
-    if not ai_provider.is_configured():
+    if not ai_provider.is_configured() or not ai_provider.has_web_search():
         return None, None
 
     prompt = f"""Find the official release notes or changelog for the Docker image "{image_repo}", \
