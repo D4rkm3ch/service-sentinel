@@ -622,10 +622,19 @@ def run_and_persist_single_reset_and_check(container_name: str, on_progress: Pro
     button's db.reset_updates_data() wipes that whole table: container_state is just a
     persisted display cache, re-upserted fresh on every check regardless of its prior
     contents, so clearing it first would only risk the container briefly vanishing from the
-    Tracked Containers list mid-recheck for no functional benefit."""
+    Tracked Containers list mid-recheck for no functional benefit.
+
+    Also clears this container's cached release-notes source (release_notes_cache) -- without
+    that, "force a fresh notes fetch" was a lie for any container whose last successful fetch
+    got cached: get_release_notes() tries the cached location first regardless of the digest
+    reset above, so a bad cached source (e.g. one that returned a raw HTML dump instead of real
+    notes) would keep being reused forever."""
     existing = db.get_latest_update_for_container(container_name)
     if existing is not None:
         db.delete_update(existing["id"])
+    state = db.get_container_state(container_name)
+    if state is not None:
+        db.delete_release_notes_source(state["image_repo"])
     return run_and_persist_single_check(container_name, on_progress=on_progress)
 
 
@@ -650,11 +659,18 @@ def run_and_persist_many_reset_and_check(container_names: list[str], on_progress
     in one pass via reconcile.run_check_many(). prune=False for the same reason the single-item
     version uses it: this outcome's container list is deliberately just the stack's members,
     not every tracked container. force_stack_analysis is just threaded through to
-    persist_check_outcome -- see its own docstring."""
+    persist_check_outcome -- see its own docstring.
+
+    Also clears each container's cached release-notes source, same reasoning as the single-item
+    version above -- otherwise a stack-wide reset would still silently reuse a bad cached notes
+    location for any member that had one."""
     for name in container_names:
         existing = db.get_latest_update_for_container(name)
         if existing is not None:
             db.delete_update(existing["id"])
+        state = db.get_container_state(name)
+        if state is not None:
+            db.delete_release_notes_source(state["image_repo"])
 
     reconcile_progress = (lambda done, total: on_progress("checking", done, total)) if on_progress else None
     outcome = reconcile.run_check_many(container_names, on_progress=reconcile_progress,

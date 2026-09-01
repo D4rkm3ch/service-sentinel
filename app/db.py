@@ -997,10 +997,19 @@ def reset_updates_data() -> None:
     since-replaced classification scheme) -- a container with a mismatched or unrecognized
     prior state gets its old row replaced on the very next check regardless (see
     app/persist.py), so this button isn't strictly required for that, but it's the fastest
-    way to force a fully clean slate on demand."""
+    way to force a fully clean slate on demand.
+
+    Also clears every cached release-notes source (release_notes_cache) -- a real-world report:
+    without this, "start completely fresh" didn't actually mean fresh release-notes discovery,
+    since get_release_notes() checks this cache before ever trying anything else (see its own
+    docstring) and reuses whatever location worked last time regardless of how many times the
+    update history itself gets wiped. A cached location that was never a real changelog to begin
+    with (a bad naming guess, a stale web-search result) would otherwise keep being reused
+    forever, no matter how many times this button was clicked."""
     with get_conn() as conn:
         conn.execute("DELETE FROM updates")
         conn.execute("DELETE FROM container_state")
+        conn.execute("DELETE FROM release_notes_cache")
 
 
 def get_update(update_id: int) -> sqlite3.Row | None:
@@ -2433,6 +2442,15 @@ def set_release_notes_source(image_repo: str, method: str, location: str) -> Non
             """,
             (image_repo, method, location, now_iso()),
         )
+
+
+def delete_release_notes_source(image_repo: str) -> None:
+    """Clears one image's cached release-notes source -- used by the per-item and per-stack
+    Reset & re-check actions so 'force a fresh notes fetch' actually discovers fresh, rather
+    than reusing the exact same (possibly bad) cached location get_release_notes() would
+    otherwise try first regardless. A no-op if nothing was cached for this image."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM release_notes_cache WHERE image_repo = ?", (image_repo,))
 
 
 # ---------------------------------------------------------------------------

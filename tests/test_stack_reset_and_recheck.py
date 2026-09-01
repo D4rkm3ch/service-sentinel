@@ -123,6 +123,31 @@ def test_stack_reset_and_recheck_forces_a_fresh_fetch_even_on_unchanged_digest()
         compose_file.unlink()
 
 
+def test_stack_reset_and_recheck_clears_each_members_cached_release_notes_source():
+    """A real-world report: reset-and-recheck was supposed to mean "start completely fresh,"
+    but a bad cached release-notes source (release_notes_cache, keyed by image_repo) survived
+    the reset and kept getting reused regardless -- get_release_notes() always tries the cached
+    location first. The stack-level reset must clear every member's cache entry, not just its
+    own db.reset_updates_data() (which only the *global* reset button calls)."""
+    compose_file = _compose_file("radar-stack5.yml", "sonarr", "radarr")
+    try:
+        db.upsert_container_state("sonarr", "owner/sonarr", "latest", "sha256:old")
+        db.upsert_container_state("radarr", "owner/radarr", "latest", "sha256:old")
+        db.set_release_notes_source("owner/sonarr", "url", "https://bad.example.com/notes")
+        db.set_release_notes_source("owner/radarr", "url", "https://bad.example.com/notes")
+
+        from app import persist
+
+        with patch("app.reconcile.list_tracked_containers", return_value=_fake_containers()), \
+             patch("app.reconcile.get_latest_digest", side_effect=_fake_digest):
+            persist.run_and_persist_many_reset_and_check(["sonarr", "radarr"])
+
+        assert db.get_release_notes_source("owner/sonarr") is None
+        assert db.get_release_notes_source("owner/radarr") is None
+    finally:
+        compose_file.unlink()
+
+
 def test_stack_reset_and_recheck_force_regenerates_the_blurb_when_deep_analysis_is_on_even_if_nothing_changed(client):
     """The bug a real-world report traced back to: reset-and-recheck used to leave the exact
     same stack blurb on screen because the automatic post-check pass only regenerates when a

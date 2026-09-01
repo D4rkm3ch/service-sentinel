@@ -317,10 +317,7 @@ The web search fallback for release notes isn't available with this provider.</p
       </div>
       <div class="settings-subsection">
         <h4>Max Response Tokens</h4>
-        <p class="meta">Caps how many output tokens are ever requested from this model, and the
-ceiling a cut-off response is allowed to retry up to - leave blank for no extra limit. A local
-model's own context window can be far smaller than what this app's default budgets assume;
-lowering this stops a request from exceeding it in the first place.</p>
+        <p class="meta">Caps how many output tokens are ever requested from this model.</p>
         <div class="stepper-row">
           <input type="number" inputmode="numeric" min="1" class="mono field-input"
                  id="openai_compat_max_tokens_input" placeholder="No limit"

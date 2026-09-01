@@ -378,3 +378,19 @@ def test_scoped_reset_and_recheck_forces_a_fresh_row_even_when_the_digest_is_unc
 
     assert check_state.get_state("updates")["running"] is False
     assert len(db.list_tracked_containers_with_status()) == 3
+
+
+def test_scoped_reset_and_recheck_clears_the_cached_release_notes_source(client):
+    """A real-world report: Reset & re-check was supposed to force a genuinely fresh release
+    notes fetch, but a bad cached source (release_notes_cache, keyed by image_repo) survived
+    the reset -- get_release_notes() always tries the cached location first regardless of the
+    digest reset. The per-item reset must clear that container's cache entry too."""
+    _run_check_and_wait(client)
+    sonarr = next(r for r in db.list_tracked_containers_with_status() if r["container_name"] == "sonarr")
+    sonarr_id = sonarr["id"]
+    image_repo = sonarr["image_repo"]
+    db.set_release_notes_source(image_repo, "url", "https://bad.example.com/notes")
+
+    _run_scoped_action_and_wait(client, sonarr_id, "reset-and-recheck")
+
+    assert db.get_release_notes_source(image_repo) is None
