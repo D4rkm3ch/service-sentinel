@@ -6,7 +6,7 @@ apscheduler==3.10.4
 anthropic==0.116.0
 google-genai==2.10.0
 openai==2.46.0
-pyyaml==6.0.2
+pyyaml==6.0.3
 docker==7.2.0
 python-multipart==0.0.9
 python-dotenv==1.2.2
