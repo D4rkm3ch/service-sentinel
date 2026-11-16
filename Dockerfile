@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 # The source label is what links the GHCR package page back to this repository (and lets it
 # inherit the repo's visibility/README on the package page).
